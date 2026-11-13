@@ -5,6 +5,14 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- MCP connector: `VIZIER_MCP_PUSH_CH` picks which sides are pushed as channel events (`me,them` by default). Set it to
+  `them` when the agent already hears the user's own speech another way, so ME lines are not delivered twice.
+
+### Fixed
+- MCP connector: the first lines of a call were never pushed. `POST /lines` starts a call, and the pusher skipped
+  every new call to its current end. Now only a call that was already running when the connector started is skipped.
+
 ## [0.2.0] - 2026-11-13
 
 First public release. The repository starts a fresh history at this version.
