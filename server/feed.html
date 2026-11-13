@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vizier</title>
+<!-- The browser view of /feed: bullets on top, the live transcript under them. Display only; nothing here listens. -->
+<style>
+  :root { --bg:#0d0f12; --fg:#eef1f5; --dim:#8b94a3; --accent:#7cc4ff; --me:#9be59b; --line:#232833; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:20px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display:flex; justify-content:space-between; align-items:center; padding:10px 16px; border-bottom:1px solid var(--line);
+           font-size:14px; color:var(--dim); letter-spacing:.04em; }
+  header b { color:var(--fg); font-weight:600; }
+  #dot { width:9px; height:9px; border-radius:50%; background:#c44; display:inline-block; margin-right:8px; }
+  #dot.on { background:#3c3; }
+  main { padding:12px 16px; }
+  .sug { border-left:3px solid var(--accent); padding:6px 0 6px 12px; margin:0 0 14px; white-space:pre-wrap; font-size:24px; }
+  .sug.old { opacity:.45; font-size:18px; }
+  .sug.cancelled { border-color:var(--dim); }
+  #lines { margin-top:18px; border-top:1px solid var(--line); padding-top:10px; font-size:15px; color:var(--dim); }
+  #lines div { margin:2px 0; }
+  #lines .me { color:var(--me); }
+  #interim { font-size:15px; color:var(--dim); font-style:italic; min-height:1.4em; }
+  .lat { font-size:12px; color:var(--dim); margin-left:6px; }
+</style>
+</head>
+<body>
+<header><span><span id="dot"></span><b>Vizier</b></span><span id="status">connecting…</span></header>
+<main>
+  <div id="sugs"></div>
+  <div id="interim"></div>
+  <div id="lines"></div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const sugs = {}; const seen = new Set(); let ws, seenCall = null;
+function connect() {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  ws = new WebSocket(`${proto}://${location.host}/feed`);
+  ws.onopen = () => $("dot").classList.add("on");
+  ws.onclose = () => { $("dot").classList.remove("on"); $("status").textContent = "reconnecting…"; setTimeout(connect, 500); };
+  ws.onmessage = e => {
+    const f = JSON.parse(e.data);
+    if (f.type === "status") {
+      $("status").textContent = f.text;
+      const m = /^call (\S+) live/.exec(f.text);   // seq numbers restart with each call
+      if (m && m[1] !== seenCall) { seenCall = m[1]; seen.clear(); }
+    }
+    else if (f.type === "interim") $("interim").textContent = (f.ch === "me" ? "You: " : "Them: ") + f.text;
+    else if (f.type === "line") {
+      if (f.seq != null) { if (seen.has(f.seq)) return; seen.add(f.seq); }
+      $("interim").textContent = "";
+      const d = document.createElement("div");
+      d.className = f.ch; d.textContent = (f.ch === "me" ? "You: " : "Them: ") + f.text;
+      $("lines").prepend(d);
+      while ($("lines").children.length > 12) $("lines").lastChild.remove();
+    } else if (f.type === "suggestion") {
+      document.querySelectorAll(".sug").forEach(s => s.classList.add("old"));
+      const d = document.createElement("div"); d.className = "sug"; sugs[f.sid] = d; $("sugs").prepend(d);
+      while ($("sugs").children.length > 4) $("sugs").lastChild.remove();
+    } else if (f.type === "delta" && sugs[f.sid]) {
+      sugs[f.sid].append(document.createTextNode(f.text));
+      if (f.first_glyph_s != null) sugs[f.sid].dataset.lat = f.first_glyph_s;
+    } else if (f.type === "done" && sugs[f.sid] && sugs[f.sid].dataset.lat) {
+      const l = document.createElement("span"); l.className = "lat"; l.textContent = sugs[f.sid].dataset.lat + " s";
+      sugs[f.sid].append(l);
+    } else if (f.type === "cancel") document.querySelectorAll(".sug:not(.old)").forEach(s => s.classList.add("cancelled"));
+  };
+}
+connect();
+</script>
+</body>
+</html>

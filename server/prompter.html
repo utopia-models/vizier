@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vizier Prompter</title>
+<style>
+  :root { --bg:#000; --fg:#f4f4f4; --dim:#777; --hi:#ffd34d; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:600 44px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #bar { position:fixed; top:0; left:0; right:0; padding:8px 16px; font:500 15px system-ui; color:var(--dim); background:#000c; display:flex; justify-content:space-between; }
+  #rec { color:#ff4d4d; font-weight:700; }
+  #coach { position:fixed; left:0; right:0; bottom:0; padding:12px 24px; background:#13202e; color:#9fd3ff;
+           font:600 24px/1.35 system-ui; border-top:2px solid #2f6aa0; white-space:pre-line; }
+  #coach b { color:#fff; }
+  #text { padding:70px 40px 60vh; max-width:1100px; }
+  #text p { margin:0 0 .6em; opacity:.45; }
+  #text p.cur { opacity:1; color:var(--hi); }
+  @media (max-width:700px) { body { font-size:30px; } #text { padding:60px 16px 60vh; } }
+</style></head>
+<body>
+<div id="bar"><span><span id="rec"></span> <span id="title">loading…</span></span><span></span></div>
+<div id="coach"></div>
+<div id="text"></div>
+<script>
+let takes = [], t = 0, line = 0, auto = null, speed = 2.6;  // seconds per line
+const $ = id => document.getElementById(id);
+function render() {
+  const k = takes[t]; if (!k) return;
+  const letter = (k.title.match(/^([A-Za-z0-9]+)/) || ["X"])[0];
+  $("title").textContent = (recording ? "● Recording · " : "") + `Part ${t + 1} of ${takes.length} · ${k.title.replace(/^[A-Za-z0-9]+\s*·\s*/, "")}`;
+  $("text").innerHTML = k.lines.map((l, i) => `<p class="${i === line ? "cur" : ""}">${l.replace(/</g, "&lt;")}</p>`).join("");
+  const cur = document.querySelector("p.cur"); if (cur) cur.scrollIntoView({ block: "center", behavior: "smooth" });
+}
+function step(d) { line = Math.max(0, Math.min(takes[t].lines.length - 1, line + d)); render(); }
+// Every take is recorded on the server from the camera stream: space starts a new file for the
+// shown take (and the scroll), switching take starts the next file, Esc stops. The reader only reads.
+let recording = false;
+async function record(stop) {
+  const letter = (takes[t].title.match(/^([A-Za-z0-9]+)/) || ["X"])[0];
+  const r = await fetch("prompter/record", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(stop ? { stop: true } : { take: letter }) }).then(r => r.json()).catch(() => ({}));
+  recording = !stop && !!r.recording; render();
+  $("rec").textContent = recording ? "● REC " + r.recording : (r.stopped ? "saved " + r.stopped.split("/").pop() : "");
+}
+function toggle() { if (auto) { clearInterval(auto); auto = null; } else auto = setInterval(() => step(1), speed * 1000); }
+document.onkeydown = e => {
+  if (e.key === "ArrowRight") { t = (t + 1) % takes.length; line = 0; render(); if (recording) record(); }
+  else if (e.key === "ArrowLeft") { t = (t - 1 + takes.length) % takes.length; line = 0; render(); if (recording) record(); }
+  else if (e.key === "Escape") { if (auto) toggle(); record(true); }
+  else if (e.key === "ArrowDown") step(1); else if (e.key === "ArrowUp") step(-1);
+  else if (e.key === " ") { e.preventDefault(); toggle(); }   // scroll only: a take never starts by itself (#12581)
+  else if ((e.key === "r" || e.key === "R") && !recording) record();
+  else if (e.key === "+" || e.key === "=") { speed = Math.max(1, speed - .3); if (auto) { toggle(); toggle(); } }
+  else if (e.key === "-") { speed += .3; if (auto) { toggle(); toggle(); } }
+};
+document.onclick = () => step(1);
+async function coach() {
+  const n = await fetch("prompter/note").then(r => r.json()).catch(() => null);
+  if (!n) return;
+  $("coach").innerHTML = n.text ? `<b>Coach on ${n.take}:</b> ` + n.text.replace(/</g, "&lt;")
+    : "";
+}
+setInterval(coach, 2000); coach();
+fetch("prompter/scripts" + location.search).then(r => r.json()).then(j => { takes = j; render(); });
+setInterval(() => fetch("prompter/scripts" + location.search).then(r => r.json()).then(j => { if (JSON.stringify(j) !== JSON.stringify(takes)) { takes = j; render(); } }), 2000);
+// 2 s: a committed script edit must be on screen within 5 s; a 5 s poll put the worst case past it
+</script></body></html>

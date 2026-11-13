@@ -1,0 +1,286 @@
+openapi: 3.1.0
+info:
+  title: Vizier display API
+  version: 0.2.0
+  license: { name: Apache-2.0, identifier: Apache-2.0 }
+  description: |
+    Vizier is a display. It does no listening, no speech-to-text and no language-model work: whatever does those
+    (an agent, a LiveKit room, a script) posts here, and every window connected to `GET /feed` (a WebSocket) redraws.
+
+    **Auth.** When the server runs with `VIZIER_TOKEN` set, every POST needs `Authorization: Bearer <token>`.
+    GETs are open; bind the server to loopback or put it behind your own proxy if the transcript is private.
+
+    **The feed** (`GET /feed`, WebSocket upgrade) sends JSON frames, each with `t` (server time, epoch seconds):
+    `status {text}` · `line {seq, ch, text, final_s?, source?}` · `interim {ch, text}` ·
+    `suggestion {sid, for}` → `delta {sid, text, first_glyph_s?}` → `done {sid}` · `cancel {}` · `script {takes}`.
+    A window that connects mid-call receives the call's last 8 lines.
+servers:
+  - url: http://127.0.0.1:8786
+security:
+  - {}
+  - bearer: []
+paths:
+  /health:
+    get:
+      summary: Server state (the desktop app polls this every second)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  call: { type: [string, "null"], description: the open call's id }
+                  lines: { type: integer, description: final lines in the open call }
+                  recording: { type: [string, "null"], description: the take being recorded }
+                  feed_clients: { type: integer }
+                  script: { type: string, description: file name of the prompter's current script }
+  /call/start:
+    post:
+      summary: Open a call (ends any open one). Posting a line or bullets with no call open opens one.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                call_id: { type: string }
+                title: { type: string }
+      responses:
+        "200": { description: Opened, content: { application/json: { schema: { type: object, properties: { call_id: { type: string } } } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /call/end:
+    post:
+      summary: Close the open call
+      requestBody: { content: { application/json: { schema: { type: object } } } }
+      responses:
+        "200":
+          description: Closed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  call_id: { type: [string, "null"] }
+                  lines: { type: integer }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /lines:
+    post:
+      summary: Post transcript lines
+      description: |
+        A final line is kept in the call's transcript and drawn; `"final": false` is the live interim text under it
+        (drawn, never kept). Send one line or `{"lines": [...]}`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/LineIn"
+                - type: object
+                  required: [lines]
+                  properties:
+                    lines: { type: array, items: { $ref: "#/components/schemas/LineIn" } }
+            examples:
+              them: { value: { ch: them, text: "What's your hourly rate?" } }
+      responses:
+        "200":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  call_id: { type: [string, "null"] }
+                  seq: { type: array, items: { type: integer }, description: sequence numbers of the final lines kept }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /transcript:
+    get:
+      summary: The open call's final lines
+      parameters:
+        - { name: since, in: query, schema: { type: integer, default: 0 }, description: only lines with seq greater than this }
+        - { name: format, in: query, schema: { type: string, enum: [json, text] }, description: "text = one `ME:`/`THEM:` line each" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  call_id: { type: [string, "null"] }
+                  title: { type: [string, "null"] }
+                  lines: { type: array, items: { $ref: "#/components/schemas/Line" } }
+            text/plain: { schema: { type: string } }
+  /bullets:
+    post:
+      summary: Show what to say next
+      description: Draws one card of bullets on top; older cards dim. At most 6 bullets are drawn.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bullets]
+              properties:
+                bullets:
+                  oneOf:
+                    - { type: array, items: { type: string }, minItems: 1 }
+                    - { type: string, description: "markdown, one `- ` bullet per line" }
+                for: { type: string, description: what the bullets answer (shown to nobody; kept on the frame) }
+                t_audio_end: { type: number, description: epoch seconds the question ended; the card shows the latency }
+      responses:
+        "200": { description: Drawn, content: { application/json: { schema: { type: object, properties: { sid: { type: string }, call_id: { type: string } } } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /status:
+    post:
+      summary: Set the status line
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [text], properties: { text: { type: string } } } } }
+      responses:
+        "200": { description: Shown }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /script:
+    post:
+      summary: Set the teleprompter's script
+      description: |
+        Markdown: an optional `# Title`, then one `## ` block per take, one line per breath. If any block title starts
+        with a digit (`## 1 · Hook`), only the numbered blocks are read aloud; the others show under NOTES.
+        `path` points the prompter at a `.md` file on the server instead (under VIZIER_DATA, the VIZIER_SCRIPTS folder,
+        the talk-scripts or the briefs; re-read on every request, so edits show).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - { type: object, required: [markdown], properties: { markdown: { type: string } } }
+                - { type: object, required: [path], properties: { path: { type: string } } }
+      responses:
+        "200": { description: Shown, content: { application/json: { schema: { type: object, properties: { ok: { type: boolean }, takes: { type: integer } } } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { description: "`path` is not a .md file under VIZIER_DATA, the VIZIER_SCRIPTS folder, the talk-scripts or the briefs" }
+        "404": { description: No such file }
+  /prompter/scripts:
+    get:
+      summary: The current script's takes
+      parameters:
+        - { name: file, in: query, schema: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" }, description: "read $VIZIER_TALK_SCRIPTS/<file>.md" }
+        - { name: brief, in: query, schema: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$" }, description: "read $VIZIER_BRIEFS/<brief>.md" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { type: object, properties: { title: { type: string }, lines: { type: array, items: { type: string } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+  /prompter/context:
+    get:
+      summary: The script's title, its sibling `<name>-context.md`, and its non-numbered blocks
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  script: { type: string }
+                  title: { type: string }
+                  context_file: { type: [string, "null"] }
+                  context: { type: string }
+                  notes: { type: array, items: { type: object, properties: { title: { type: string }, text: { type: string } } } }
+  /prompter/note:
+    get:
+      summary: The one-line note shown on the prompter, and the take recording now
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  text: { type: string }
+                  take: { type: string }
+                  t: { type: number }
+                  recording: { type: [string, "null"] }
+    post:
+      summary: Set the note (for example a review of the last take)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, properties: { text: { type: string }, take: { type: string } } } } }
+      responses:
+        "200": { description: Shown }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /prompter/record:
+    post:
+      summary: Start or stop a take (copies $VIZIER_CAM with ffmpeg, no re-encode)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - { type: object, required: [take], properties: { take: { type: string } } }
+                - { type: object, required: [stop], properties: { stop: { const: true } } }
+      responses:
+        "200": { description: Started or stopped }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { description: Recording is off (no VIZIER_CAM) }
+  /buildlog:
+    get:
+      summary: Tail of a plain-text log the app shows in its footer
+      parameters:
+        - { name: n, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 12 } }
+      responses:
+        "200": { description: OK }
+  /feed:
+    get:
+      summary: WebSocket feed of display frames (see the description at the top)
+      responses:
+        "101": { description: Switching protocols }
+components:
+  securitySchemes:
+    bearer: { type: http, scheme: bearer }
+  responses:
+    BadRequest:
+      description: The body is not what this endpoint takes
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Unauthorized:
+      description: VIZIER_TOKEN is set and the bearer token is missing or wrong
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+  schemas:
+    Error:
+      type: object
+      properties: { error: { type: string } }
+    LineIn:
+      type: object
+      required: [ch, text]
+      properties:
+        ch: { type: string, enum: [me, them], description: "me = the person using Vizier; them = everyone else on the call" }
+        text: { type: string }
+        final: { type: boolean, default: true }
+        t_audio_end: { type: number, description: epoch seconds the speech ended; the line then carries final_s }
+        source: { type: string, description: free-form, e.g. livekit:<participant> }
+    Line:
+      type: object
+      properties:
+        seq: { type: integer }
+        ch: { type: string, enum: [me, them] }
+        text: { type: string }
+        t: { type: number }
+        t_audio_end: { type: number }
+        final_s: { type: number }
+        source: { type: string }

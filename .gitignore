@@ -1,0 +1,7 @@
+/vizier.exe
+/vizier.exe.sha256
+/dist/
+vizier.env
+server/.venv/
+__pycache__/
+.pytest_cache/

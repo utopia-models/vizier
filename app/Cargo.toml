@@ -1,0 +1,43 @@
+[package]
+name = "vizier"
+version = "0.2.0"
+description = "Vizier desktop app: an always-on-top call overlay and teleprompter any agent can drive over HTTP or MCP"
+license = "Apache-2.0"
+repository = "https://github.com/utopia-models/vizier"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde_json = "1"
+# Alt+E / Alt+M from anywhere: the Ears and Mouth toggles of ui/talk.js
+tauri-plugin-global-shortcut = "2"
+
+[target.'cfg(windows)'.dependencies]
+# the same webview2-com wry is built on (Cargo.lock), for the camera/mic PermissionRequested handler
+webview2-com = "0.39"
+# the same windows crate webview2-com 0.39 uses; Shell + Com for the selftest's CapturePreview PNG
+windows = { version = "0.62", features = ["Win32_UI_Shell", "Win32_System_Com"] }
+
+[features]
+# tauri-cli passes this for release builds; a plain `cargo build` needs it too (build.sh).
+custom-protocol = ["tauri/custom-protocol"]
+default = ["custom-protocol"]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+
+# A fast rebuild (scripts/deploy.sh, `VIZIER_PROFILE=fast app/build.sh`): `release` re-runs fat LTO over tauri + wry +
+# windows with one codegen unit on every rebuild (20 min on a busy 12-thread host). `fast` keeps the compiled
+# dependencies and only recompiles and relinks this crate; the exe is ~10% bigger. Signed releases stay `release`.
+[profile.fast]
+inherits = "release"
+lto = false
+codegen-units = 16
+incremental = true

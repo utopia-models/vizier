@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vizier · publish call audio to LiveKit</title>
+<!--
+  Publishes both sides of a call into a LiveKit room as two audio tracks, so a transcriber in the room can tell them
+  apart and vizier_livekit.py can put each line on the right side:
+    track "me"   = your microphone
+    track "them" = the call's audio, captured with getDisplayMedia (pick the call's tab/window/screen and tick
+                   "share audio"; on Windows "share system audio" captures every app's output)
+  Query: ?url=<wss://livekit>&token=<join token>  or  ?token_url=<endpoint returning {"url","token"}>
+         &them=0 to publish the mic only.
+  Open it in any Chromium-based browser (or the Vizier app's webview). Nothing here transcribes or stores audio.
+-->
+<style>
+  body { margin:0; background:#0d0f12; color:#eef1f5; font:15px/1.4 system-ui, sans-serif; padding:16px; }
+  button { background:#1d2a3a; color:#eef1f5; border:1px solid #2f4560; border-radius:6px; padding:6px 12px; cursor:pointer; }
+  .row { margin:8px 0; } .dim { color:#8b94a3; } meter { width:160px; vertical-align:middle; }
+</style>
+</head>
+<body>
+<div class="row"><button id="go">Join</button> <span id="state" class="dim">not joined</span></div>
+<div class="row">me <meter id="lv-me" max="1"></meter> · them <meter id="lv-them" max="1"></meter></div>
+<script type="module">
+import { Room, Track, LocalAudioTrack } from "https://cdn.jsdelivr.net/npm/livekit-client@2.15.7/+esm";
+const $ = id => document.getElementById(id), Q = new URLSearchParams(location.search);
+const say = t => { $("state").textContent = t; };
+async function creds() {
+  if (Q.get("token")) return { url: Q.get("url"), token: Q.get("token") };
+  const r = await fetch(Q.get("token_url")); if (!r.ok) throw new Error("token_url HTTP " + r.status);
+  return r.json();
+}
+function meter(track, el) {   // a level meter, so you can see each side is live before the call starts
+  const ctx = new AudioContext(), a = ctx.createAnalyser(), buf = new Float32Array(a.fftSize);
+  ctx.createMediaStreamSource(new MediaStream([track])).connect(a);
+  (function tick() { a.getFloatTimeDomainData(buf); el.value = Math.min(1, Math.sqrt(buf.reduce((s, x) => s + x * x, 0) / buf.length) * 4); requestAnimationFrame(tick); })();
+}
+async function join() {
+  say("joining…");
+  const { url, token } = await creds();
+  const room = new Room({ adaptiveStream: false, dynacast: false });
+  room.on("disconnected", () => { say("disconnected, rejoining…"); setTimeout(join, 2000); });
+  await room.connect(url, token);
+  const mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+  const me = mic.getAudioTracks()[0];
+  await room.localParticipant.publishTrack(new LocalAudioTrack(me), { name: "me", source: Track.Source.Microphone });
+  meter(me, $("lv-me"));
+  if (Q.get("them") !== "0") {
+    const disp = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }, systemAudio: "include" });
+    const them = disp.getAudioTracks()[0];
+    disp.getVideoTracks().forEach(t => t.stop());   // only the audio is needed
+    if (!them) throw new Error("the share has no audio: share again and tick 'share audio'");
+    await room.localParticipant.publishTrack(new LocalAudioTrack(them), { name: "them", source: Track.Source.ScreenShareAudio });
+    meter(them, $("lv-them"));
+  }
+  say(`live in ${room.name} as ${room.localParticipant.identity}`);
+  window.vizierRoom = room;
+}
+$("go").onclick = () => join().catch(e => say("error: " + e.message));
+if (Q.get("autojoin") === "1") $("go").click();
+</script>
+</body>
+</html>

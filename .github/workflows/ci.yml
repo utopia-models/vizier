@@ -1,0 +1,133 @@
+# CI: server + connector tests + secret/private-path scrub + Windows build on every push and pull request; a `vX.Y.Z` tag also
+# signs the build and publishes it as a GitHub release.
+#
+# Runner: `vars.VIZIER_RUNNER` (a JSON array of labels) when set, else GitHub-hosted `ubuntu-latest`, so a fork runs
+# on hosted runners with no setup. Every job runs in a container, so the runner only needs Docker.
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  scrub:
+    name: scrub (gitleaks + private paths)
+    runs-on: ${{ fromJSON(vars.VIZIER_RUNNER || '["ubuntu-latest"]') }}
+    container: python:3.12-bookworm
+    env:
+      # extra names to keep out of the public tree (character classes, so this file does not match itself)
+      SCRUB_EXTRA: 'utopia-models/knowledg[e]|[Aa]lienwar[e]|vizier-history-privat[e]'
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE" && scripts/scrub-check.sh
+      - name: hand the workspace back to the runner user
+        if: always()
+        run: chown -R "$(stat -c %u:%g "$GITHUB_WORKSPACE/..")" "$GITHUB_WORKSPACE" || true
+
+  server:
+    name: server tests
+    runs-on: ${{ fromJSON(vars.VIZIER_RUNNER || '["ubuntu-latest"]') }}
+    container: python:3.12-bookworm
+    steps:
+      - uses: actions/checkout@v4
+      - run: python -m venv /tmp/v && /tmp/v/bin/pip install -q -r server/requirements-dev.txt
+      - run: cd server && /tmp/v/bin/python -m py_compile vizier.py && /tmp/v/bin/python -m pytest -q
+      - name: connectors and examples
+        run: |
+          /tmp/v/bin/python -m py_compile connectors/mcp/vizier_mcp.py connectors/livekit/vizier_livekit.py examples/agent_loop.py
+          /tmp/v/bin/python -m pytest -q connectors/mcp/tests
+          bash -n examples/curl.sh
+          (cd server && VIZIER_DATA=/tmp/vd /tmp/v/bin/python vizier.py --port 18786 &) && sleep 2 && VIZIER_URL=http://127.0.0.1:18786 examples/curl.sh
+      - name: hand the workspace back to the runner user
+        if: always()
+        run: chown -R "$(stat -c %u:%g "$GITHUB_WORKSPACE/..")" "$GITHUB_WORKSPACE" || true
+
+  windows:
+    name: vizier.exe (Windows x64, cross-built)
+    runs-on: ${{ fromJSON(vars.VIZIER_RUNNER || '["ubuntu-latest"]') }}
+    container: rust:1-bookworm
+    env:
+      SIGN: ${{ secrets.VIZIER_CODESIGN_PFX_B64 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "CARGO_TARGET_DIR=$HOME/target" >> "$GITHUB_ENV"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/cargo-xwin
+            /usr/local/cargo/registry
+            /usr/local/cargo/bin/cargo-xwin
+            ~/target
+          key: xwin-${{ hashFiles('app/Cargo.lock') }}
+          restore-keys: xwin-
+      - run: scripts/setup-xwin.sh
+      - run: app/build.sh
+      - name: version matches the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          v=$(sed -n 's/^version = "\(.*\)"/\1/p' app/Cargo.toml | head -1)
+          t=$(sed -n 's/.*"version": "\(.*\)".*/\1/p' app/tauri.conf.json)
+          [ "v$v" = "$GITHUB_REF_NAME" ] && [ "$v" = "$t" ] || { echo "tag $GITHUB_REF_NAME, Cargo.toml $v, tauri.conf.json $t"; exit 1; }
+      - name: sign
+        if: env.SIGN == 'true'
+        env:
+          VIZIER_CODESIGN_PFX_B64: ${{ secrets.VIZIER_CODESIGN_PFX_B64 }}
+          VIZIER_CODESIGN_PFX_PASSWORD: ${{ secrets.VIZIER_CODESIGN_PFX_PASSWORD }}
+        run: scripts/sign.sh "$CARGO_TARGET_DIR/x86_64-pc-windows-msvc/release/vizier.exe" vizier.exe
+      - name: unsigned (no signing secret on this repo)
+        if: env.SIGN != 'true'
+        run: cp "$CARGO_TARGET_DIR/x86_64-pc-windows-msvc/release/vizier.exe" vizier.exe
+      - run: sha256sum vizier.exe | tee vizier.exe.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vizier-windows-x64
+          path: |
+            vizier.exe
+            vizier.exe.sha256
+      - name: hand the workspace back to the runner user
+        if: always()
+        run: |
+          o=$(stat -c %u:%g "$GITHUB_WORKSPACE/..")
+          chown -R "$o" "$GITHUB_WORKSPACE" "$HOME" 2>/dev/null || true
+
+  release:
+    name: publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [scrub, server, windows]
+    runs-on: ${{ fromJSON(vars.VIZIER_RUNNER || '["ubuntu-latest"]') }}
+    container: python:3.12-bookworm
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: vizier-windows-x64, path: dist }
+      - name: release notes from the changelog
+        run: |
+          v=${GITHUB_REF_NAME#v}
+          awk -v v="$v" '$0 ~ "^## \\["v"\\]" {on=1; next} /^## \[/ {on=0} on' CHANGELOG.md > notes.md
+          printf '\n**SHA-256:** `%s`\n\nSigned with the certificate in [`signing/`](https://github.com/%s/tree/%s/signing).\n' \
+            "$(cut -d' ' -f1 dist/vizier.exe.sha256)" "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME" >> notes.md
+          cat notes.md
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Vizier ${{ github.ref_name }}
+          body_path: notes.md
+          files: |
+            dist/vizier.exe
+            dist/vizier.exe.sha256
+            signing/vizier-codesign.crt
+      - name: hand the workspace back to the runner user
+        if: always()
+        run: chown -R "$(stat -c %u:%g "$GITHUB_WORKSPACE/..")" "$GITHUB_WORKSPACE" || true

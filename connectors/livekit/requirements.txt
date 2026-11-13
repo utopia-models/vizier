@@ -1,0 +1,2 @@
+livekit>=1.0.12
+livekit-api>=1.0.5

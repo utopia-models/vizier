@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Utopia Vizier</title>
+<!-- Vizier desktop app UI. One page, modes over one live link to the vizier service:
+     CALL  = what is posted to the server's display API, over WS /feed: bullets on top, the transcript under them
+             (Join call = WHIP camera+mic out, WHEP call audio in, when a media server is configured)
+     RECORD = the prompter: SCRIPT (continuous scroll, reading line, keys + clicker) | CONTEXT | DO NOT SAY
+     The mode follows /health: a recording running -> RECORD; a live call (not bench-*/probe) -> CALL; else RECORD.
+     Runs inside the Tauri shell (app/) and, for headless checks, in any browser: open index.html?server=<url>.
+     Server URL, in order: ?server= · the gear (saved in localStorage) · the app's config (VIZIER_SERVER env or
+     vizier.json, see README) · http://127.0.0.1:8786. -->
+<style>
+  :root { --type:18px; --bg:#000; --fg:#f4f4f4; --dim:#808a99; --hi:#ffd34d; --accent:#7cc4ff; --me:#9be59b; --line:#232833; --rec:#ff4d4d; }
+  * { box-sizing:border-box; }
+  html, body { height:100%; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:20px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif;
+         overflow:hidden; display:flex; flex-direction:column; user-select:none; }
+  header { flex:0 0 auto; display:flex; align-items:center; gap:10px; padding:6px 12px; border-bottom:1px solid var(--line);
+           font:500 14px system-ui; color:var(--dim); background:#07090c; }
+  header b { color:var(--fg); font-weight:600; }
+  #dot { width:9px; height:9px; border-radius:50%; background:#c44; display:inline-block; }
+  #dot.on { background:#3c3; }
+  .tab { padding:2px 10px; border-radius:5px; border:1px solid transparent; cursor:pointer; letter-spacing:.06em; }
+  .tab.on { color:#000; background:var(--hi); font-weight:700; }
+  .tab.call.on { background:var(--accent); }
+  .tab.pinned { border-color:var(--fg); }
+  #rec { color:var(--rec); font-weight:700; }
+  .grow { flex:1; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+  button { background:#1d2a3a; color:var(--fg); border:1px solid #2f4560; border-radius:6px; padding:3px 9px; font:13px system-ui; cursor:pointer; }
+  button.on { background:#5a1d1d; border-color:#a04040; }
+  #cfg { display:none; gap:6px; padding:6px 12px; background:#101418; border-bottom:1px solid var(--line); font:13px system-ui; }
+  #cfg.open { display:flex; }
+  #cfg input { flex:1; background:#000; color:var(--fg); border:1px solid #2f4560; border-radius:5px; padding:3px 6px; font:13px ui-monospace, monospace; }
+  .mode { flex:1; min-height:0; display:none; flex-direction:column; }
+  .mode.on { display:flex; }
+  /* RECORD */
+  #prompt { flex:1; min-height:0; position:relative; }
+  #text { position:absolute; inset:0; overflow:hidden; padding:0 28px 0 30px; font:500 var(--type)/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #text p { margin:0 0 .3em; opacity:.45; }
+  #text p.cur { opacity:1; color:var(--hi); }
+  #text p.cue { font-size:.55em; font-style:italic; letter-spacing:.04em; opacity:.4; color:#7fb2ff; }
+  #text p.cue::before { content:"ON SCREEN  "; font-style:normal; font-weight:700; }
+  #text .mark { font-size:.5em; font-weight:700; color:#7fb2ff; letter-spacing:.04em; vertical-align:middle; opacity:.8; }
+  #text p.cue.cur { opacity:.55; color:#7fb2ff; }
+  #text .padtop { height:22%; }
+  #text .pad { height:75%; }
+  /* the reading line (READ_AT, a third of the way down), marked by an arrow in the margin: the current line is the one on it */
+  #readline { position:absolute; left:0; right:0; top:calc(22% + .7em); height:0; font-size:var(--type); pointer-events:none; }
+  #readline::before { content:""; position:absolute; left:6px; top:-6px; border:6px solid transparent; border-left:11px solid var(--hi); }
+  #spd { font:600 12px ui-monospace, monospace; color:var(--dim); }
+  #spd.play { color:#3c3; }
+  #coach { flex:0 0 auto; padding:10px 20px; background:#13202e; color:#9fd3ff; font:600 21px/1.32 system-ui;
+           border-top:2px solid #2f6aa0; white-space:pre-line; max-height:34%; overflow:hidden; }
+  #coach b { color:#fff; }
+  #keys { font:500 12px system-ui; color:var(--dim); }
+  /* RECORD tabs: SCRIPT is the prompter; CONTEXT and DO NOT SAY are for reading while preparing */
+  #keylegend { position:fixed; left:0; right:0; bottom:0; z-index:5; padding:5px 14px; background:#0d0f12; border-top:1px solid var(--line); font:600 12px system-ui; color:var(--dim); letter-spacing:.02em; text-align:center; }
+  #keylegend b { color:var(--fg); }
+  #rtabs { flex:0 0 auto; display:none; gap:4px; padding:6px 14px 0; border-bottom:1px solid var(--line); font:600 13px system-ui; letter-spacing:.06em; }
+  #rtabs.on { display:flex; }
+  #rtabs span { padding:5px 12px; color:var(--dim); cursor:pointer; border:1px solid transparent; border-bottom:none; border-radius:6px 6px 0 0; }
+  #rtabs span.on { color:var(--fg); background:#11161d; border-color:var(--line); }
+  #rtabs span[hidden] { display:none; }
+  #doc { flex:1; min-height:0; overflow-y:auto; padding:10px 30px 46px; font:400 var(--type)/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; user-select:text; display:none; }
+  #doc.on { display:block; }
+  #doc h1 { font-size:1.2em; margin:0 0 .5em; color:var(--hi); }
+  #doc h2 { font-size:1.1em; margin:1.1em 0 .35em; color:var(--accent); }
+  #doc > :first-child { margin-top:0; }
+  #doc h3 { font-size:1em; margin:.9em 0 .3em; }
+  #doc p { margin:0 0 .6em; }
+  #doc ul, #doc ol { margin:0 0 .6em; padding-left:1.3em; }
+  #doc li { margin:.15em 0; }
+  #doc code { font:.9em ui-monospace, monospace; background:#161b22; padding:0 4px; border-radius:4px; }
+  #doc b { color:#fff; }
+  /* CALL */
+  #callmain { flex:1; min-height:0; overflow:hidden; padding:10px 16px; }
+  .sug { border-left:3px solid var(--accent); padding:6px 0 6px 12px; margin:0 0 12px; white-space:pre-wrap; font-size:24px; }
+  .sug.old { opacity:.45; font-size:18px; }
+  .sug.cancelled { border-color:var(--dim); }
+  .lat { font-size:12px; color:var(--dim); margin-left:6px; }
+  #interim { font-size:15px; color:var(--dim); font-style:italic; min-height:1.4em; }
+  #lines { margin-top:12px; border-top:1px solid var(--line); padding-top:8px; font-size:15px; color:var(--dim); }
+  #lines div { margin:2px 0; }
+  #lines .me { color:var(--me); }
+  /* BUILD: the tail of the server's build log (GET /buildlog), newest first; click to expand; hidden when empty */
+  #build { flex:0 0 auto; display:none; padding:6px 14px 8px; background:#0b0f0b; border-top:1px solid #24402a;
+           font:14px/1.35 system-ui; color:var(--dim); cursor:pointer; max-height:40%; overflow:hidden; }
+  #build.on { display:block; }
+  #build .h { font:600 11px system-ui; letter-spacing:.08em; color:#6fbf7a; margin-bottom:3px; }
+  #build div.l { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #build div.l:first-of-type { color:var(--fg); }
+  #build.open div.l { white-space:normal; }
+  #build .t { color:#6fbf7a; font:12px ui-monospace, monospace; margin-right:8px; }
+</style></head>
+<body>
+<header>
+  <span id="dot" title="link to the vizier service"></span><b>Vizier</b>
+  <span class="tab rec" id="tab-rec" title="click to pin this mode; click again for auto">RECORD</span>
+  <span class="tab call" id="tab-call" title="click to pin this mode; click again for auto">CALL</span>
+  <span class="grow"><span id="rec"></span> <span id="title">connecting…</span></span>
+  <span id="spd"></span>
+  <span id="media"></span>
+  <button id="join" style="display:none">Join call</button>
+  <span id="hide" class="on" title="this window is excluded from every screen capture, stream and screen share (SetWindowDisplayAffinity WDA_EXCLUDEFROMCAPTURE); always on">hidden from capture</span>
+  <button id="gear" title="server URL">⚙</button>
+</header>
+<div id="cfg"><span>server</span><input id="srv" spellcheck="false"><button id="srv-save">save</button></div>
+<audio id="callaudio" autoplay></audio>
+
+<section class="mode" id="m-rec">
+  <div id="keylegend"><b>↑ ↓</b> scroll &nbsp;·&nbsp; <b>← →</b> next / previous part &nbsp;·&nbsp; <b>Tab</b> Script / Context &nbsp;·&nbsp; <b>Alt+E</b> ears &nbsp;·&nbsp; <b>Alt+M</b> mouth &nbsp;·&nbsp; <b id="kfollow" style="cursor:pointer" onclick="window.vizierFollow()">Alt+F follow: ON</b></div>
+  <nav id="rtabs"><span data-t="script" class="on">SCRIPT</span><span data-t="context" hidden>CONTEXT</span><span data-t="notes" hidden>DO NOT SAY</span></nav>
+  <div id="prompt"><div id="text"></div><div id="readline"></div></div>
+  <div id="doc"></div>
+  <div id="coach"></div>
+</section>
+<section class="mode" id="m-call">
+  <div id="callmain"><div id="sugs"></div><div id="interim"></div><div id="lines"></div></div>
+</section>
+<footer id="build" title="the build log the server follows; click to show more"></footer>
+
+<script>
+const $ = id => document.getElementById(id);
+const Q = new URLSearchParams(location.search);
+let CFG = {};   // from the Tauri shell's `config` command (main.rs); empty in a plain browser
+const DEFAULT = () => (CFG.server || "http://127.0.0.1:8786").replace(/\/+$/, "");
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+                set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+let SERVER = "";
+// WebRTC media server (WHIP camera publish + WHEP call audio), e.g. MediaMTX; defaults to the Vizier server's origin.
+const MEDIA = () => (Q.get("media") || CFG.media || SERVER).replace(/\/+$/, "");
+const CAM_PATH = () => CFG.camPath || "cam", CALL_PATH = () => CFG.callPath || "call-out";
+const api = (p, o) => fetch(SERVER + "/" + p, o);
+const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+
+// ---------- mode: derived from /health every second, never stored ----------
+let health = { recording: null, call: null }, pinned = null, mode = null;
+const liveCall = () => !!health.call && !/^(bench-|probe)/.test(health.call);
+function autoMode() { return health.recording ? "rec" : liveCall() ? "call" : "rec"; }
+function setMode() {
+  const m = pinned || autoMode();
+  if (m !== mode) {
+    mode = m;
+    $("m-rec").classList.toggle("on", m === "rec"); $("m-call").classList.toggle("on", m === "call");
+    $("tab-rec").classList.toggle("on", m === "rec"); $("tab-call").classList.toggle("on", m === "call");
+    $("join").style.display = m === "call" ? "" : "none";
+    document.title = "Utopia Vizier"; document.body.dataset.mode = m;
+    render();
+  }
+  $("tab-rec").classList.toggle("pinned", pinned === "rec"); $("tab-call").classList.toggle("pinned", pinned === "call");
+  if (!liveCall() && pcs.length) leave();   // the call ended: stop sending the camera
+}
+for (const [id, m] of [["tab-rec", "rec"], ["tab-call", "call"]])
+  $(id).onclick = () => { pinned = pinned === m ? null : m; setMode(); };
+async function pollHealth() {
+  try {
+    const h = await api("health").then(r => r.json());
+    health = h; recording = !!h.recording;
+    if (recording && rtab !== "script") showTab("script");   // a take started: back to the prompter
+    if (h.recording) {
+      $("rec").textContent = "● REC";
+      const part = String(h.recording).split("-")[0], i = takes.findIndex(k => letterOf(k) === part);
+      if (i >= 0 && i !== t) goTake(i);
+    }
+    else if (!$("rec").textContent.startsWith("saved")) $("rec").textContent = "";
+    setMode();
+  } catch { $("dot").classList.remove("on"); }
+}
+
+// ---------- RECORD: the prompter ----------
+// No key instructions on screen; a take can also be started from outside (POST /prompter/record) and the app follows
+// the part being recorded. Keys and the clicker drive the scroll:
+//   Space P B . F5 Enter   play/pause the scroll, nothing else (a clicker's "black screen"/"start show" send B . F5).
+//                    No key, click or scroll ever STARTS a recording take on its own (a stray take ran 04:20-04:36Z
+//                    2026-11-12 from a Space press): a take starts only on R (or POST /prompter/record from outside).
+//   R                start a take of the shown part      Esc  stop the scroll and the recording
+//   Mouse wheel / trackpad   scroll the script by hand at any time; it pauses the auto-scroll (manual always wins)
+//   PageDown/Up, Arrow Down/Up   next/previous line (the clicker's forward/back), works while scrolling
+//   + = ]  /  - _ [  faster / slower      Ctrl + / Ctrl -  bigger / smaller type (SCRIPT and CONTEXT together)
+//   Home  top of the part
+//   Arrow Right/Left next/previous part (restarts the take file while recording)      Esc  stop the recording
+// The scroll is continuous (requestAnimationFrame, px/s, and the loop only runs while playing: an always-on 60 Hz loop
+// kept the WebView busy for nothing and made the cursor drag over the window, #12581); the current line is the one crossing the reading line, a
+// third of the way down. A key acts synchronously and the next frame shows it; window.vizierKeyLatency measures it
+// (keydown timestamp -> the frame after the one that drew the change).
+let SCRIPT_NAME = "Script";   // the script's own "# " title, from /prompter/context
+let takes = [], t = 0, recording = false, playing = false, built = "", curIdx = -1;
+let speed = +store.get("vizier.speed") || 60;   // px per second
+let fontPx = +store.get("vizier.type") || 32;   // SCRIPT and CONTEXT share it (CSS --type)
+const READ_AT = 0.22;                            // the reading line, as a fraction of the prompter's height
+// Author labels never reach the screen: with "hideLabels": ["editor"] in the app's config, "(editor, 2026-11-12)" in a
+// title and "editor:" before a line are dropped (for scripts several writers annotate). Empty list = shown as written.
+const labels = () => (CFG.hideLabels || []).map(x => String(x).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).filter(Boolean);
+const unlabel = s => {
+  const l = labels(); if (!l.length) return String(s).trim();
+  const A = "(?:" + l.join("|") + ")";
+  return String(s).replace(new RegExp("\\s*\\(" + A + "(?:,[^)]*)?\\)", "gi"), "").replace(new RegExp("^\\s*" + A + ":\\s*", "i"), "").trim();
+};
+const letterOf = k => (k.title.match(/^([A-Za-z0-9]+)/) || ["X"])[0];
+const paras = () => $("text").querySelectorAll("p");
+function hud() {
+  $("spd").textContent = (playing ? "▶ " : "❚❚ ") + Math.round(speed) + " px/s · " + fontPx + " px";
+  $("spd").classList.toggle("play", playing);
+}
+function render() {
+  if (mode === "call") { $("title").textContent = health.call ? `call ${health.call}` : "no call"; return; }
+  const k = takes[t];
+  if (!k) { $("title").textContent = takes.length ? "" : "no takes yet"; return; }
+  const name = unlabel(k.title.replace(/^[A-Za-z0-9]+\s*·\s*/, ""));
+  $("title").textContent = (recording ? "● Recording · " : "") + `${SCRIPT_NAME} · part ${t + 1} of ${takes.length} · ${name}`;
+  const key = t + "\n" + JSON.stringify(k.lines);
+  if (key !== built) {   // a new part, or a live edit of this one: rebuild, keeping the reader's line when the part is the same
+    const samePart = built.split("\n")[0] === String(t), keep = samePart ? Math.max(0, curIdx) : 0;
+    built = key;
+    $("text").innerHTML = `<div class="padtop"></div>` + k.lines.map(l => /^\s*\[(show|scout)\]/i.test(l) ? `<p class="cue">${esc(l.replace(/^\s*\[(show|scout)\]\s*/i, ""))}</p>` : `<p>${/^\s*\(scout\)/i.test(l) ? `<span class="mark">(Scout)</span> ` + esc(unlabel(l.replace(/^\s*\(scout\)\s*/i, ""))) : esc(unlabel(l))}</p>`).join("") + `<div class="pad"></div>`;
+    curIdx = -1; goLine(Math.min(keep, k.lines.length - 1));
+  }
+  hud();
+}
+function lineTop(i) { const p = paras()[i]; return p ? p.offsetTop - $("text").clientHeight * READ_AT : 0; }
+function goLine(i) {
+  const n = paras().length; if (!n) return;
+  i = Math.max(0, Math.min(n - 1, i)); $("text").scrollTop = lineTop(i); mark();
+}
+function mark() {   // the current line = the last paragraph whose top is at or above the reading line
+  const ps = paras(), y = $("text").scrollTop + $("text").clientHeight * READ_AT + 2;
+  let i = 0; while (i + 1 < ps.length && ps[i + 1].offsetTop <= y) i++;
+  if (i !== curIdx) { if (ps[curIdx]) ps[curIdx].classList.remove("cur"); if (ps[i]) ps[i].classList.add("cur"); curIdx = i; reportPos(); }
+}
+let lastPos = "", gotoSeq = -1, snapSeq = -1, followOn = true;
+window.vizierFollow = async () => {   // Alt+F (main.rs) or a click on the legend: the agent follows the reader's voice on / off
+  const r = await api("prompter/follow", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ toggle: true }) }).then(x => x.json()).catch(() => null);
+  if (r) paintFollow(r.on);
+};
+function paintFollow(on) { followOn = on; const el = document.getElementById("kfollow"); if (el) { el.textContent = on ? "Alt+F follow: ON" : "Alt+F follow: OFF"; el.style.color = on ? "#3ddc84" : "#c0392b"; } }
+setInterval(async () => { const r = await api("prompter/follow").then(x => x.json()).catch(() => null); if (r && r.on !== followOn) paintFollow(r.on); }, 800);
+setInterval(async () => {   // a driver that hears the reader asks the prompter to jump (POST /prompter/goto); follow when seq changes
+  if (mode !== "rec" || !takes.length) return;
+  const sn = await api("prompter/snap").then(r => r.json()).catch(() => null);   // an agent asked to LOOK at the prompter
+  if (sn && window.__TAURI__) { if (snapSeq < 0) snapSeq = sn.seq; else if (sn.seq !== snapSeq) { snapSeq = sn.seq; window.__TAURI__.core.invoke("snapshot").catch(() => {}); } }
+  const g = await api("prompter/goto").then(r => r.json()).catch(() => null);
+  if (!g) return;
+  if (gotoSeq < 0) { gotoSeq = g.seq; return; }   // the first read only learns the counter
+  if (g.seq === gotoSeq) return;
+  gotoSeq = g.seq;
+  if (g.part >= 1 && g.part - 1 !== t) goTake(g.part - 1);
+  if (g.line >= 1) goLine(g.line - 1);
+}, 400);
+function reportPos() {   // where the reader is in the script, for whoever drives the screen (POST /prompter/position)
+  const k = takes[t]; if (!k) return;
+  const body = JSON.stringify({ part: t + 1, parts: takes.length, title: k.title, line: curIdx + 1, lines: k.lines.length, text: (k.lines[curIdx] || "") });
+  if (body === lastPos) return; lastPos = body;
+  api("prompter/position", { method: "POST", headers: { "Content-Type": "application/json" }, body }).catch(() => {});
+}
+function step(d) { if (takes[t]) goLine(curIdx + d); }
+window.vizierStep = d => {
+  if (mode !== "rec") return;
+  if (rtab === "script") step(d); else $("doc").scrollTop += d * 140;   // CONTEXT / DO NOT SAY scroll by hand
+};
+window.vizierPart = d => { if (mode === "rec" && takes.length) { goTake(t + d); if (recording) record(); } };   // global Left / Right (main.rs)
+window.vizierTab = () => {   // Alt+T from any app, or Tab in the page: SCRIPT -> CONTEXT -> DO NOT SAY -> SCRIPT
+  if (mode !== "rec") return;
+  const tabs = [...document.querySelectorAll("#rtabs span")].filter(x => !x.hidden).map(x => x.dataset.t);
+  if (tabs.length < 2) return;
+  showTab(tabs[(Math.max(0, tabs.indexOf(rtab)) + 1) % tabs.length]); $("doc").scrollTop = 0;
+};   // the app's global Alt+Down / Alt+Up (main.rs)
+function goTake(i) { t = takes.length ? (i + takes.length) % takes.length : 0; built = ""; curIdx = 0; lastPos = ""; render(); }
+let last = 0, looping = false, pos = 0;   // pos: fractional scroll (scrollTop rounds to device pixels)
+function frame(ts) {
+  if (!playing) { looping = false; last = 0; return; }   // paused: no frames at all until play() restarts the loop
+  if (mode === "rec" && rtab === "script") {
+    const el = $("text"), dt = last ? Math.min(0.1, (ts - last) / 1000) : 0;
+    if (Math.abs(pos - el.scrollTop) > 2) pos = el.scrollTop;   // moved by a key or the wheel: continue from there
+    pos += speed * dt; el.scrollTop = pos;
+    mark();
+    if (el.scrollTop >= lineTop(paras().length - 1) - 1) { playing = false; hud(); }   // last line reached: hold
+  }
+  last = ts; requestAnimationFrame(frame);
+}
+function play(on) {
+  playing = on === undefined ? !playing : on; hud();
+  if (playing && !looping) { looping = true; last = 0; pos = $("text").scrollTop; requestAnimationFrame(frame); }
+}
+function setSpeed(f) { speed = Math.max(10, Math.min(400, speed * f)); store.set("vizier.speed", speed); hud(); }
+function setFont(d) {
+  const keep = curIdx; fontPx = Math.max(12, Math.min(64, fontPx + d)); store.set("vizier.type", fontPx);
+  document.documentElement.style.setProperty("--type", fontPx + "px"); goLine(keep); hud();
+}
+// Every take records on the server from the camera stream: space starts a new file for the shown take (and the
+// scroll), switching take starts the next file, Esc stops. Same POSTs as prompter.html.
+async function record(stop) {
+  const r = await api("prompter/record", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(stop ? { stop: true } : { take: letterOf(takes[t]) }) }).then(r => r.json()).catch(() => ({}));
+  recording = !stop && !!r.recording; if (recording) showTab("script"); render();
+  $("rec").textContent = recording ? "● REC " + r.recording : (r.stopped ? "saved " + r.stopped.split("/").pop() : "");
+  pollHealth();
+}
+const lat = [];
+window.vizierKeyLatency = () => {
+  const s = lat.slice().sort((a, b) => a - b), q = f => s.length ? +s[Math.min(s.length - 1, Math.floor(f * s.length))].toFixed(1) : null;
+  return { n: s.length, p50: q(.5), p95: q(.95), max: s.length ? +s[s.length - 1].toFixed(1) : null };
+};
+const PAUSE_KEYS = new Set(["p", "P", "b", "B", ".", "F5", "Enter", "Pause", "MediaPlayPause"]);
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT" || mode !== "rec" || !takes.length) return;
+  if (e.key === "Tab" && !e.ctrlKey && !e.altKey) { window.vizierTab(); e.preventDefault(); return; }
+  if (rtab !== "script" && e.key !== " " && e.key !== "Escape") return;   // CONTEXT / DO NOT SAY: arrows scroll the page
+  const k = e.key;
+  if (e.ctrlKey && (k === "+" || k === "=")) setFont(4);
+  else if (e.ctrlKey && (k === "-" || k === "_")) setFont(-4);
+  else if (k === "ArrowRight") { goTake(t + 1); if (recording) record(); }
+  else if (k === "ArrowLeft") { goTake(t - 1); if (recording) record(); }
+  else if (k === "Escape") { play(false); record(true); }
+  else if (k === "ArrowDown" || k === "PageDown") step(1);
+  else if (k === "ArrowUp" || k === "PageUp") step(-1);
+  else if (k === "Home") goLine(0);
+  else if (k === " " || PAUSE_KEYS.has(k)) play();
+  else if ((k === "r" || k === "R") && !e.ctrlKey && !recording) record();
+  else if (k === "+" || k === "=" || k === "]") setSpeed(1.15);
+  else if (k === "-" || k === "_" || k === "[") setSpeed(1 / 1.15);
+  else return;
+  e.preventDefault();
+  const t0 = e.timeStamp; requestAnimationFrame(() => requestAnimationFrame(() => { lat.push(performance.now() - t0); if (lat.length > 500) lat.shift(); }));
+});
+// Wheel / trackpad: the reader's hand wins. It pauses the auto-scroll and moves the text (line-mode deltas from a wheel are
+// in lines, so they are scaled to pixels).
+$("text").addEventListener("wheel", e => {
+  e.preventDefault(); if (playing) play(false);
+  $("text").scrollTop += e.deltaMode === 1 ? e.deltaY * fontPx * 1.4 : e.deltaY; mark();
+}, { passive: false });
+$("text").onclick = () => step(1);
+document.documentElement.style.setProperty("--type", fontPx + "px");
+async function coach() {
+  const n = await api("prompter/note").then(r => r.json()).catch(() => null);
+  if (!n) return;
+  $("coach").innerHTML = n.text ? `<b>Coach on part ${esc(String(n.take).split("-")[0])}:</b> ` + esc(n.text) : "";
+  $("coach").style.display = n.text ? "" : "none";
+}
+async function scripts() {
+  const j = await api("prompter/scripts").then(r => r.json()).catch(() => null);
+  if (j && JSON.stringify(j) !== JSON.stringify(takes)) { takes = j; if (t >= takes.length) { t = 0; built = ""; } render(); }
+}
+
+// ---------- RECORD tabs: CONTEXT (<script>-context.md) and DO NOT SAY (the script's un-numbered blocks) ----------
+let rtab = "script", ctx = { context: "", notes: [] }, ctxKey = "";
+function inline(s) { return esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/`([^`]+)`/g, "<code>$1</code>"); }
+function md(src) {   // just enough markdown for these notes: # headings, nested - / 1. lists, paragraphs, **bold**, `code`
+  let out = "", stack = [], para = [];
+  const flush = () => { if (para.length) { out += `<p>${inline(para.join(" "))}</p>`; para = []; } };
+  const close = (to) => { while (stack.length > to) out += `</li></${stack.pop().tag}>`; };
+  for (const raw of src.split("\n")) {
+    const h = raw.match(/^(#{1,3})\s+(.*)/), li = raw.match(/^(\s*)([-*]|\d+\.)\s+(.*)/);
+    if (h) { flush(); close(0); out += `<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`; }
+    else if (li) {
+      flush();
+      const depth = Math.floor(li[1].length / 2) + 1, tag = /\d/.test(li[2]) ? "ol" : "ul";
+      if (depth > stack.length) { while (stack.length < depth) { out += `<${tag}><li>`; stack.push({ tag }); } }
+      else { close(depth); out += `</li><li>`; }
+      out += inline(li[3]);
+    } else if (!raw.trim()) { flush(); close(0); }
+    else if (stack.length && /^\s+/.test(raw)) out += " " + inline(raw.trim());   // a wrapped list item
+    else { close(0); para.push(raw.trim()); }
+  }
+  flush(); close(0); return out;
+}
+function showTab(tb) {
+  if (recording) tb = "script";
+  rtab = tb;
+  document.querySelectorAll("#rtabs span").forEach(s => s.classList.toggle("on", s.dataset.t === tb));
+  $("prompt").style.display = tb === "script" ? "" : "none";
+  $("doc").classList.toggle("on", tb !== "script");
+  if (tb === "context") $("doc").innerHTML = md(ctx.context.split("\n").map(l => /^#/.test(l) ? unlabel(l) : l).join("\n"));
+  else if (tb === "notes") $("doc").innerHTML = ctx.notes.map(n => `<h2>${inline(unlabel(n.title))}</h2>` + md(n.text)).join("");
+}
+document.querySelectorAll("#rtabs span").forEach(s => s.onclick = () => { showTab(s.dataset.t); $("doc").scrollTop = 0; });
+async function context() {
+  const j = await api("prompter/context").then(r => r.json()).catch(() => null);
+  if (!j) return;
+  const key = JSON.stringify(j);
+  if (key === ctxKey) return;
+  ctxKey = key; ctx = j;
+  SCRIPT_NAME = unlabel((j.title || "Script").replace(/:.*$/, ""));
+  const notesTab = document.querySelector('#rtabs [data-t="notes"]');
+  notesTab.textContent = j.notes.some(n => /^do not say/i.test(n.title)) ? "DO NOT SAY" : "NOTES";
+  notesTab.hidden = !j.notes.length;
+  document.querySelector('#rtabs [data-t="context"]').hidden = !j.context;
+  $("rtabs").classList.toggle("on", !!(j.context || j.notes.length));
+  if ((rtab === "context" && !j.context) || (rtab === "notes" && !j.notes.length)) rtab = "script";
+  const top = $("doc").scrollTop; showTab(rtab); $("doc").scrollTop = top;   // a live edit keeps the reader's place
+  render();
+}
+
+// ---------- CALL: the feed renderer over WS /feed (frames: docs/openapi.yaml) ----------
+const sugs = {}, seenSeq = new Set(); let ws, seenCall = null;
+function connect() {
+  ws = new WebSocket(SERVER.replace(/^http/, "ws") + "/feed");
+  ws.onopen = () => $("dot").classList.add("on");
+  ws.onclose = () => { $("dot").classList.remove("on"); setTimeout(connect, 800); };
+  ws.onmessage = e => {
+    const f = JSON.parse(e.data);
+    if (f.type === "status") {
+      const m = /^call (\S+) live/.exec(f.text);   // seq numbers restart with each call
+      if (m && m[1] !== seenCall) { seenCall = m[1]; seenSeq.clear(); }
+      if (/call .* live|call ended/.test(f.text)) pollHealth();
+    }
+    else if (f.type === "interim") $("interim").textContent = (f.ch === "me" ? "You: " : "Them: ") + f.text;
+    else if (f.type === "line") {
+      if (f.seq != null) { if (seenSeq.has(f.seq)) return; seenSeq.add(f.seq); }   // a reconnect replays the last lines
+      $("interim").textContent = "";
+      const d = document.createElement("div");
+      d.className = f.ch; d.textContent = (f.ch === "me" ? "You: " : "Them: ") + f.text;
+      $("lines").prepend(d);
+      while ($("lines").children.length > 8) $("lines").lastChild.remove();
+    } else if (f.type === "suggestion") {
+      document.querySelectorAll(".sug").forEach(s => s.classList.add("old"));
+      const d = document.createElement("div"); d.className = "sug"; sugs[f.sid] = d; $("sugs").prepend(d);
+      while ($("sugs").children.length > 3) $("sugs").lastChild.remove();
+    } else if (f.type === "delta" && sugs[f.sid]) {
+      sugs[f.sid].append(document.createTextNode(f.text));
+      if (f.first_glyph_s != null) sugs[f.sid].dataset.lat = f.first_glyph_s;
+    } else if (f.type === "done" && sugs[f.sid] && sugs[f.sid].dataset.lat) {
+      const l = document.createElement("span"); l.className = "lat"; l.textContent = sugs[f.sid].dataset.lat + " s";
+      sugs[f.sid].append(l);
+    } else if (f.type === "cancel") document.querySelectorAll(".sug:not(.old)").forEach(s => s.classList.add("cancelled"));
+  };
+}
+
+// ---------- CALL media: laptop camera + mic out (WHIP), the call's audio back in (WHEP); ----------
+async function negotiate(pc, url) {
+  await pc.setLocalDescription(await pc.createOffer());
+  await new Promise(r => { if (pc.iceGatheringState === "complete") r(); pc.onicegatheringstatechange = () => pc.iceGatheringState === "complete" && r(); setTimeout(r, 1500); });
+  const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/sdp" }, body: pc.localDescription.sdp });
+  if (res.status !== 201) throw new Error(url + " HTTP " + res.status);
+  await pc.setRemoteDescription({ type: "answer", sdp: await res.text() });
+}
+let pcs = [], cam = null, joining = false;
+function leave() {
+  joining = false; pcs.forEach(p => p.close()); pcs = [];
+  if (cam) { cam.getTracks().forEach(t => t.stop()); cam = null; }
+  $("callaudio").srcObject = null; $("media").textContent = ""; $("join").textContent = "Join call"; $("join").classList.remove("on");
+}
+async function join() {
+  pcs.forEach(p => p.close()); pcs = []; joining = true;
+  $("media").textContent = "starting…"; $("join").textContent = "Leave"; $("join").classList.add("on");
+  try {
+    cam = cam || await navigator.mediaDevices.getUserMedia({
+      video: { width: 1280, height: 720, frameRate: 30 },
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    const pub = new RTCPeerConnection();
+    cam.getTracks().forEach(t => pub.addTransceiver(t, { direction: "sendonly" }));
+    await negotiate(pub, MEDIA() + "/" + CAM_PATH() + "/whip");
+    const play = new RTCPeerConnection();
+    play.addTransceiver("audio", { direction: "recvonly" });
+    play.ontrack = e => { $("callaudio").srcObject = e.streams[0] || new MediaStream([e.track]); };
+    await negotiate(play, MEDIA() + "/" + CALL_PATH() + "/whep");
+    if (!joining) { pub.close(); play.close(); return; }
+    pcs = [pub, play];
+    pub.onconnectionstatechange = () => {
+      $("media").textContent = "camera " + pub.connectionState;
+      if (joining && ["failed", "disconnected"].includes(pub.connectionState)) setTimeout(() => joining && join(), 1000);
+    };
+    $("media").textContent = "camera live";
+  } catch (e) { $("media").textContent = "camera error: " + e.message; if (joining) setTimeout(() => joining && join(), 3000); }
+}
+$("join").onclick = () => (pcs.length || joining) ? leave() : join();
+
+// ---------- hidden from capture: always on, set and re-asserted by main.rs (no switch) ----------
+
+// ---------- server URL ----------
+$("gear").onclick = () => { $("srv").value = SERVER; $("cfg").classList.toggle("open"); };
+$("srv-save").onclick = () => {
+  const v = $("srv").value.trim().replace(/\/+$/, "") || DEFAULT();
+  store.set("vizier.server", v); location.reload();
+};
+
+// ---------- `vizier.exe --selftest` (main.rs): prompter keys timed, mic opened once, report + picture written ----------
+let selftested = false;
+window.vizierSelftest = async () => {
+  if (selftested) return; selftested = true;
+  const out = [];
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  await wait(1500);
+  out.push(`mode=${mode} title=${JSON.stringify($("title").textContent)} cur=${JSON.stringify(($("text").querySelector("p.cur") || {}).textContent || "")}`);
+  out.push(`coach=${JSON.stringify($("coach").textContent)} link=${$("dot").className}`);
+  // key -> frame latency through the real handler: synthetic keydowns, measured like real ones
+  for (const k of ["p", "]", "PageDown", "PageUp", "[", "p"]) {
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true })); await wait(120);
+  }
+  out.push("keys " + JSON.stringify(window.vizierKeyLatency()));
+  // idle cost: animation frames the page asks for in 1 s while paused (0 = nothing competes with the cursor)
+  let n = 0; const _r = window.requestAnimationFrame; window.requestAnimationFrame = cb => { n++; return _r.call(window, cb); };
+  await wait(1000); window.requestAnimationFrame = _r; out.push(`idle frames/s=${n} playing=${playing}`);
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+    out.push("mic granted: " + s.getAudioTracks().map(t => t.label).join(", ")); s.getTracks().forEach(t => t.stop());
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    out.push("devices: " + devs.map(d => `${d.kind}:${d.label || "?"}`).join(" | "));
+  } catch (e) { out.push("mic error: " + e.name + " " + e.message); }
+  try { await window.__TAURI__.core.invoke("selftest_report", { text: out.join("\n") }); } catch (e) { console.error(e); }
+};
+
+// ---------- BUILD: tail of the server's build log via GET /buildlog (VIZIER_BUILD_LOG) ----------
+let buildOpen = false;
+async function buildlog() {
+  const j = await api("buildlog?n=12").then(r => r.json()).catch(() => null);
+  if (!j || !j.lines || !j.lines.length) { $("build").classList.remove("on"); return; }
+  const ago = j.mtime ? Math.max(0, Math.round((Date.now() / 1000 - j.mtime) / 60)) : null;
+  const shown = j.lines.slice().reverse().slice(0, buildOpen ? 12 : 3);
+  $("build").innerHTML = `<div class="h">BUILD${ago == null ? "" : ` · last step ${ago ? ago + " min ago" : "just now"}`}</div>`
+    + shown.map(l => { const m = l.match(/^(?:\d{4}-\d\d-\d\d[ T])?(\d\d:\d\dZ?):?\s+(.*)$/);
+      return `<div class="l">${m ? `<span class="t">${esc(m[1])}</span>${esc(m[2])}` : esc(l)}</div>`; }).join("");
+  $("build").classList.add("on");
+}
+$("build").onclick = () => { buildOpen = !buildOpen; $("build").classList.toggle("open", buildOpen); buildlog(); };
+
+(async () => {
+  try { if (window.__TAURI__) CFG = (await window.__TAURI__.core.invoke("config")) || {}; } catch (e) { console.error(e); }
+  SERVER = (Q.get("server") || store.get("vizier.server") || DEFAULT()).replace(/\/+$/, "");
+  connect(); pollHealth(); buildlog(); context(); scripts(); coach();
+  setInterval(pollHealth, 1000); setInterval(coach, 2000); setInterval(scripts, 2000); setInterval(buildlog, 5000); setInterval(context, 5000);
+})();
+</script><script type="module" src="talk.js"></script>
+</body></html>
