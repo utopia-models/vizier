@@ -13,6 +13,8 @@ env:
   VIZIER_MCP_PUSH   "1" = also push every new final transcript line into the session as it arrives, as a Claude Code
                     channel event (`notifications/claude/channel`; start Claude Code with the channel enabled). Other
                     hosts ignore it; the read_transcript tool works everywhere.
+  VIZIER_MCP_PUSH_CH  which sides to push, comma-separated: "me,them" (default) or "them". Use "them" when the
+                    agent already hears the user's own speech some other way, so ME lines are not delivered twice.
 
 Standard library only (Python 3.9+): MCP over stdio is newline-delimited JSON-RPC 2.0, and this file is the whole
 server, so it runs anywhere Python does with no install step.
@@ -30,6 +32,7 @@ import urllib.request
 URL = os.environ.get("VIZIER_URL", "http://127.0.0.1:8786").rstrip("/")
 TOKEN = os.environ.get("VIZIER_TOKEN", "")
 PUSH = os.environ.get("VIZIER_MCP_PUSH", "") == "1"
+PUSH_CH = {c.strip() for c in os.environ.get("VIZIER_MCP_PUSH_CH", "me,them").split(",") if c.strip()}
 POLL_S = float(os.environ.get("VIZIER_MCP_POLL_S", "0.5"))
 VERSION = "0.2.0"
 # Protocol revisions this server speaks, newest first; it answers with the client's if listed, else the newest.
@@ -134,20 +137,25 @@ def call_tool(name: str, a: dict) -> str:
 
 def pusher() -> None:
     """VIZIER_MCP_PUSH=1: every new final line becomes a channel event in the session, oldest first."""
-    seen, call = None, None
+    seen, call, first = 0, None, True
     while True:
         try:
-            r = http("GET", f"/transcript?since={seen or 0}")
-            if r.get("call_id") != call:              # a new call: start from its current end, never replay it
-                call = r.get("call_id")
+            r = http("GET", f"/transcript?since={seen}")
+            if first:                                 # the call already running at start: from its end, never replayed
+                call, first = r.get("call_id"), False
                 seen = r["lines"][-1]["seq"] if r.get("lines") else 0
+            elif r.get("call_id") != call:            # a call that began since: all of it (POST /lines starts one, so
+                call, seen = r.get("call_id"), 0      # its first lines are already in it by the time a poll sees it)
+                continue
             else:
                 for l in r.get("lines", []):
+                    seen = l["seq"]
+                    if l["ch"] not in PUSH_CH:
+                        continue
                     who = "ME" if l["ch"] == "me" else "THEM"
                     send({"jsonrpc": "2.0", "method": "notifications/claude/channel",
                           "params": {"content": f"{who}: {l['text']}",
                                      "meta": {"ch": l["ch"], "seq": str(l["seq"]), "call": str(call)}}})
-                    seen = l["seq"]
         except Exception:  # noqa: BLE001 - server restarting: keep polling
             pass
         time.sleep(POLL_S)
