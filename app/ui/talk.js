@@ -109,19 +109,9 @@ export async function start(cfg = {}) {
     document.body.appendChild(a);
     state.audio.push(a);
   });
-  // Barge-in (the agent stops talking when the user starts): the moment the local mic is an active speaker
-  // the agent's audio is muted here, and it stays muted until 1.5 s after the user stops, so nothing queued talks over them.
-  let hush = 0;
-  room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
-    const me = state.ears && speakers.some((p) => p === room.localParticipant);
-    if (me) {
-      clearTimeout(hush);
-      state.audio.forEach((a) => { a.muted = true; });
-    } else if (state.audio.some((a) => a.muted)) {
-      clearTimeout(hush);
-      hush = setTimeout(() => state.audio.forEach((a) => { a.muted = false; }), 1500);
-    }
-  });
+  // No local barge-in mute (Tyler 2026-11-13: "Ears, laptop. Mouth, laptop. Fucking simple"; only the word "Scout"
+  // interrupts, and the voice gateway handles that). A local mute on "mic is an active speaker" muted the agent whenever
+  // the laptop mic heard anything, including the agent's own playback, so Tyler heard nothing.
   room.on(RoomEvent.TrackPublished, (pub) => { if (pub.kind === Track.Kind.Audio) pub.setSubscribed(state.mouth); });
   room.on(RoomEvent.TrackUnsubscribed, (track) => {
     track.detach().forEach((a) => { a.remove(); state.audio = state.audio.filter((x) => x !== a); });
