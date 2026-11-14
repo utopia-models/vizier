@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **The prompter's script survives a restart.** `POST /script` records its choice in `$VIZIER_DATA/current-script` and a
+  restarted server shows it again, instead of falling back to `VIZIER_SCRIPTS` (a deploy-time default that had become a
+  past client's script and kept coming back on top). `POST /script {"clear": true}` takes a script down: the prompter
+  shows "no script yet". Replay test: `server/tests/test_script_survives_restart.py`.
+
 ### Added
 - **Talk: loopback check.** `await vizierTalk.loopback()` plays a short tone through each audio output (`setSinkId`) and
   measures it on the mic, raw and with echo cancellation on: per device `heard` (12 dB over the room) and `cancelled_db`.

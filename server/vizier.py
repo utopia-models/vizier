@@ -75,6 +75,11 @@ LOG = Path(os.environ.get("VIZIER_LOG", DATA / "events.jsonl"))
 TOKEN = os.environ.get("VIZIER_TOKEN", "")
 SCRIPTS = Path(os.environ.get("VIZIER_SCRIPTS", DATA / "scripts.md"))
 POSTED_SCRIPT = DATA / "posted-script.md"     # where POST /script {"markdown"} lands
+# The script the prompter shows survives a restart (knowledge#13257): POST /script records its choice here and
+# make_app() restores it, so a restart never puts VIZIER_SCRIPTS (a deploy-time default, often a past client's
+# script) back on top over what the agent last showed. {"clear": true} records NO_SCRIPT: the honest empty state.
+CURRENT_SCRIPT = DATA / "current-script"
+NO_SCRIPT = DATA / "no-script.md"             # never written: pointing here shows "no script yet"
 TALK_SCRIPTS = Path(os.environ.get("VIZIER_TALK_SCRIPTS", DATA / "talk-scripts"))   # /prompter/scripts?file=<name>
 BRIEFS = Path(os.environ.get("VIZIER_BRIEFS", DATA / "briefs"))                     # /prompter/scripts?brief=<slug>
 TAKES = Path(os.environ.get("VIZIER_TAKES", DATA / "takes"))
@@ -285,14 +290,35 @@ def current_script(app) -> Path:
     return S(app).script
 
 
+def restored_script() -> Path:
+    """The script POST /script last chose (CURRENT_SCRIPT), else the VIZIER_SCRIPTS default."""
+    try:
+        p = Path(CURRENT_SCRIPT.read_text().strip())
+    except OSError:
+        return SCRIPTS
+    return p if p.is_absolute() else SCRIPTS
+
+
+def choose_script(app, p: Path) -> None:
+    S(app).script = p
+    try:
+        CURRENT_SCRIPT.parent.mkdir(parents=True, exist_ok=True)
+        CURRENT_SCRIPT.write_text(str(p) + "\n")
+    except OSError as e:   # the choice still shows now; only its survival across a restart is lost
+        log_event({"t": time.time(), "ev": "script_persist_failed", "error": str(e)})
+
+
 async def script(req):
     """POST /script {"markdown": "# Title\\n## 1 · Hook\\nline\\n..."} shows that script on the prompter;
-    {"path": "<file on the server>"} points the prompter at a file (re-read on every request, so edits show)."""
+    {"path": "<file on the server>"} points the prompter at a file (re-read on every request, so edits show);
+    {"clear": true} takes the script down (the prompter shows "no script yet"). The choice survives a restart."""
     b = await body(req)
-    if isinstance(b.get("markdown"), str) and b["markdown"].strip():
+    if b.get("clear") is True:
+        choose_script(req.app, NO_SCRIPT)
+    elif isinstance(b.get("markdown"), str) and b["markdown"].strip():
         POSTED_SCRIPT.parent.mkdir(parents=True, exist_ok=True)
         POSTED_SCRIPT.write_text(b["markdown"])
-        S(req.app).script = POSTED_SCRIPT
+        choose_script(req.app, POSTED_SCRIPT)
     elif isinstance(b.get("path"), str) and b["path"]:
         p = Path(b["path"]).expanduser().resolve()
         roots = [d.resolve() for d in (DATA, SCRIPTS.parent, TALK_SCRIPTS, BRIEFS)]
@@ -300,10 +326,11 @@ async def script(req):
             return bad("path must be a .md file under VIZIER_DATA, VIZIER_SCRIPTS' folder, the talk-scripts or briefs", 403)
         if not p.is_file():
             return bad(f"no such file: {p.name}", 404)
-        S(req.app).script = p
+        choose_script(req.app, p)
     else:
-        return bad('send "markdown" or "path"')
-    n = len(parse_takes(S(req.app).script.read_text()))
+        return bad('send "markdown", "path" or "clear": true')
+    src = S(req.app).script
+    n = len(parse_takes(src.read_text())) if src.is_file() else 0
     await S(req.app).feed.send({"type": "script", "takes": n})
     log_event({"t": time.time(), "ev": "script", "takes": n})
     return web.json_response({"ok": True, "takes": n})
@@ -609,7 +636,7 @@ def main():
 
 def make_app() -> web.Application:
     app = web.Application(middlewares=[cors])
-    app[STATE] = State(Feed(), None, SCRIPTS)
+    app[STATE] = State(Feed(), None, restored_script())
     r = app.router
     r.add_get("/", page)
     r.add_get("/health", health)

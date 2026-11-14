@@ -104,7 +104,7 @@ Everything is an environment variable; `--config <file>` (or `$VIZIER_CONFIG`, o
 | `VIZIER_HOST` / `VIZIER_PORT` | listen address | `127.0.0.1` / `8786` |
 | `VIZIER_TOKEN` | when set, every POST needs `Authorization: Bearer <token>` | — (open) |
 | `VIZIER_DATA` | data directory: posted script, takes, event log | `~/.vizier` |
-| `VIZIER_SCRIPTS` | the prompter's starting script (markdown, one `## ` block per take) | `$VIZIER_DATA/scripts.md` |
+| `VIZIER_SCRIPTS` | the prompter's script before any `POST /script` (markdown, one `## ` block per take); the last posted script, or a `{"clear": true}`, survives a restart | `$VIZIER_DATA/scripts.md` |
 | `VIZIER_CAM` | an RTSP camera stream the prompter's **R** key records takes from (needs ffmpeg) | — (off) |
 | `VIZIER_ALLOWED_ORIGINS` | extra CORS origins (comma-separated) besides the desktop app's | — |
 

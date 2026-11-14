@@ -155,7 +155,9 @@ paths:
         Markdown: an optional `# Title`, then one `## ` block per take, one line per breath. If any block title starts
         with a digit (`## 1 · Hook`), only the numbered blocks are read aloud; the others show under NOTES.
         `path` points the prompter at a `.md` file on the server instead (under VIZIER_DATA, the VIZIER_SCRIPTS folder,
-        the talk-scripts or the briefs; re-read on every request, so edits show).
+        the talk-scripts or the briefs; re-read on every request, so edits show). `{"clear": true}` takes the script
+        down (the prompter shows "no script yet"). The choice is kept in `$VIZIER_DATA/current-script` and survives a
+        restart; `VIZIER_SCRIPTS` is only the default before any choice.
       requestBody:
         required: true
         content:
@@ -164,6 +166,7 @@ paths:
               oneOf:
                 - { type: object, required: [markdown], properties: { markdown: { type: string } } }
                 - { type: object, required: [path], properties: { path: { type: string } } }
+                - { type: object, required: [clear], properties: { clear: { type: boolean, enum: [true] } } }
       responses:
         "200": { description: Shown, content: { application/json: { schema: { type: object, properties: { ok: { type: boolean }, takes: { type: integer } } } } } }
         "400": { $ref: "#/components/responses/BadRequest" }
