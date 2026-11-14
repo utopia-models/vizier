@@ -397,6 +397,43 @@ async def talk_log(req):
     return web.json_response({"ok": True})
 
 
+TALK = {"seq": 0, "lines": [], "partial": None}   # the live conversation with the agent, newest last (TALK mode in the app)
+TALK_KEEP = 300
+
+
+async def talk_transcript(req):
+    """POST {"rows":[{"ch":"me"|"agent","text","final":bool}]}: a forwarder next to the speech gateway sends what was heard
+    (ch me) and what the agent said (ch agent). A final row is appended with a seq; a non-final row replaces the one live
+    partial and is cleared by the next final from the same side. GET ?since=<seq> returns {seq, lines:[newer than since],
+    partial:{ch,text}|null}; the app polls it. Nothing is stored beyond the last TALK_KEEP lines, in memory."""
+    if req.method == "POST":
+        b = await body(req)
+        for r in b.get("rows") or []:
+            if not isinstance(r, dict):
+                continue
+            ch = "me" if r.get("ch") == "me" else "agent"
+            text = str(r.get("text") or "").strip()[:2000]
+            if not text:
+                continue
+            if r.get("final"):
+                TALK["seq"] += 1
+                TALK["lines"].append({"seq": TALK["seq"], "ch": ch, "text": text, "t": time.time()})
+                del TALK["lines"][:-TALK_KEEP]
+                if TALK["partial"] and TALK["partial"]["ch"] == ch:
+                    TALK["partial"] = None
+            else:
+                TALK["partial"] = {"ch": ch, "text": text, "t": time.time()}
+        return web.json_response({"ok": True, "seq": TALK["seq"]})
+    try:
+        since = int(req.query.get("since", "0"))
+    except ValueError:
+        since = 0
+    p = TALK["partial"]
+    if p and time.time() - p["t"] > 30:   # a partial whose final never came is not live any more
+        p = TALK["partial"] = None
+    return web.json_response({"seq": TALK["seq"], "lines": [x for x in TALK["lines"] if x["seq"] > since], "partial": p})
+
+
 FOLLOW = {"on": True}   # POST /prompter/follow {"on": bool} or {"toggle": true}: the agent's speech-follow and screen driving
 
 
@@ -570,6 +607,8 @@ def make_app() -> web.Application:
     r.add_get("/prompter/goto", prompter_goto)
     r.add_get("/prompter/snap", prompter_snap)
     r.add_post("/talk/log", talk_log)
+    r.add_get("/talk/transcript", talk_transcript)
+    r.add_post("/talk/transcript", talk_transcript)
     r.add_get("/prompter/follow", prompter_follow)
     r.add_post("/prompter/follow", prompter_follow)
     r.add_post("/prompter/snap", prompter_snap)

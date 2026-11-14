@@ -5,7 +5,9 @@
      CALL  = what is posted to the server's display API, over WS /feed: bullets on top, the transcript under them
              (Join call = WHIP camera+mic out, WHEP call audio in, when a media server is configured)
      RECORD = the prompter: SCRIPT (continuous scroll, reading line, keys + clicker) | CONTEXT | DO NOT SAY
-     The mode follows /health: a recording running -> RECORD; a live call (not bench-*/probe) -> CALL; else RECORD.
+     TALK  = the plain live transcript of the conversation with the agent: your speech and its spoken replies, newest at
+             the bottom, the partial shown live and replaced by the final (GET /talk/transcript, polled every 500 ms)
+     The mode follows /health: a recording running -> RECORD; a live call (not bench-*/probe) -> CALL; else TALK.
      Runs inside the Tauri shell (app/) and, for headless checks, in any browser: open index.html?server=<url>.
      Server URL, in order: ?server= · the gear (saved in localStorage) · the app's config (VIZIER_SERVER env or
      vizier.json, see README) · http://127.0.0.1:8786. -->
@@ -23,6 +25,17 @@
   .tab { padding:2px 10px; border-radius:5px; border:1px solid transparent; cursor:pointer; letter-spacing:.06em; }
   .tab.on { color:#000; background:var(--hi); font-weight:700; }
   .tab.call.on { background:var(--accent); }
+  .tab.talk.on { background:var(--me); }
+  /* TALK: a raw transcript, large, newest at the bottom */
+  #talkmain { flex:1; min-height:0; overflow-y:auto; padding:18px 28px 28px; display:flex; flex-direction:column; user-select:text; }
+  #talkmain .sp { flex:1 0 0; }
+  #talkmain .ln { margin:0 0 .55em; font:500 32px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #talkmain .ln.me { color:var(--fg); }
+  #talkmain .ln.agent { color:var(--accent); }
+  #talkmain .ln i { font:700 .42em system-ui; font-style:normal; letter-spacing:.1em; opacity:.6; margin-right:.9em; vertical-align:.25em; }
+  #talkmain .ln.partial { opacity:.55; }
+  #talkmain .ln.partial::after { content:"▍"; margin-left:2px; color:var(--hi); }
+  #talkmain .none { color:var(--dim); font:500 20px system-ui; }
   .tab.pinned { border-color:var(--fg); }
   #rec { color:var(--rec); font-weight:700; }
   .grow { flex:1; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
@@ -95,6 +108,7 @@
 <body>
 <header>
   <span id="dot" title="link to the vizier service"></span><b>Vizier</b>
+  <span class="tab talk" id="tab-talk" title="click to pin this mode; click again for auto">TALK</span>
   <span class="tab rec" id="tab-rec" title="click to pin this mode; click again for auto">RECORD</span>
   <span class="tab call" id="tab-call" title="click to pin this mode; click again for auto">CALL</span>
   <span class="grow"><span id="rec"></span> <span id="title">connecting…</span></span>
@@ -113,6 +127,9 @@
   <div id="prompt"><div id="text"></div><div id="readline"></div></div>
   <div id="doc"></div>
   <div id="coach"></div>
+</section>
+<section class="mode" id="m-talk">
+  <div id="talkmain"><div class="sp"></div></div>
 </section>
 <section class="mode" id="m-call">
   <div id="callmain"><div id="sugs"></div><div id="interim"></div><div id="lines"></div></div>
@@ -136,21 +153,20 @@ const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
 // ---------- mode: derived from /health every second, never stored ----------
 let health = { recording: null, call: null }, pinned = null, mode = null;
 const liveCall = () => !!health.call && !/^(bench-|probe)/.test(health.call);
-function autoMode() { return health.recording ? "rec" : liveCall() ? "call" : "rec"; }
+function autoMode() { return health.recording ? "rec" : liveCall() ? "call" : "talk"; }
 function setMode() {
   const m = pinned || autoMode();
   if (m !== mode) {
     mode = m;
-    $("m-rec").classList.toggle("on", m === "rec"); $("m-call").classList.toggle("on", m === "call");
-    $("tab-rec").classList.toggle("on", m === "rec"); $("tab-call").classList.toggle("on", m === "call");
+    for (const k of ["rec", "call", "talk"]) { $("m-" + k).classList.toggle("on", m === k); $("tab-" + k).classList.toggle("on", m === k); }
     $("join").style.display = m === "call" ? "" : "none";
     document.title = "Utopia Vizier"; document.body.dataset.mode = m;
     render();
   }
-  $("tab-rec").classList.toggle("pinned", pinned === "rec"); $("tab-call").classList.toggle("pinned", pinned === "call");
+  for (const k of ["rec", "call", "talk"]) $("tab-" + k).classList.toggle("pinned", pinned === k);
   if (!liveCall() && pcs.length) leave();   // the call ended: stop sending the camera
 }
-for (const [id, m] of [["tab-rec", "rec"], ["tab-call", "call"]])
+for (const [id, m] of [["tab-talk", "talk"], ["tab-rec", "rec"], ["tab-call", "call"]])
   $(id).onclick = () => { pinned = pinned === m ? null : m; setMode(); };
 async function pollHealth() {
   try {
@@ -165,6 +181,34 @@ async function pollHealth() {
     else if (!$("rec").textContent.startsWith("saved")) $("rec").textContent = "";
     setMode();
   } catch { $("dot").classList.remove("on"); }
+}
+
+// ---------- TALK: the raw live transcript of the conversation with the agent ----------
+// GET /talk/transcript?since=<seq> every 500 ms: new final lines (you and the agent) plus the one live partial. The
+// view sticks to the bottom unless you scrolled up to read.
+let talkSeq = 0, talkPart = null;
+const talkWho = ch => ch === "me" ? "YOU" : "SCOUT";
+function talkRow(ch, text, partial) {
+  const d = document.createElement("p");
+  d.className = "ln " + ch + (partial ? " partial" : "");
+  d.innerHTML = `<i>${talkWho(ch)}</i>` + esc(text);
+  return d;
+}
+async function pollTalk() {
+  if (mode !== "talk") return;
+  let j; try { j = await api("talk/transcript?since=" + talkSeq).then(r => r.json()); } catch { return; }
+  const box = $("talkmain"), stick = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+  if (j.seq < talkSeq) { box.querySelectorAll(".ln").forEach(x => x.remove()); talkSeq = 0; return; }   // the server restarted
+  const key = JSON.stringify([j.lines.length ? j.lines[j.lines.length - 1].seq : 0, j.partial]);
+  if (key === talkPart) return;
+  talkPart = key;
+  box.querySelectorAll(".ln.partial").forEach(x => x.remove());
+  for (const l of j.lines) { box.appendChild(talkRow(l.ch, l.text)); talkSeq = Math.max(talkSeq, l.seq); }
+  if (j.partial) box.appendChild(talkRow(j.partial.ch, j.partial.text, true));
+  while (box.querySelectorAll(".ln").length > 200) box.querySelector(".ln").remove();
+  if (!box.querySelector(".ln")) { if (!box.querySelector(".none")) box.insertAdjacentHTML("beforeend", '<div class="none">Say something to scout: it shows here as you speak.</div>'); }
+  else box.querySelectorAll(".none").forEach(x => x.remove());
+  if (stick) box.scrollTop = box.scrollHeight;
 }
 
 // ---------- RECORD: the prompter ----------
@@ -203,6 +247,7 @@ function hud() {
   $("spd").classList.toggle("play", playing);
 }
 function render() {
+  if (mode === "talk") { $("title").textContent = ""; return; }
   if (mode === "call") { $("title").textContent = health.call ? `call ${health.call}` : "no call"; return; }
   const k = takes[t];
   if (!k) { $("title").textContent = takes.length ? "" : "no takes yet"; return; }
@@ -517,7 +562,7 @@ $("build").onclick = () => { buildOpen = !buildOpen; $("build").classList.toggle
   try { if (window.__TAURI__) CFG = (await window.__TAURI__.core.invoke("config")) || {}; } catch (e) { console.error(e); }
   SERVER = (Q.get("server") || store.get("vizier.server") || DEFAULT()).replace(/\/+$/, "");
   connect(); pollHealth(); buildlog(); context(); scripts(); coach();
-  setInterval(pollHealth, 1000); setInterval(coach, 2000); setInterval(scripts, 2000); setInterval(buildlog, 5000); setInterval(context, 5000);
+  setInterval(pollHealth, 1000); setInterval(pollTalk, 500); setInterval(coach, 2000); setInterval(scripts, 2000); setInterval(buildlog, 5000); setInterval(context, 5000);
 })();
 </script><script type="module" src="talk.js"></script>
 </body></html>

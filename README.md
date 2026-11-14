@@ -25,6 +25,7 @@ speech-to-text and model, and lets any agent drive it.
 | [`server/`](server/) | the server: one Python (aiohttp) process with the display API, the feed WebSocket and a browser view |
 | [`app/`](app/) | the desktop app: one always-on-top Tauri window (Windows, macOS), hidden from screen capture |
 | [`connectors/mcp/`](connectors/mcp/) | an MCP server, so any MCP-capable agent drives the overlay with tools |
+| [`connectors/talk/`](connectors/talk/) | TALK mode feed: tails a voice gateway's `lines.jsonl` and posts it to `/talk/transcript` |
 | [`connectors/livekit/`](connectors/livekit/) | puts a LiveKit room's transcription on the overlay; a page that publishes both sides of a call into a room |
 | [`examples/`](examples/) | curl and Python examples |
 | [`docs/`](docs/) | the [OpenAPI spec](docs/openapi.yaml) of the API, and how the pieces fit |

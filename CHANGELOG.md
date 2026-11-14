@@ -6,6 +6,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- TALK mode: the overlay's default when no take is recording and no call is live (it said CALL while you were only talking to
+  your agent). A plain live transcript, your speech and the agent's spoken replies, newest at the bottom, partials shown
+  live and replaced by the final. `GET/POST /talk/transcript` on the server; `connectors/talk/lines_forwarder.py` (+ a
+  systemd user unit) feeds it from a voice gateway's `lines.jsonl`. The CALL and RECORD tabs are unchanged.
 - MCP connector: `VIZIER_MCP_PUSH_CH` picks which sides are pushed as channel events (`me,them` by default). Set it to
   `them` when the agent already hears the user's own speech another way, so ME lines are not delivered twice.
 
