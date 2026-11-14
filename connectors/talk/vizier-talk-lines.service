@@ -1,0 +1,21 @@
+# The live conversation with the agent onto Vizier's TALK mode: tails the voice gateway's lines.jsonl and POSTs it to the
+# display server's /talk/transcript through the tunnel (vizier-forward.service, Ra 127.0.0.1:18787 -> Nova :8787).
+# Install (as the agent's user on the box that runs the gateway): cp to ~/.config/systemd/user/,
+#   systemctl --user daemon-reload && systemctl --user enable --now vizier-talk-lines
+# Probe: journalctl --user -u vizier-talk-lines -n 5 · curl -s 127.0.0.1:18787/talk/transcript
+# Selftest: python3 connectors/talk/lines_forwarder.py --selftest
+[Unit]
+Description=vizier-talk-lines: voice gateway lines -> Vizier TALK mode
+Wants=vizier-forward.service
+After=vizier-forward.service
+
+[Service]
+Environment=VIZIER_URL=http://127.0.0.1:18787
+Environment=V3_LINES=%h/.local/state/voice-v3/lines.jsonl
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 %h/.local/share/vizier/repo/connectors/talk/lines_forwarder.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target
