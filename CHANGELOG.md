@@ -6,6 +6,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Talk: loopback check.** `await vizierTalk.loopback()` plays a short tone through each audio output (`setSinkId`) and
+  measures it on the mic, raw and with echo cancellation on: per device `heard` (12 dB over the room) and `cancelled_db`.
+  The last report is on the server at `GET /talk/loopback`. It shows which speaker the agent's voice leaks back from.
+
+### Added
 - TALK mode: the overlay's default when no take is recording and no call is live (it said CALL while you were only talking to
   your agent). A plain live transcript, your speech and the agent's spoken replies, newest at the bottom, partials shown
   live and replaced by the final. `GET/POST /talk/transcript` on the server; `connectors/talk/lines_forwarder.py` (+ a

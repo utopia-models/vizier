@@ -109,9 +109,9 @@ export async function start(cfg = {}) {
     document.body.appendChild(a);
     state.audio.push(a);
   });
-  // No local barge-in mute (Tyler 2026-11-13: "Ears, laptop. Mouth, laptop. Fucking simple"; only the word "Scout"
-  // interrupts, and the voice gateway handles that). A local mute on "mic is an active speaker" muted the agent whenever
-  // the laptop mic heard anything, including the agent's own playback, so Tyler heard nothing.
+  // No local barge-in mute: the agent keeps talking over any sound in the room, and only its own name, heard by the
+  // agent process in the room, stops it. A local mute on "mic is an active speaker" muted the agent whenever the
+  // laptop mic heard anything, including the agent's own playback, so the user heard nothing.
   room.on(RoomEvent.TrackPublished, (pub) => { if (pub.kind === Track.Kind.Audio) pub.setSubscribed(state.mouth); });
   room.on(RoomEvent.TrackUnsubscribed, (track) => {
     track.detach().forEach((a) => { a.remove(); state.audio = state.audio.filter((x) => x !== a); });
@@ -134,7 +134,80 @@ export async function start(cfg = {}) {
   paint();
 }
 
-window.vizierTalk = { toggle, start, state };
+// Loopback check: which speakers does this machine's mic hear? For each audio output it plays a short
+// tone through that device (setSinkId) and measures the tone's level on the mic twice: raw (no echo cancellation) and
+// with the same processing the Ears track uses (echoCancellation on). heard = the raw mic picks the tone up 12 dB over
+// the room; cancelled_db = how far the echo canceller brought it down. A speaker the mic hears and the canceller does
+// not remove is where the agent's own voice comes back as the user's words. The report goes to the server
+// (POST /talk/loopback; GET returns the last one) and is returned. Run it from the console: await vizierTalk.loopback()
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function toneLevel(analyser, ac, freq, ms) {
+  const bins = new Float32Array(analyser.frequencyBinCount);
+  const bin = Math.round(freq / (ac.sampleRate / analyser.fftSize));
+  let peak = -200;
+  const end = performance.now() + ms;
+  while (performance.now() < end) {
+    analyser.getFloatFrequencyData(bins);
+    peak = Math.max(peak, bins[bin - 1] ?? -200, bins[bin], bins[bin + 1] ?? -200);
+    await sleep(25);
+  }
+  return Math.round(peak * 10) / 10;
+}
+
+async function micProbe(ac, constraints) {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
+  const analyser = ac.createAnalyser();
+  analyser.fftSize = 4096;
+  analyser.smoothingTimeConstant = 0;
+  ac.createMediaStreamSource(stream).connect(analyser);
+  return { stream, analyser };
+}
+
+export async function loopback({ freq = 1000, ms = 900 } = {}) {
+  const ac = new AudioContext();
+  const raw = await micProbe(ac, { echoCancellation: false, noiseSuppression: false, autoGainControl: false });
+  const aec = await micProbe(ac, { echoCancellation: true, noiseSuppression: true, autoGainControl: true });
+  const outs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "audiooutput");
+  const room = { raw: await toneLevel(raw.analyser, ac, freq, 500), aec: await toneLevel(aec.analyser, ac, freq, 500) };
+  const devices = [];
+  for (const d of outs) {
+    const row = { label: d.label || "(no label)", deviceId: d.deviceId };
+    try {
+      const out = new AudioContext();
+      const osc = out.createOscillator();
+      const gain = out.createGain();
+      const dest = out.createMediaStreamDestination();
+      osc.frequency.value = freq;
+      gain.gain.value = 0.3;
+      osc.connect(gain).connect(dest);
+      const el = new Audio();
+      el.srcObject = dest.stream;
+      if (el.setSinkId) await el.setSinkId(d.deviceId);
+      osc.start();
+      await el.play();
+      await sleep(150);
+      const [r, a] = await Promise.all([toneLevel(raw.analyser, ac, freq, ms), toneLevel(aec.analyser, ac, freq, ms)]);
+      osc.stop(); el.pause(); el.srcObject = null; await out.close();
+      Object.assign(row, { level_db: r, level_aec_db: a, over_room_db: Math.round((r - room.raw) * 10) / 10,
+        heard: r - room.raw >= 12, cancelled_db: Math.round((r - a) * 10) / 10 });
+    } catch (e) {
+      row.error = String(e.message || e);
+    }
+    devices.push(row);
+    await sleep(300);
+  }
+  [raw, aec].forEach((p) => p.stream.getTracks().forEach((t) => t.stop()));
+  await ac.close();
+  const report = { t: new Date().toISOString(), freq, room_db: room, devices,
+    talk_output: state.audio[0]?.sinkId || "default" };
+  if (serverBase) fetch(serverBase + "/talk/loopback", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(report) }).catch(() => {});
+  console.table(devices.map(({ deviceId, ...r }) => r));
+  return report;
+}
+
+window.vizierTalk = { toggle, start, state, loopback };
 window.addEventListener("keydown", (e) => {   // in-page fallback (a plain browser, or the app focused)
   if (!e.altKey || e.ctrlKey || e.metaKey) return;
   const k = e.code === "KeyE" ? "ears" : e.code === "KeyM" ? "mouth" : null;
