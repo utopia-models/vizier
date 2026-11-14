@@ -17,7 +17,7 @@
   html, body { height:100%; }
   body { margin:0; background:var(--bg); color:var(--fg); font:20px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif;
          overflow:hidden; display:flex; flex-direction:column; user-select:none; }
-  header { flex:0 0 auto; display:flex; align-items:center; gap:10px; padding:6px 12px; border-bottom:1px solid var(--line);
+  header { flex:0 0 auto; display:flex; align-items:center; gap:10px; padding:6px 12px; padding-right:170px; /* keeps Ears/Mouth (the fixed pill, top right) clear of the header */ border-bottom:1px solid var(--line);
            font:500 14px system-ui; color:var(--dim); background:#07090c; }
   header b { color:var(--fg); font-weight:600; }
   #dot { width:9px; height:9px; border-radius:50%; background:#c44; display:inline-block; }
@@ -108,14 +108,14 @@
 <body>
 <header>
   <span id="dot" title="link to the vizier service"></span><b>Vizier</b>
-  <span class="tab talk" id="tab-talk" title="click to pin this mode; click again for auto">TALK</span>
-  <span class="tab rec" id="tab-rec" title="click to pin this mode; click again for auto">RECORD</span>
-  <span class="tab call" id="tab-call" title="click to pin this mode; click again for auto">CALL</span>
+  <span class="tab talk" id="tab-talk" title="TALK: a plain live transcript of your voice conversation with Scout. Click to pin; click again for auto.">TALK</span>
+  <span class="tab rec" id="tab-rec" title="SCRIPT: the teleprompter with Script, Context and Do-not-say tabs; Tab switches, arrows step through the parts; a take records while it runs. Click to pin; click again for auto.">SCRIPT</span>
+  <span class="tab call" id="tab-call" title="CALL: the live-call co-pilot: transcript, suggested answers and your camera into the call. Click to pin; click again for auto.">CALL</span>
   <span class="grow"><span id="rec"></span> <span id="title">connecting…</span></span>
   <span id="spd"></span>
   <span id="media"></span>
   <button id="join" style="display:none">Join call</button>
-  <span id="hide" class="on" title="this window is excluded from every screen capture, stream and screen share (SetWindowDisplayAffinity WDA_EXCLUDEFROMCAPTURE); always on">hidden from capture</span>
+  <span id="hide" class="on" title="this window is excluded from every screen capture, stream and screen share (SetWindowDisplayAffinity WDA_EXCLUDEFROMCAPTURE); always on">hidden</span>
   <button id="gear" title="server URL">⚙</button>
 </header>
 <div id="cfg"><span>server</span><input id="srv" spellcheck="false"><button id="srv-save">save</button></div>
@@ -153,7 +153,7 @@ const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
 // ---------- mode: derived from /health every second, never stored ----------
 let health = { recording: null, call: null }, pinned = null, mode = null;
 const liveCall = () => !!health.call && !/^(bench-|probe)/.test(health.call);
-function autoMode() { return health.recording ? "rec" : liveCall() ? "call" : "talk"; }
+function autoMode() { return health.recording ? "rec" : liveCall() ? "call" : "rec"; }   // no take, no call: the SCRIPT view (Context / Script tabs, key legend); TALK only when pinned
 function setMode() {
   const m = pinned || autoMode();
   if (m !== mode) {
