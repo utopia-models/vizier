@@ -125,13 +125,13 @@ def selftest() -> int:
     URL = f"http://127.0.0.1:{srv.server_port}"
     fixture = [{"ev": "interim", "text": "hello"}, {"ev": "interim", "text": "hello scout"},
                {"ev": "final", "text": "Hello Scout."}, {"ev": "say", "words": 4},
-               {"ev": "say", "text": "Hi Tyler.", "words": 2}, {"ev": "late", "text": "x"},
+               {"ev": "say", "text": "Hi there.", "words": 2}, {"ev": "late", "text": "x"},
                {"ev": "interim", "text": "and"}, {"ev": "interim", "text": "and then"}]
     rows = to_rows(parse(("\n".join(json.dumps(r) for r in fixture) + "\n").encode()))
     post(rows)
     want = [{"ch": "me", "text": "Hello Scout.", "final": True},
             {"ch": "agent", "final": True, "text": "(spoke 4 words)"},
-            {"ch": "agent", "final": True, "text": "Hi Tyler."},
+            {"ch": "agent", "final": True, "text": "Hi there."},
             {"ch": "me", "text": "x", "final": True},
             {"ch": "me", "text": "and then", "final": False}]
     ok = rows == want and got == [{"rows": want}]

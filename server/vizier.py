@@ -397,6 +397,20 @@ async def talk_log(req):
     return web.json_response({"ok": True})
 
 
+async def talk_loopback(req):
+    """POST: the app's loopback check (vizierTalk.loopback()): per audio output, whether this machine's
+    mic hears it and how far echo cancellation brings it down. Kept in DATA/talk-loopback.json; GET returns the last."""
+    f = DATA / "talk-loopback.json"
+    if req.method == "POST":
+        b = await body(req)
+        f.write_text(json.dumps(b, indent=1))
+        return web.json_response({"ok": True})
+    try:
+        return web.json_response(json.loads(f.read_text()))
+    except (OSError, ValueError):
+        return web.json_response({"error": "no loopback report yet: run vizierTalk.loopback() in the app"}, status=404)
+
+
 TALK = {"seq": 0, "lines": [], "partial": None}   # the live conversation with the agent, newest last (TALK mode in the app)
 TALK_KEEP = 300
 
@@ -607,6 +621,8 @@ def make_app() -> web.Application:
     r.add_get("/prompter/goto", prompter_goto)
     r.add_get("/prompter/snap", prompter_snap)
     r.add_post("/talk/log", talk_log)
+    r.add_get("/talk/loopback", talk_loopback)
+    r.add_post("/talk/loopback", talk_loopback)
     r.add_get("/talk/transcript", talk_transcript)
     r.add_post("/talk/transcript", talk_transcript)
     r.add_get("/prompter/follow", prompter_follow)
