@@ -9,7 +9,7 @@ HTML = (Path(__file__).resolve().parents[2] / "app" / "ui" / "index.html").read_
 def test_default_mode_is_the_script_view():
     m = re.search(r"function autoMode\(\) \{ return (.*?); \}", HTML)
     assert m, "autoMode() missing"
-    assert m.group(1).endswith(': "rec"'), "no recording and no call must land on the SCRIPT view, not TALK"
+    assert m.group(1).strip() == '"rec"', "the default is the SCRIPT view (no CALL mode, TALK only when picked)"
 
 
 def test_script_and_context_tabs_exist():
@@ -27,6 +27,14 @@ def test_tab_and_arrow_handlers_exist():
     assert "window.vizierPart" in HTML and "ArrowDown" in HTML and "ArrowUp" in HTML
 
 
-def test_mode_tabs_explain_themselves():
-    for i in ("tab-talk", "tab-rec", "tab-call"):
-        assert re.search(rf'id="{i}" title="[A-Z]+: ', HTML), f"{i} lost its explanation tooltip"
+def test_one_top_row_talk_script_context():
+    """Tyler 2026-11-14: the top bar is TALK / SCRIPT / CONTEXT and nothing else (no second SCRIPT row, no Do not say);
+    Tab cycles them. CALL appears only while a call is live."""
+    for i, label in (("tab-talk", "TALK"), ("tab-rec", "SCRIPT"), ("tab-ctx", "CONTEXT")):
+        assert re.search(rf'id="{i}"[^>]*>{label}</span>', HTML), f"top bar lost {label}"
+    assert re.search(r"#rtabs \{ display:none !important; \}", HTML), "the second tab row must stay hidden"
+    assert 'const order = ["talk", "script", "context"]' in HTML, "Tab must cycle TALK, SCRIPT, CONTEXT"
+
+
+def test_context_tab_is_live_activity():
+    assert "WHAT SCOUT IS DOING" in HTML and "buildlog?n=30" in HTML

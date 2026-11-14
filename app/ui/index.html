@@ -26,6 +26,8 @@
   .tab.on { color:#000; background:var(--hi); font-weight:700; }
   .tab.call.on { background:var(--accent); }
   .tab.talk.on { background:var(--me); }
+  .tab.ctx.on { background:var(--hi); }
+  #rtabs { display:none !important; }   /* the one row of tabs is the header: TALK / SCRIPT / CONTEXT */
   /* TALK: a raw transcript, large, newest at the bottom */
   #talkmain { flex:1; min-height:0; overflow-y:auto; padding:18px 28px 28px; display:flex; flex-direction:column; user-select:text; }
   #talkmain .sp { flex:1 0 0; }
@@ -103,14 +105,16 @@
   #build div.l { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   #build div.l:first-of-type { color:var(--fg); }
   #build.open div.l { white-space:normal; }
+  #doing div.l { padding:2px 0; font-size:15px; } #doing .t { color:#6fbf7a; font:13px ui-monospace, monospace; margin-right:10px; }
   #build .t { color:#6fbf7a; font:12px ui-monospace, monospace; margin-right:8px; }
 </style></head>
 <body>
 <header>
   <span id="dot" title="link to the vizier service"></span><b>Vizier</b>
-  <span class="tab talk" id="tab-talk" title="TALK: a plain live transcript of your voice conversation with Scout. Click to pin; click again for auto.">TALK</span>
-  <span class="tab rec" id="tab-rec" title="SCRIPT: the teleprompter with Script, Context and Do-not-say tabs; Tab switches, arrows step through the parts; a take records while it runs. Click to pin; click again for auto.">SCRIPT</span>
-  <span class="tab call" id="tab-call" title="CALL: the live-call co-pilot: transcript, suggested answers and your camera into the call. Click to pin; click again for auto.">CALL</span>
+  <span class="tab talk" id="tab-talk" title="TALK: a live transcript of your conversation with Scout">TALK</span>
+  <span class="tab rec" id="tab-rec" title="SCRIPT: the teleprompter; arrows step through the parts">SCRIPT</span>
+  <span class="tab ctx" id="tab-ctx" title="CONTEXT: what to know for this script">CONTEXT</span>
+  <span class="tab call" id="tab-call" hidden title="CALL: shown automatically while a call is live">CALL</span>
   <span class="grow"><span id="rec"></span> <span id="title">connecting…</span></span>
   <span id="spd"></span>
   <span id="media"></span>
@@ -122,7 +126,7 @@
 <audio id="callaudio" autoplay></audio>
 
 <section class="mode" id="m-rec">
-  <div id="keylegend"><b>↑ ↓</b> scroll &nbsp;·&nbsp; <b>← →</b> next / previous part &nbsp;·&nbsp; <b>Tab</b> Script / Context &nbsp;·&nbsp; <b>Alt+E</b> ears &nbsp;·&nbsp; <b>Alt+M</b> mouth &nbsp;·&nbsp; <b id="kfollow" style="cursor:pointer" onclick="window.vizierFollow()">Alt+F follow: ON</b></div>
+  <div id="keylegend"><b>↑ ↓</b> scroll &nbsp;·&nbsp; <b>← →</b> next / previous part &nbsp;·&nbsp; <b>Tab</b> Talk / Script / Context &nbsp;·&nbsp; <b>Alt+E</b> ears &nbsp;·&nbsp; <b>Alt+M</b> mouth &nbsp;·&nbsp; <b id="kfollow" style="cursor:pointer" onclick="window.vizierFollow()">Alt+F follow: ON</b></div>
   <nav id="rtabs"><span data-t="script" class="on">SCRIPT</span><span data-t="context" hidden>CONTEXT</span><span data-t="notes" hidden>DO NOT SAY</span></nav>
   <div id="prompt"><div id="text"></div><div id="readline"></div></div>
   <div id="doc"></div>
@@ -153,7 +157,18 @@ const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
 // ---------- mode: derived from /health every second, never stored ----------
 let health = { recording: null, call: null }, pinned = null, mode = null;
 const liveCall = () => !!health.call && !/^(bench-|probe)/.test(health.call);
-function autoMode() { return health.recording ? "rec" : liveCall() ? "call" : "rec"; }   // no take, no call: the SCRIPT view (Context / Script tabs, key legend); TALK only when pinned
+function autoMode() { return "rec"; }   // no CALL mode: on a call you Tab to SCRIPT
+function refreshTabs() {
+  $("tab-talk").classList.toggle("on", mode === "talk");
+  $("tab-rec").classList.toggle("on", mode === "rec" && rtab === "script");
+  $("tab-ctx").classList.toggle("on", mode === "rec" && rtab === "context");
+  $("tab-call").classList.toggle("on", mode === "call"); $("tab-call").hidden = mode !== "call";
+}
+function goTab(n) {   // TALK / SCRIPT / CONTEXT: the one row at the top
+  pinned = n === "talk" ? "talk" : "rec"; setMode();
+  if (n !== "talk") { showTab(n); $("doc").scrollTop = 0; }
+  refreshTabs();
+}
 function setMode() {
   const m = pinned || autoMode();
   if (m !== mode) {
@@ -164,10 +179,10 @@ function setMode() {
     render();
   }
   for (const k of ["rec", "call", "talk"]) $("tab-" + k).classList.toggle("pinned", pinned === k);
+  refreshTabs();
   if (!liveCall() && pcs.length) leave();   // the call ended: stop sending the camera
 }
-for (const [id, m] of [["tab-talk", "talk"], ["tab-rec", "rec"], ["tab-call", "call"]])
-  $(id).onclick = () => { pinned = pinned === m ? null : m; setMode(); };
+$("tab-talk").onclick = () => goTab("talk"); $("tab-rec").onclick = () => goTab("script"); $("tab-ctx").onclick = () => goTab("context");
 async function pollHealth() {
   try {
     const h = await api("health").then(r => r.json());
@@ -303,11 +318,10 @@ window.vizierStep = d => {
   if (rtab === "script") step(d); else $("doc").scrollTop += d * 140;   // CONTEXT / DO NOT SAY scroll by hand
 };
 window.vizierPart = d => { if (mode === "rec" && takes.length) { goTake(t + d); if (recording) record(); } };   // global Left / Right (main.rs)
-window.vizierTab = () => {   // Alt+T from any app, or Tab in the page: SCRIPT -> CONTEXT -> DO NOT SAY -> SCRIPT
-  if (mode !== "rec") return;
-  const tabs = [...document.querySelectorAll("#rtabs span")].filter(x => !x.hidden).map(x => x.dataset.t);
-  if (tabs.length < 2) return;
-  showTab(tabs[(Math.max(0, tabs.indexOf(rtab)) + 1) % tabs.length]); $("doc").scrollTop = 0;
+window.vizierTab = () => {   // Alt+T from any app, or Tab in the page: TALK -> SCRIPT -> CONTEXT -> TALK
+  if (mode === "call") return;
+  const order = ["talk", "script", "context"], cur = mode === "talk" ? "talk" : (rtab === "context" ? "context" : "script");
+  goTab(order[(order.indexOf(cur) + 1) % order.length]);
 };   // the app's global Alt+Down / Alt+Up (main.rs)
 function goTake(i) { t = takes.length ? (i + takes.length) % takes.length : 0; built = ""; curIdx = 0; lastPos = ""; render(); }
 let last = 0, looping = false, pos = 0;   // pos: fractional scroll (scrollTop rounds to device pixels)
@@ -409,13 +423,19 @@ function md(src) {   // just enough markdown for these notes: # headings, nested
   flush(); close(0); return out;
 }
 function showTab(tb) {
-  if (recording) tb = "script";
+  if (recording || tb === "notes") tb = "script";
   rtab = tb;
   document.querySelectorAll("#rtabs span").forEach(s => s.classList.toggle("on", s.dataset.t === tb));
   $("prompt").style.display = tb === "script" ? "" : "none";
   $("doc").classList.toggle("on", tb !== "script");
-  if (tb === "context") $("doc").innerHTML = md(ctx.context.split("\n").map(l => /^#/.test(l) ? unlabel(l) : l).join("\n"));
-  else if (tb === "notes") $("doc").innerHTML = ctx.notes.map(n => `<h2>${inline(unlabel(n.title))}</h2>` + md(n.text)).join("");
+  if (tb === "context") {
+    const top = $("doc").scrollTop;
+    const doing = buildLines.slice().reverse().map(l => { const m = l.match(/^(?:\d{4}-\d\d-\d\d[ T])?(\d\d:\d\dZ?):?\s+(.*)$/);
+      return `<div class="l">${m ? `<span class="t">${esc(m[1])}</span>${esc(m[2])}` : esc(l)}</div>`; }).join("");
+    $("doc").innerHTML = `<h2>WHAT SCOUT IS DOING</h2><div id="doing">${doing || "<p>Nothing running right now.</p>"}</div>` + md(ctx.context.split("\n").map(l => /^#/.test(l) ? unlabel(l) : l).join("\n"));
+    $("doc").scrollTop = top;
+  }
+  refreshTabs();
 }
 document.querySelectorAll("#rtabs span").forEach(s => s.onclick = () => { showTab(s.dataset.t); $("doc").scrollTop = 0; });
 async function context() {
@@ -545,9 +565,10 @@ window.vizierSelftest = async () => {
 };
 
 // ---------- BUILD: tail of the server's build log via GET /buildlog (VIZIER_BUILD_LOG) ----------
-let buildOpen = false;
+let buildOpen = false, buildLines = [];
 async function buildlog() {
-  const j = await api("buildlog?n=12").then(r => r.json()).catch(() => null);
+  const j = await api("buildlog?n=30").then(r => r.json()).catch(() => null);
+  buildLines = (j && j.lines) || []; if (mode === "rec" && rtab === "context") showTab("context");   // CONTEXT is live
   if (!j || !j.lines || !j.lines.length) { $("build").classList.remove("on"); return; }
   const ago = j.mtime ? Math.max(0, Math.round((Date.now() / 1000 - j.mtime) / 60)) : null;
   const shown = j.lines.slice().reverse().slice(0, buildOpen ? 12 : 3);
