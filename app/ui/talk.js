@@ -208,6 +208,18 @@ export async function loopback({ freq = 1000, ms = 900 } = {}) {
 }
 
 window.vizierTalk = { toggle, start, state, loopback };
+// POST /talk/loopback/run on the server asks this page to run the check (no console in the release app): poll its counter.
+(function pollLoopbackRun() {
+  let seen = null;
+  setInterval(async () => {
+    if (!serverBase) return;
+    try {
+      const n = (await (await fetch(serverBase + "/talk/loopback/run")).json()).n;
+      if (seen === null) { seen = n; return; }   // the first read is the baseline, never a run
+      if (n !== seen) { seen = n; await loopback(); }
+    } catch (e) { /* server not reachable yet */ }
+  }, 5000);
+})();
 window.addEventListener("keydown", (e) => {   // in-page fallback (a plain browser, or the app focused)
   if (!e.altKey || e.ctrlKey || e.metaKey) return;
   const k = e.code === "KeyE" ? "ears" : e.code === "KeyM" ? "mouth" : null;

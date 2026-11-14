@@ -411,6 +411,16 @@ async def talk_loopback(req):
         return web.json_response({"error": "no loopback report yet: run vizierTalk.loopback() in the app"}, status=404)
 
 
+LOOPBACK_RUN = {"n": 0}   # bumped by POST /talk/loopback/run; the app polls it and runs the loopback check when it changes
+
+
+async def talk_loopback_run(req):
+    """POST: ask the app to run vizierTalk.loopback() now (it polls GET; nothing to reload). GET: {"n": N}."""
+    if req.method == "POST":
+        LOOPBACK_RUN["n"] += 1
+    return web.json_response(dict(LOOPBACK_RUN))
+
+
 TALK = {"seq": 0, "lines": [], "partial": None}   # the live conversation with the agent, newest last (TALK mode in the app)
 TALK_KEEP = 300
 
@@ -623,6 +633,8 @@ def make_app() -> web.Application:
     r.add_post("/talk/log", talk_log)
     r.add_get("/talk/loopback", talk_loopback)
     r.add_post("/talk/loopback", talk_loopback)
+    r.add_get("/talk/loopback/run", talk_loopback_run)
+    r.add_post("/talk/loopback/run", talk_loopback_run)
     r.add_get("/talk/transcript", talk_transcript)
     r.add_post("/talk/transcript", talk_transcript)
     r.add_get("/prompter/follow", prompter_follow)
