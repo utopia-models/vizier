@@ -10,7 +10,7 @@
 // LiveKit SDK. Ears off also mutes the mic track; Mouth off also unsubscribes from the agent's audio here.
 import { Room, RoomEvent, Track } from "https://cdn.jsdelivr.net/npm/livekit-client@2.15.7/+esm";
 
-// Ears and Mouth are ON at every start (knowledge#13786, Tyler 2026-11-15: "I need Scout on demand at all times"; the
+// Ears and Mouth are ON at every start (the deployment's issue 13786, the user 2026-11-15: "I need Scout on demand at all times"; the
 // agent's voice must be heard on the laptop every time). A switch kept off from an earlier session silenced the agent
 // on the next launch with nothing on screen saying why (fresh WebView profile: both off, so nothing was ever heard).
 // When the agent speaks is the room's job (its ears process answers only a line that names it), not a stale switch.
