@@ -39,10 +39,33 @@ fn place(w: &WebviewWindow) {
     }
 }
 
+/// `vizier.exe --smoke [--smoke-port=N] [--config=<file>]`: the app as the smoke test drives it (scripts/smoke/smoke.py).
+/// WebView2 opens a DevTools port (default 9339) so the harness drives the real page with real key and wheel events, in a
+/// profile of its own (%PUBLIC%\\vizier\\smoke\\webview), and no global shortcut is registered (the user's running Vizier
+/// holds them; the harness presses Alt+V / Alt+R / Alt+E / Alt+M through `smoke_key`, the same code the shortcuts run).
+fn smoke() -> bool {
+    std::env::args().any(|a| a == "--smoke")
+}
+fn arg(name: &str) -> Option<String> {
+    std::env::args().find_map(|a| a.strip_prefix(&format!("--{name}=")).map(str::to_string))
+}
+
 fn main() {
-    tauri::Builder::default()
-        .plugin(talk_shortcuts())
-        .setup(|app| {
+    if smoke() {
+        let port = arg("smoke-port").unwrap_or_else(|| "9339".into());
+        // The env var replaces the window's additionalBrowserArgs, so it carries them too (tauri.conf.json is the source).
+        let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap_or_default();
+        let base = conf["app"]["windows"][0]["additionalBrowserArgs"].as_str().unwrap_or("").to_string();
+        std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", format!("{base} --remote-debugging-port={port}"));
+        let dir = std::env::var("PUBLIC").map(|p| std::path::PathBuf::from(p).join("vizier").join("smoke").join("webview"))
+            .unwrap_or_else(|_| std::env::temp_dir().join("vizier-smoke-webview"));
+        std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", dir);
+    }
+    let mut b = tauri::Builder::default();
+    if !smoke() {
+        b = b.plugin(talk_shortcuts());
+    }
+    b.setup(|app| {
             let w = app.get_webview_window("main").expect("main window");
             place(&w);
             w.set_content_protected(true)?;
@@ -92,7 +115,7 @@ fn main() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![selftest_report, config, snapshot])
+        .invoke_handler(tauri::generate_handler![selftest_report, config, snapshot, smoke_key])
         .run(tauri::generate_context!())
         .expect("error while running Vizier");
 }
@@ -128,44 +151,10 @@ fn talk_shortcuts() -> tauri::plugin::TauriPlugin<tauri::Wry> {
             if ev.state() != ShortcutState::Pressed {
                 return;
             }
-            if sc == &vizier {
-                let now = std::time::Instant::now();
-                if let Some(w) = app.get_webview_window("main") {
-                    let parked = park::parked_for(now).is_some();
-                    match park::toggle(parked, w.is_minimized().unwrap_or(false)) {
-                        park::Toggle::Minimize => {
-                            park::set_parked(Some(now));
-                            let _ = w.minimize();
-                        }
-                        park::Toggle::Restore => {
-                            park::set_parked(None);
-                            let _ = w.unminimize();
-                            let _ = w.show();
-                            let _ = w.set_always_on_top(true);
-                            place(&w);
-                            let _ = w.set_focus();
-                        }
-                    }
-                }
-                return;
-            }
-            if sc == &rec {
-                rec_toggle(app);
-                return;
-            }
-            if sc == &follow {
-                if let Some(w) = app.get_webview_window("main") {
-                    let _ = w.eval("window.vizierFollow&&window.vizierFollow()");
-                }
-                return;
-            }
-            if sc == &pleft || sc == &pright {
-                if let Some(w) = app.get_webview_window("main") {
-                    let d = if sc == &pright { 1 } else { -1 };
-                    let _ = w.eval(&format!("window.vizierPart&&window.vizierPart({d})"));
-                }
-                return;
-            }
+            let name = if sc == &vizier { "alt+v" } else if sc == &rec { "alt+r" } else if sc == &follow { "alt+f" }
+                else if sc == &pleft { "left" } else if sc == &pright { "right" } else if sc == &tab || sc == &ptab { "tab" }
+                else if sc == &down || sc == &pdown { "down" } else if sc == &up || sc == &pup { "up" }
+                else if sc == &ears { "alt+e" } else if sc == &mouth { "alt+m" } else { "" };
             if sc == &lock {
                 let gs = app.global_shortcut();
                 if gs.is_registered(ptab) {
@@ -175,25 +164,55 @@ fn talk_shortcuts() -> tauri::plugin::TauriPlugin<tauri::Wry> {
                 }
                 return;
             }
-            if sc == &tab || sc == &ptab {
-                if let Some(w) = app.get_webview_window("main") {
-                    let _ = w.eval("window.vizierTab&&window.vizierTab()");
-                }
-                return;
-            }
-            if sc == &down || sc == &up || sc == &pdown || sc == &pup {
-                if let Some(w) = app.get_webview_window("main") {
-                    let d = if sc == &down || sc == &pdown { 1 } else { -1 };
-                    let _ = w.eval(&format!("window.vizierStep&&window.vizierStep({d})"));
-                }
-                return;
-            }
-            let k = if sc == &ears { "ears" } else if sc == &mouth { "mouth" } else { return };
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.eval(&format!("window.vizierTalk&&window.vizierTalk.state.room&&window.vizierTalk.toggle('{k}','hotkey')"));
-            }
+            hotkey(app, name);
         })
         .build()
+}
+
+/// What a global shortcut does, by name: the one place both the shortcuts and the smoke test (`smoke_key`) run.
+fn hotkey(app: &tauri::AppHandle, name: &str) {
+    let Some(w) = app.get_webview_window("main") else { return };
+    match name {
+        "alt+v" => {
+            let now = std::time::Instant::now();
+            let parked = park::parked_for(now).is_some();
+            match park::toggle(parked, w.is_minimized().unwrap_or(false)) {
+                park::Toggle::Minimize => {
+                    park::set_parked(Some(now));
+                    let _ = w.minimize();
+                }
+                park::Toggle::Restore => {
+                    park::set_parked(None);
+                    let _ = w.unminimize();
+                    let _ = w.show();
+                    let _ = w.set_always_on_top(true);
+                    place(&w);
+                    let _ = w.set_focus();
+                }
+            }
+        }
+        "alt+r" => rec_toggle(app),
+        "alt+f" => { let _ = w.eval("window.vizierFollow&&window.vizierFollow()"); }
+        "left" | "right" => { let _ = w.eval(&format!("window.vizierPart&&window.vizierPart({})", if name == "right" { 1 } else { -1 })); }
+        "tab" => { let _ = w.eval("window.vizierTab&&window.vizierTab()"); }
+        "down" | "up" => { let _ = w.eval(&format!("window.vizierStep&&window.vizierStep({})", if name == "down" { 1 } else { -1 })); }
+        "alt+e" | "alt+m" => {
+            let k = if name == "alt+e" { "ears" } else { "mouth" };
+            let _ = w.eval(&format!("window.vizierTalk&&window.vizierTalk.state.room&&window.vizierTalk.toggle('{k}','hotkey')"));
+        }
+        _ => {}
+    }
+}
+
+/// The smoke test presses a global shortcut (only in `--smoke`; a normal launch refuses): -> is the window minimized after.
+#[tauri::command]
+fn smoke_key(app: tauri::AppHandle, w: WebviewWindow, key: String) -> Result<bool, String> {
+    if !smoke() {
+        return Err("smoke_key works only in --smoke".into());
+    }
+    hotkey(&app, &key);
+    std::thread::sleep(std::time::Duration::from_millis(250));
+    Ok(w.is_minimized().unwrap_or(false))
 }
 
 /// Alt+R: a VSL take on / off, native end to end. The page shows the asked-for state at once (vizierRecLocal), and this
@@ -271,7 +290,9 @@ fn config(app: tauri::AppHandle) -> serde_json::Value {
     if let Ok(d) = app.path().app_config_dir() {
         files.push(d.join("config.json"));
     }
-    if let Some(d) = std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.to_path_buf())) {
+    if let Some(f) = arg("config") {
+        files.push(std::path::PathBuf::from(f));   // `--config=<file>` (the smoke test): instead of vizier.json
+    } else if let Some(d) = std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.to_path_buf())) {
         files.push(d.join("vizier.json"));
     }
     for f in files {
