@@ -96,7 +96,10 @@ class CDP:
     async def call(self, method, **params):
         self.n += 1; f = asyncio.get_event_loop().create_future(); self.pending[self.n] = f
         await self.ws.send_str(json.dumps({"id": self.n, "method": method, "params": params}))
-        j = await asyncio.wait_for(f, 20)
+        try:
+            j = await asyncio.wait_for(f, 30)
+        except asyncio.TimeoutError:
+            raise RuntimeError(f"{method} {str(params)[:120]}: no answer in 30 s")
         if "error" in j: raise RuntimeError(f"{method}: {j['error']}")
         return j.get("result", {})
 
@@ -202,6 +205,10 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
            str(await c.js("window.vizierTalk.state.status")))
     await c.shot(out, "start")
     if talk and AUDIO_SECS:
+        await until(lambda: c.js("!!window.vizierTalk.state.mic"), 8)
+        print("AUDIO-DEVICES " + json.dumps(await c.js("(async()=>{const st=vizierTalk.state;const d=await navigator.mediaDevices.enumerateDevices();"
+              "return {status:st.status,room:st.room&&st.room.name,me:st.room&&st.room.localParticipant.identity,mic:!!st.mic,"
+              "devices:d.map(x=>x.kind+':'+x.label)}})()")), flush=True)
         print(f"AUDIO-HOLD {AUDIO_SECS}s: Ears and Mouth on, in room {ROOM}", flush=True)
         r = await c.js(f"{AUDIO_JS}({AUDIO_SECS})")
         print("AUDIO " + json.dumps(r), flush=True)
