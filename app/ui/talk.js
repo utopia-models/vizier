@@ -8,7 +8,7 @@
 // Nothing here transcribes or stores audio: an agent process in the same room does that and answers in its own voice.
 // The switches are this participant's attributes, ears=on|off and mouth=on|off, so the agent side reads them with any
 // LiveKit SDK. Ears off also mutes the mic track; Mouth off also unsubscribes from the agent's audio here.
-import { Room, RoomEvent, Track } from "https://cdn.jsdelivr.net/npm/livekit-client@2.15.7/+esm";
+import { AudioPresets, Room, RoomEvent, Track } from "https://cdn.jsdelivr.net/npm/livekit-client@2.15.7/+esm";
 
 // Ears and Mouth are ON at every start (the deployment's issue 13786, the user 2026-11-15: "I need Scout on demand at all times"; the
 // agent's voice must be heard on the laptop every time). A switch kept off from an earlier session silenced the agent
@@ -57,7 +57,13 @@ async function publishSwitches() {
 async function applyEars() {
   if (!state.room) return;
   if (state.ears && !state.mic) {
-    await state.room.localParticipant.setMicrophoneEnabled(true, { echoCancellation: true, noiseSuppression: true, autoGainControl: true });
+    // Stock WebRTC processing on the capture (Chrome's AEC3 echo canceller, noise suppression, AGC; voiceIsolation where
+    // the platform has it), one channel. Published with DTX and RED off (the user 2026-11-15 3:13 PM, "a lot of buzz
+    // with Vizier"): with DTX on, a quiet mic sends sparse comfort-noise packets, and what the agent decoded from the
+    // laptop was 536 Hz bursts at -30.7 dBFS RMS while the mic itself read -109 dBFS (scripts/smoke, AUDIO step).
+    await state.room.localParticipant.setMicrophoneEnabled(true,
+      { echoCancellation: true, noiseSuppression: true, autoGainControl: true, voiceIsolation: true, channelCount: 1 },
+      { dtx: false, red: false, audioPreset: AudioPresets.speech });
     state.mic = state.room.localParticipant.getTrackPublication(Track.Source.Microphone);
   } else if (state.mic) {
     await state.room.localParticipant.setMicrophoneEnabled(state.ears);
