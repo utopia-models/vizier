@@ -643,11 +643,11 @@ every(15000, () => mode === "desks" ? loadDesks() : null);
 window.vizierPanels = { panel, settingRows, goTab };   // headless checks
 
 // ---------- CALL: the feed renderer over WS /feed (frames: docs/openapi.yaml) ----------
-const sugs = {}, seenSeq = new Set(); let ws, seenCall = null;
+const sugs = {}, seenSeq = new Set(); let ws, seenCall = null, feedUp = null;
 function connect() {
   ws = new WebSocket(SERVER.replace(/^http/, "ws") + "/feed");
-  ws.onopen = () => $("dot").classList.add("on");
-  ws.onclose = () => { $("dot").classList.remove("on"); setTimeout(connect, 800); };
+  ws.onopen = () => { $("dot").classList.add("on"); if (!feedUp) { feedUp = true; window.vizierTalkLog && window.vizierTalkLog("feed linked to " + SERVER); } };
+  ws.onclose = () => { $("dot").classList.remove("on"); if (feedUp !== false) { feedUp = false; window.vizierTalkLog && window.vizierTalkLog("feed lost: " + SERVER); } setTimeout(connect, 800); };
   ws.onmessage = e => {
     const f = JSON.parse(e.data);
     if (f.type === "status") {
@@ -788,5 +788,5 @@ $("build").onclick = () => { buildOpen = !buildOpen; $("build").classList.toggle
   connect(); pollHealth(); buildlog(); context(); scripts(); coach();
   every(1000, pollHealth); every(500, pollTalk); every(2000, coach); every(2000, scripts); every(5000, buildlog); every(5000, context);
 })();
-</script><script type="module" src="talk.js"></script>
+</script><script type="module" src="talk.js" onerror="window.__TAURI__&&window.__TAURI__.core.invoke('talk_log',{line:new Date().toISOString()+' talk.js did not load: no talk link'})"></script>
 </body></html>

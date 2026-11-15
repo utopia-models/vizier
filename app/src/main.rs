@@ -327,6 +327,23 @@ fn selftest_report(w: WebviewWindow, text: String) -> Result<(), String> {
     std::fs::write(dir.join("selftest.txt"), format!("{text}\n{geo}\n")).map_err(|e| e.to_string())
 }
 
+/// `talk_log`: one line from ui/talk.js (every join attempt, join, failure, disconnect, and the feed link) appended to
+/// %PUBLIC%\\vizier\\talk.log (smoke runs: smoke\\talk.log), so why the app is or is not in its LiveKit room reads over ssh
+/// with no console. Kept under 1 MB: past that the file starts over.
+#[tauri::command]
+fn talk_log(line: String) -> Result<(), String> {
+    use std::io::Write;
+    let mut dir = std::env::var("PUBLIC").map(|p| std::path::PathBuf::from(p).join("vizier")).unwrap_or_else(|_| std::env::temp_dir());
+    if smoke() {
+        dir = dir.join("smoke");
+    }
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let f = dir.join("talk.log");
+    let fresh = std::fs::metadata(&f).map(|m| m.len() > 1_000_000).unwrap_or(false);
+    let mut o = std::fs::OpenOptions::new().create(true).append(!fresh).write(true).truncate(fresh).open(&f).map_err(|e| e.to_string())?;
+    writeln!(o, "{}", line.replace(['\r', '\n'], " ")).map_err(|e| e.to_string())
+}
+
 /// `snapshot`: what the prompter shows right now, to %PUBLIC%\\vizier\\live.png, so an agent can LOOK at it over ssh (the
 /// window is excluded from every screen capture on purpose). The page calls it when POST /prompter/snap asks for one.
 #[tauri::command]

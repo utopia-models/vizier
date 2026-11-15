@@ -339,7 +339,7 @@ async def run(a):
     if talk:
         cfg.update(talkUrl=a.talk_url, talkToken=jwt(a.livekit_key, a.livekit_secret, a.room, "vizier-smoke"))
     try:
-        r = ps(a.host, f"New-Item -ItemType Directory -Force '{d}' | Out-Null; Stop-ScheduledTask vizier-smoke -ErrorAction SilentlyContinue; "
+        r = ps(a.host, f"New-Item -ItemType Directory -Force '{d}' | Out-Null; Remove-Item '{d}\\talk.log' -ErrorAction SilentlyContinue; Stop-ScheduledTask vizier-smoke -ErrorAction SilentlyContinue; "
                        f"Get-CimInstance Win32_Process -Filter \"name='vizier.exe'\" | Where-Object {{ $_.CommandLine -match '--smoke' }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force }}; 'ready'")
         if "ready" not in r.stdout: return ok("the Windows box is reachable", False, r.stderr.strip()[:200])
         (tmp / "smoke.json").write_text(json.dumps(cfg))
@@ -368,6 +368,9 @@ Register-ScheduledTask -TaskName vizier-smoke -Action $a -Settings $s -Principal
                     try: await c.shot(out, "crash")
                     except Exception: pass  # noqa: BLE001,E701
                 for l in list(dict.fromkeys(c.log))[:15]: print("  page log:", l)
+                tl = ps(a.host, f"Get-Content '{d}\\talk.log' -Tail 30 -ErrorAction SilentlyContinue").stdout
+                ok("talk.log records the page's link (headless-readable)", "talk.js loaded" in tl and "feed linked" in tl
+                   and (not talk or f"joined room {a.room}" in tl), " | ".join(tl.strip().splitlines()[-4:])[:300])
                 pump.cancel()
     finally:
         ps(a.host, "Stop-ScheduledTask vizier-smoke -ErrorAction SilentlyContinue; Get-CimInstance Win32_Process -Filter \"name='vizier.exe'\" | "
