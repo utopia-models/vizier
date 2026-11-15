@@ -37,6 +37,7 @@ paths:
                   recording: { type: [string, "null"], description: the take being recorded }
                   feed_clients: { type: integer }
                   script: { type: string, description: file name of the prompter's current script }
+                  cam_wanted: { type: boolean, description: "VIZIER_CAM_WANTED_CMD exits 0: the app publishes the camera to media by itself while true" }
   /call/start:
     post:
       summary: Open a call (ends any open one). Posting a line or bullets with no call open opens one.

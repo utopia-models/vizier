@@ -84,6 +84,11 @@ TALK_SCRIPTS = Path(os.environ.get("VIZIER_TALK_SCRIPTS", DATA / "talk-scripts")
 BRIEFS = Path(os.environ.get("VIZIER_BRIEFS", DATA / "briefs"))                     # /prompter/scripts?brief=<slug>
 TAKES = Path(os.environ.get("VIZIER_TAKES", DATA / "takes"))
 CAM = os.environ.get("VIZIER_CAM", "")       # an RTSP camera stream a take copies; empty = recording off
+# A shell command whose exit 0 means "a call wants the laptop camera now" (for example: the meeting browser is open).
+# /health reports it as cam_wanted and the desktop app publishes the camera by itself while it is true, so nobody has
+# to click Join call (and the meeting never shows "camera might be blocked" over a black frame). Empty = always false.
+CAM_WANTED_CMD = os.environ.get("VIZIER_CAM_WANTED_CMD", "")
+CAM_WANTED_TTL = float(os.environ.get("VIZIER_CAM_WANTED_TTL", "2"))
 BUILD_LOG = Path(os.environ.get("VIZIER_BUILD_LOG", DATA / "build-log.md"))
 MAX_LINES = int(os.environ.get("VIZIER_MAX_LINES", "5000"))   # a call keeps at most this many lines in memory
 CHANNELS = ("me", "them")
@@ -571,11 +576,35 @@ async def buildlog(req):
     return web.json_response({"source": BUILD_LOG.name, "lines": rows, "mtime": st.st_mtime, "size": st.st_size})
 
 
+_CAM_WANTED = {"at": 0.0, "v": False}
+
+
+async def cam_wanted() -> bool:
+    """VIZIER_CAM_WANTED_CMD's exit status, cached CAM_WANTED_TTL seconds (the app polls /health every second). A
+    command that fails to run or takes over 3 s counts as not wanted."""
+    if not CAM_WANTED_CMD:
+        return False
+    if time.monotonic() - _CAM_WANTED["at"] < CAM_WANTED_TTL:
+        return _CAM_WANTED["v"]
+    v = False
+    try:
+        p = await asyncio.create_subprocess_shell(CAM_WANTED_CMD, stdout=asyncio.subprocess.DEVNULL,
+                                                  stderr=asyncio.subprocess.DEVNULL)
+        try:
+            v = await asyncio.wait_for(p.wait(), 3) == 0
+        except asyncio.TimeoutError:
+            p.kill()
+    except OSError:
+        pass
+    _CAM_WANTED.update(at=time.monotonic(), v=v)
+    return v
+
+
 async def health(req):
     c = S(req.app).call
     return web.json_response({"ok": True, "recording": REC.get("take"), "call": c.id if c else None,
                               "lines": len(c.lines) if c else 0, "feed_clients": len(S(req.app).feed.clients),
-                              "script": current_script(req.app).name})
+                              "script": current_script(req.app).name, "cam_wanted": await cam_wanted()})
 
 
 async def openapi(_):

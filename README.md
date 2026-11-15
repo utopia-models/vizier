@@ -106,6 +106,7 @@ Everything is an environment variable; `--config <file>` (or `$VIZIER_CONFIG`, o
 | `VIZIER_DATA` | data directory: posted script, takes, event log | `~/.vizier` |
 | `VIZIER_SCRIPTS` | the prompter's script before any `POST /script` (markdown, one `## ` block per take); the last posted script, or a `{"clear": true}`, survives a restart | `$VIZIER_DATA/scripts.md` |
 | `VIZIER_CAM` | an RTSP camera stream the prompter's **R** key records takes from (needs ffmpeg) | — (off) |
+| `VIZIER_CAM_WANTED_CMD` | a shell command whose exit 0 means a call wants your camera now; `/health` reports it as `cam_wanted` and the app joins (camera + mic out, call audio in) by itself while it is true, and leaves when it goes false | — (never) |
 | `VIZIER_ALLOWED_ORIGINS` | extra CORS origins (comma-separated) besides the desktop app's | — |
 
 The desktop app finds the server, in order: `?server=` · the ⚙ field (saved locally) · `VIZIER_SERVER` env ·
@@ -119,7 +120,8 @@ The desktop app finds the server, in order: `?server=` · the ⚙ field (saved l
 part title and `"name:"` before a line.
 
 `media` is an optional WebRTC server (for example MediaMTX) for **Join call**: it takes your camera over WHIP at
-`<media>/<camPath>/whip` and plays the call's audio over WHEP from `<media>/<callPath>/whep`.
+`<media>/<camPath>/whip` and plays the call's audio over WHEP from `<media>/<callPath>/whep`. With
+`VIZIER_CAM_WANTED_CMD` set on the server the app joins and leaves on its own; nobody clicks.
 
 ## Desktop app
 

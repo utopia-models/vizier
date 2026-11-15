@@ -194,6 +194,7 @@ async function pollHealth() {
       if (i >= 0 && i !== t) goTake(i);
     }
     else if (!$("rec").textContent.startsWith("saved")) $("rec").textContent = "";
+    autoCam(!!h.cam_wanted);
     setMode();
   } catch { $("dot").classList.remove("on"); }
 }
@@ -527,7 +528,23 @@ async function join() {
     $("media").textContent = "camera live";
   } catch (e) { $("media").textContent = "camera error: " + e.message; if (joining) setTimeout(() => joining && join(), 3000); }
 }
-$("join").onclick = () => (pcs.length || joining) ? leave() : join();
+$("join").onclick = () => { autoJoined = false; (pcs.length || joining) ? leave() : join(); };
+// The camera goes out by itself (a user asked twice: "why does it say camera might be blocked? Just use my laptop
+// camera."): while the server says a call wants it (/health cam_wanted) the app joins with no click, and it leaves
+// only a join it made itself once that goes false. A click on Join call / Leave takes over until the next change.
+let autoJoined = false, lastWanted = false;
+function camStep(wanted, live, auto, last) {
+  if (wanted === last) return "none";
+  if (wanted && !live) return "join";
+  if (!wanted && live && auto) return "leave";
+  return "none";
+}
+function autoCam(wanted) {
+  const a = camStep(wanted, !!(pcs.length || joining), autoJoined, lastWanted);
+  lastWanted = wanted;
+  if (a === "join") { autoJoined = true; join(); }
+  else if (a === "leave") { autoJoined = false; leave(); }
+}
 
 // ---------- hidden from capture: always on, set and re-asserted by main.rs (no switch) ----------
 
