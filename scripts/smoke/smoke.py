@@ -28,6 +28,7 @@ import aiohttp
 
 REPO = Path(__file__).resolve().parents[2]
 RESULTS = []
+AUDIO_SECS, ROOM = 5, "vizier-smoke"
 
 
 def free_port():
@@ -133,6 +134,36 @@ async def until(fn, secs=10, step=0.2):
     return v
 
 
+# The laptop mic as the room gets it: the Ears track itself (after the WebRTC processing the app asks for) and, beside it,
+# the same mic with every processing step off. 20 ms frames -> RMS dBFS (p10 = the floor between words, where a buzz
+# lives), and the share of energy under 300 Hz (mains hum and fan buzz) from an FFT.
+AUDIO_JS = """(async (secs) => {
+  const st = window.vizierTalk.state, pub = st.mic, track = pub && pub.track && pub.track.mediaStreamTrack;
+  const raw = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+  const ac = new AudioContext(); await ac.resume();
+  const meter = (stream) => { const a = ac.createAnalyser(); a.fftSize = 2048; ac.createMediaStreamSource(stream).connect(a);
+    return { a, frames: [], low: 0, all: 0, peakHz: {} }; };
+  const m = { ears: track ? meter(new MediaStream([track])) : null, raw: meter(raw) };
+  const t = new Float32Array(2048), f = new Float32Array(1024), binHz = ac.sampleRate / 2048, end = performance.now() + secs * 1000;
+  while (performance.now() < end) {
+    for (const k in m) { const x = m[k]; if (!x) continue;
+      x.a.getFloatTimeDomainData(t); let e = 0; for (const v of t) e += v * v; x.frames.push(Math.sqrt(e / t.length));
+      x.a.getFloatFrequencyData(f); let best = 0;
+      for (let i = 1; i < f.length; i++) { const p = Math.pow(10, f[i] / 10); x.all += p; if (i * binHz < 300) x.low += p; if (f[i] > f[best]) best = i; }
+      const hz = Math.round(best * binHz / 10) * 10; x.peakHz[hz] = (x.peakHz[hz] || 0) + 1; }
+    await new Promise(r => setTimeout(r, 20));
+  }
+  raw.getTracks().forEach(x => x.stop()); await ac.close();
+  const db = v => Math.round(20 * Math.log10(Math.max(v, 1e-9)) * 10) / 10;
+  const out = { sampleRate: ac.sampleRate, settings: track ? track.getSettings() : null };
+  for (const k in m) { const x = m[k]; if (!x) { out[k] = null; continue; }
+    const s = x.frames.slice().sort((p, q) => p - q), rms = Math.sqrt(x.frames.reduce((p, v) => p + v * v, 0) / x.frames.length);
+    out[k] = { rms_db: db(rms), floor_p10_db: db(s[Math.floor(s.length * .1)]), p50_db: db(s[Math.floor(s.length * .5)]),
+      under300Hz_pct: Math.round(100 * x.low / Math.max(x.all, 1e-30)),
+      peakHz: Object.entries(x.peakHz).sort((p, q) => q[1] - p[1]).slice(0, 3).map(e => +e[0]) }; }
+  return out;
+})"""
+
 MODE = "document.body.dataset.mode + '/' + (window.vizierPanels ? '' : '') + (document.querySelector('header .tab.on')||{}).id"
 
 
@@ -170,6 +201,13 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
         ok("the talk link joined LiveKit", await until(lambda: c.js("!!window.vizierTalk.state.room"), 20),
            str(await c.js("window.vizierTalk.state.status")))
     await c.shot(out, "start")
+    if talk and AUDIO_SECS:
+        print(f"AUDIO-HOLD {AUDIO_SECS}s: Ears and Mouth on, in room {ROOM}", flush=True)
+        r = await c.js(f"{AUDIO_JS}({AUDIO_SECS})")
+        print("AUDIO " + json.dumps(r), flush=True)
+        ok("audio: the Ears track is the processed mic (echo cancellation, noise suppression, auto gain on)",
+           r.get("ears") and all((r.get("settings") or {}).get(k) is not False for k in ("echoCancellation", "noiseSuppression", "autoGainControl")),
+           f"ears {r.get('ears')} raw {r.get('raw')} settings {r.get('settings')}")
 
     # ---- Tab: TALK -> SETTINGS -> DESKS -> AGENTS -> SCRIPT -> TALK
     seen = []
@@ -322,7 +360,7 @@ Register-ScheduledTask -TaskName vizier-smoke -Action $a -Settings $s -Principal
                     ok("the run finished", False, f"{type(e).__name__}: {e}")
                     try: await c.shot(out, "crash")
                     except Exception: pass  # noqa: BLE001,E701
-                for l in c.log[:25]: print("  page log:", l)
+                for l in list(dict.fromkeys(c.log))[:15]: print("  page log:", l)
                 pump.cancel()
     finally:
         ps(a.host, "Stop-ScheduledTask vizier-smoke -ErrorAction SilentlyContinue; Get-CimInstance Win32_Process -Filter \"name='vizier.exe'\" | "
@@ -341,7 +379,10 @@ def main():
     ap.add_argument("--talk-url", default=""); ap.add_argument("--room", default="vizier-smoke")
     ap.add_argument("--livekit-key", default=os.environ.get("LIVEKIT_API_KEY", ""))
     ap.add_argument("--livekit-secret", default=os.environ.get("LIVEKIT_API_SECRET", ""))
+    ap.add_argument("--audio-seconds", type=float, default=5, help="measure the laptop mic this long (needs the talk link); 0 = skip")
     a = ap.parse_args()
+    global AUDIO_SECS, ROOM
+    AUDIO_SECS, ROOM = a.audio_seconds, a.room
     asyncio.run(run(a))
     bad = [r for r in RESULTS if not r[0]]
     print(f"\n{'PASS' if RESULTS and not bad else 'FAIL'}: {len(RESULTS) - len(bad)}/{len(RESULTS)} steps; screenshots in {a.out}")
