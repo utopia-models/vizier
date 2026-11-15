@@ -644,10 +644,11 @@ window.vizierPanels = { panel, settingRows, goTab };   // headless checks
 
 // ---------- CALL: the feed renderer over WS /feed (frames: docs/openapi.yaml) ----------
 const sugs = {}, seenSeq = new Set(); let ws, seenCall = null, feedUp = null;
+const tl = m => { try { window.__TAURI__ && window.__TAURI__.core.invoke("talk_log", { line: new Date().toISOString() + " " + m }).catch(() => {}); } catch {} };   // %PUBLIC%\vizier\talk.log
 function connect() {
   ws = new WebSocket(SERVER.replace(/^http/, "ws") + "/feed");
-  ws.onopen = () => { $("dot").classList.add("on"); if (!feedUp) { feedUp = true; window.vizierTalkLog && window.vizierTalkLog("feed linked to " + SERVER); } };
-  ws.onclose = () => { $("dot").classList.remove("on"); if (feedUp !== false) { feedUp = false; window.vizierTalkLog && window.vizierTalkLog("feed lost: " + SERVER); } setTimeout(connect, 800); };
+  ws.onopen = () => { $("dot").classList.add("on"); if (!feedUp) { feedUp = true; tl("feed linked to " + SERVER); } };
+  ws.onclose = () => { $("dot").classList.remove("on"); if (feedUp !== false) { feedUp = false; tl("feed lost: " + SERVER); } setTimeout(connect, 800); };
   ws.onmessage = e => {
     const f = JSON.parse(e.data);
     if (f.type === "status") {

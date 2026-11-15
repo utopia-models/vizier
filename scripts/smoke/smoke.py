@@ -28,7 +28,7 @@ import aiohttp
 
 REPO = Path(__file__).resolve().parents[2]
 RESULTS = []
-AUDIO_SECS, ROOM = 5, "vizier-smoke"
+AUDIO_SECS, ROOM, AUDIO_ONLY = 5, "vizier-smoke", False
 
 
 def free_port():
@@ -215,6 +215,8 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
         ok("audio: the Ears track is the processed mic (echo cancellation, noise suppression, auto gain on)",
            r.get("ears") and all((r.get("settings") or {}).get(k) is not False for k in ("echoCancellation", "noiseSuppression", "autoGainControl")),
            f"ears {r.get('ears')} raw {r.get('raw')} settings {r.get('settings')}")
+        if AUDIO_ONLY:
+            return
 
     # ---- Tab: TALK -> SETTINGS -> DESKS -> AGENTS -> SCRIPT -> TALK
     seen = []
@@ -389,10 +391,11 @@ def main():
     ap.add_argument("--talk-url", default=""); ap.add_argument("--room", default="vizier-smoke")
     ap.add_argument("--livekit-key", default=os.environ.get("LIVEKIT_API_KEY", ""))
     ap.add_argument("--livekit-secret", default=os.environ.get("LIVEKIT_API_SECRET", ""))
+    ap.add_argument("--audio-only", action="store_true", help="join, measure the mic, stop (an A/B of two builds)")
     ap.add_argument("--audio-seconds", type=float, default=5, help="measure the laptop mic this long (needs the talk link); 0 = skip")
     a = ap.parse_args()
-    global AUDIO_SECS, ROOM
-    AUDIO_SECS, ROOM = a.audio_seconds, a.room
+    global AUDIO_SECS, ROOM, AUDIO_ONLY
+    AUDIO_SECS, ROOM, AUDIO_ONLY = a.audio_seconds, a.room, a.audio_only
     asyncio.run(run(a))
     bad = [r for r in RESULTS if not r[0]]
     print(f"\n{'PASS' if RESULTS and not bad else 'FAIL'}: {len(RESULTS) - len(bad)}/{len(RESULTS)} steps; screenshots in {a.out}")
