@@ -72,6 +72,8 @@ jobs:
             ~/target
           key: xwin-${{ hashFiles('app/Cargo.lock') }}
           restore-keys: xwin-
+      - name: park.rs unit tests (Alt+V Alt+V minimize)
+        run: rustc --edition 2021 --test app/src/park.rs -o /tmp/park && /tmp/park
       - run: scripts/setup-xwin.sh
       - run: app/build.sh
       - name: version matches the tag

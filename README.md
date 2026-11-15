@@ -159,6 +159,7 @@ SCRIPT and CONTEXT share one type size (32 px by default). Speed and type size a
 | Home | top of the part |
 | → / ← | next / previous part (starts a new take file while recording) |
 | Esc | stop the scroll and the recording |
+| Alt+V Alt+V | minimize Vizier from any app, and the same again brings it back (one Alt+V does nothing). Vizier is otherwise kept on screen: a minimized window is put back within 2 s unless you parked it this way |
 
 ### Talk to an agent: Ears (Alt+E) and Mouth (Alt+M)
 
