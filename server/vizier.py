@@ -35,6 +35,7 @@ import hmac
 import json
 import os
 import re
+import shlex
 import time
 from pathlib import Path
 
@@ -101,6 +102,13 @@ VOICE_URL = os.environ.get("VIZIER_VOICE_URL", "").rstrip("/")      # the voice 
 DESKS_CMD = os.environ.get("VIZIER_DESKS_CMD", "")      # prints a JSON list [{"id", "name", "agent"?, "detail"?}]
 DESK_OPEN_CMD = os.environ.get("VIZIER_DESK_OPEN_CMD", "")   # opens one desk; "{id}" is replaced by the desk's id
 AGENTS_DIR = os.environ.get("VIZIER_AGENTS_DIR", "")    # one <agent>.json per agent (its liveness), read on each GET
+# A VSL take, started and stopped by the reader (Alt+R in the app, the SETTINGS "Recording" row, or the agent's own
+# "record" command: all three POST /vsl). The command runs in the background and the POST answers at once, so the
+# key acts in milliseconds while the take's own start/stop (OBS, the desk, the review) takes what it takes.
+VSL_START_CMD = os.environ.get("VIZIER_VSL_START_CMD", "")   # e.g. "vsl start {name}"; {name} is shell-quoted
+VSL_STOP_CMD = os.environ.get("VIZIER_VSL_STOP_CMD", "")     # e.g. "vsl stop"
+VSL_STATE = os.environ.get("VIZIER_VSL_STATE", "")           # a file that exists while a take records (vsl's current.json)
+VSL_NAME = os.environ.get("VIZIER_VSL_NAME", "")             # the take's name; empty = the prompter script's name
 CHANNELS = ("me", "them")
 
 
@@ -566,6 +574,70 @@ async def prompter_record(req):
     return web.json_response({"recording": f"{take}-{n}", "stopped": prev.get("path")})
 
 
+# ---------- VSL takes: POST /vsl, the one switch behind Alt+R, the SETTINGS row and the agent's "record" ----------
+VSL: dict = {"want": None, "busy": None, "error": "", "name": None, "since": None, "on": False}
+
+
+def vsl_actual() -> bool:
+    """Is a take recording? The state file when there is one (vsl writes it once OBS records and removes it after the
+    review), else what this server last ran successfully."""
+    return Path(VSL_STATE).expanduser().is_file() if VSL_STATE else bool(VSL["on"])
+
+
+def vsl_view() -> dict:
+    actual = vsl_actual()
+    on = VSL["want"] if VSL["want"] is not None else actual
+    return {"configured": bool(VSL_START_CMD and VSL_STOP_CMD), "on": on, "actual": actual,
+            "pending": VSL["want"] is not None, "busy": VSL["busy"], "name": VSL["name"], "since": VSL["since"],
+            "error": VSL["error"]}
+
+
+async def _vsl_sync() -> None:
+    """Runs start/stop until the take matches what was last asked for. One command at a time: a start asked while a
+    stop is still reviewing waits for it (a start during a stop would have its state file deleted by that stop)."""
+    if VSL["busy"]:
+        return
+    try:
+        while VSL["want"] is not None and VSL["want"] != vsl_actual():
+            want = VSL["want"]
+            cmd = VSL_START_CMD.replace("{name}", shlex.quote(VSL["name"] or "vsl")) if want else VSL_STOP_CMD
+            VSL["busy"] = "starting" if want else "saving"
+            t0 = time.time()
+            p = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+            out, _ = await p.communicate()
+            tail = out.decode(errors="replace").strip().splitlines()[-1:] or [""]
+            log_event({"t": time.time(), "ev": "vsl_" + ("start" if want else "stop"), "rc": p.returncode,
+                       "s": round(time.time() - t0, 1), "out": tail[0][:300]})
+            if p.returncode != 0:
+                VSL.update(error=f"{'start' if want else 'stop'} failed (exit {p.returncode}): {tail[0][:200]}", want=None)
+                break
+            VSL["on"] = want
+            if want == VSL["want"] and VSL_STATE and vsl_actual() != want:
+                break   # the command succeeded but the state file disagrees: report the file, do not loop
+        VSL["want"] = None
+    finally:
+        VSL["busy"] = None
+
+
+async def vsl(req):
+    """GET /vsl: {configured, on, actual, pending, busy, name, since, error}. POST /vsl {"on": bool} or {"toggle": true}
+    (optional "name"): answers at once with the state asked for; the command runs in the background."""
+    if req.method == "GET":
+        return web.json_response(vsl_view())
+    b = await body(req)
+    if not (VSL_START_CMD and VSL_STOP_CMD):
+        return bad("VSL recording is not configured on this server (VIZIER_VSL_START_CMD / VIZIER_VSL_STOP_CMD)", 409)
+    cur = vsl_view()["on"]
+    want = (not cur) if b.get("toggle") else bool(b.get("on"))
+    if want and not cur:
+        name = b.get("name") or VSL_NAME or current_script(req.app).stem
+        VSL.update(name=re.sub(r"[^a-z0-9]+", "-", str(name).lower()).strip("-")[:40] or "vsl", since=time.time())
+    VSL.update(want=want, error="")
+    log_event({"t": time.time(), "ev": "vsl_ask", "on": want, "src": str(b.get("src") or "")[:40]})
+    asyncio.get_running_loop().create_task(_vsl_sync())
+    return web.json_response(vsl_view())
+
+
 # ---------- the agent's settings, desks and team (the deployment's issue 13798) ----------
 # The app's SETTINGS panel reads GET /settings and changes a value with POST /settings {"voice": "next"|"prev"|<name>}
 # or {"wake": {"on"?: bool, "call_n"?: int}}; this server forwards to the voice agent (VIZIER_VOICE_URL). Ears and Mouth
@@ -740,7 +812,8 @@ async def health(req):
     c = S(req.app).call
     return web.json_response({"ok": True, "recording": REC.get("take"), "call": c.id if c else None,
                               "lines": len(c.lines) if c else 0, "feed_clients": len(S(req.app).feed.clients),
-                              "script": current_script(req.app).name, "cam_wanted": await cam_wanted()})
+                              "script": current_script(req.app).name, "cam_wanted": await cam_wanted(),
+                              "vsl": vsl_view()})
 
 
 async def openapi(_):
@@ -841,6 +914,8 @@ def make_app() -> web.Application:
     r.add_get("/desks", desks)
     r.add_post("/desks/open", desks_open)
     r.add_get("/agents", agents)
+    r.add_get("/vsl", vsl)
+    r.add_post("/vsl", vsl)
     return app
 
 
