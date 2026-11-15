@@ -8,7 +8,17 @@
 // Nothing here transcribes or stores audio: an agent process in the same room does that and answers in its own voice.
 // The switches are this participant's attributes, ears=on|off and mouth=on|off, so the agent side reads them with any
 // LiveKit SDK. Ears off also mutes the mic track; Mouth off also unsubscribes from the agent's audio here.
-import { AudioPresets, Room, RoomEvent, Track } from "https://cdn.jsdelivr.net/npm/livekit-client@2.15.7/+esm";
+// livekit-client 2.15.7 ships inside the app (ui/livekit-client.esm.js, the package's own self-contained ESM build): the
+// CDN import it replaced meant no join at all, and no trace of why, whenever that fetch did not load (the user 2026-11-15:
+// Vizier never tried to join room scout). Every join step is written to %PUBLIC%\\vizier\\talk.log (tlog), headless-readable.
+import { AudioPresets, Room, RoomEvent, Track } from "./livekit-client.esm.js";
+
+export function tlog(msg) {
+  const line = `${new Date().toISOString()} ${msg}`;
+  console.log("talk:", msg);
+  try { if (window.__TAURI__) window.__TAURI__.core.invoke("talk_log", { line }).catch(() => {}); } catch (e) { /* no shell */ }
+}
+tlog("talk.js loaded");
 
 // Ears and Mouth are ON at every start (the deployment's issue 13786, the user 2026-11-15: "I need Scout on demand at all times"; the
 // agent's voice must be heard on the laptop every time). A switch kept off from an earlier session silenced the agent
@@ -97,6 +107,7 @@ export async function toggle(k, src = "js") {
     await publishSwitches();
   } catch (e) {
     state.status = `${k}: ${e.message || e}`;
+    tlog(`${k} failed: ${e.message || e}`);
     console.error("talk", e);
   }
   paint();
@@ -114,7 +125,8 @@ export async function start(cfg = {}) {
   }
   serverBase = (cfg.server || "").replace(/\/$/, "");
   const { url, token } = await creds(cfg);
-  if (!url || !token) return;            // not configured: no pill, nothing joins (Vizier works as before)
+  if (!url || !token) { tlog(`not configured: talkUrl ${url ? "set" : "missing"}, talkToken ${token ? "set" : "missing"}`); return; }
+  tlog(`joining ${url} (ears ${state.ears ? "on" : "off"}, mouth ${state.mouth ? "on" : "off"})`);
   pill(); paint();
   const room = new Room({ adaptiveStream: false, dynacast: false });
   room.on(RoomEvent.TrackSubscribed, (track) => {
@@ -131,19 +143,25 @@ export async function start(cfg = {}) {
   room.on(RoomEvent.TrackUnsubscribed, (track) => {
     track.detach().forEach((a) => { a.remove(); state.audio = state.audio.filter((x) => x !== a); });
   });
-  room.on(RoomEvent.Disconnected, () => {
+  room.on(RoomEvent.Disconnected, (reason) => {
+    tlog(`disconnected (${reason}); rejoining in 3 s`);
     state.room = null; state.mic = null; state.status = "reconnecting"; paint();
     setTimeout(() => start(cfg), 3000);
   });
   try {
-    await room.connect(url, token, { autoSubscribe: false });
+    // A connect that never settles would leave no retry at all: 20 s, then it counts as a failure and is retried.
+    await Promise.race([room.connect(url, token, { autoSubscribe: false }),
+      new Promise((_, no) => setTimeout(() => no(new Error("no answer in 20 s")), 20000))]);
     state.room = room; state.status = "connected";
+    tlog(`joined room ${room.name} as ${room.localParticipant.identity}`);
     note("restore");   // what this start brings back: the state the user last set, from localStorage
     applyMouth();
     await applyEars();
     await publishSwitches();
   } catch (e) {
     state.status = `connect failed: ${e.message || e}`;
+    tlog(`join failed: ${e.message || e}; retry in 5 s`);
+    try { room.disconnect(); } catch (x) { /* never connected */ }
     setTimeout(() => start(cfg), 5000);
   }
   paint();
@@ -223,6 +241,7 @@ export async function loopback({ freq = 1000, ms = 900 } = {}) {
 }
 
 window.vizierTalk = { toggle, start, state, loopback };
+window.vizierTalkLog = tlog;   // the page script logs its feed link to the same file
 // POST /talk/loopback/run on the server asks this page to run the check (no console in the release app): poll its counter.
 (function pollLoopbackRun() {
   let seen = null;
