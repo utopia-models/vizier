@@ -115,7 +115,7 @@ fn main() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![selftest_report, config, snapshot, smoke_key])
+        .invoke_handler(tauri::generate_handler![selftest_report, config, snapshot, smoke_key, talk_log])
         .run(tauri::generate_context!())
         .expect("error while running Vizier");
 }
