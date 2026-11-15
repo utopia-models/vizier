@@ -6,6 +6,17 @@ and versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **A smoke test every build runs before it is staged** (`scripts/smoke/smoke.py`): the built exe on the real Windows box
+  with `--smoke` (WebView2 DevTools port, own profile, no global shortcuts; `smoke_key` presses Alt+V / Alt+R / Alt+E /
+  Alt+M through the same `hotkey()` the shortcuts run), driven with real key and wheel input against a throwaway server
+  with a dry VSL switch. Screenshot per step; exit 0 only when all pass.
+
+### Fixed
+- **Tab reaches SCRIPT**: TALK, SETTINGS, DESKS, AGENTS, SCRIPT, then TALK again. Tab works on SCRIPT with no script loaded.
+- **The selected row follows the arrows** in SETTINGS and DESKS (`scrollIntoView({block: "nearest"})` each time the
+  selection moves, clear of the key legend); before, Down moved the selection below the window and the list stayed put.
+- **Ears publishes with DTX and RED off** (plus `voiceIsolation`, mono, the speech preset; echo cancellation, noise
+  suppression and AGC stay on). What the agent decoded from a quiet laptop mic was 536 Hz bursts at -30.7 dBFS RMS.
 - **Alt+R records a VSL take** from any app, and the SETTINGS panel's first row ("Recording") does the same by keyboard.
   Both, and an agent's own "record", `POST /vsl` (`{"toggle": true}` or `{"on": bool}`): the server answers at once and
   runs `VIZIER_VSL_START_CMD` / `VIZIER_VSL_STOP_CMD` in the background, one at a time; `VIZIER_VSL_STATE` (a file that

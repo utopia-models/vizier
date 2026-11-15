@@ -140,6 +140,15 @@ display affinity, `0x11` = hidden from capture) and `selftest.png` (what the pag
 the window is excluded from screen capture). `scripts/windows/` has a launcher and a window pinner for a machine you
 drive over SSH.
 
+**Smoke test (every build, before it is staged):** `python3 scripts/smoke/smoke.py --exe <vizier.exe> --host <windows
+ssh host> [--script FILE] [--talk-url ws://… --livekit-key K --livekit-secret S]`. It starts a throwaway server here
+(dry VSL switch: Alt+R never reaches OBS), runs the built exe on the Windows box with `--smoke` (WebView2 DevTools
+port, its own profile, no global shortcuts, so the user's running Vizier is untouched), and drives the real page with
+real key and wheel input: Tab through TALK, SETTINGS, DESKS, AGENTS and SCRIPT; every tab scrolled to its bottom with
+the selected row on screen; every SETTINGS row changed and changed back; Alt+E, Alt+M, Alt+V, Alt+R; and with a talk
+link, the laptop mic measured (the Ears track and the raw mic, RMS and the floor in dBFS). One screenshot per step;
+exit 0 only when every step passes.
+
 ### Prompter keys
 
 The script scrolls continuously; the current line is the one on the reading line (the arrow, a fifth of the way down).
