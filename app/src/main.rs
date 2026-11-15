@@ -16,6 +16,8 @@
 
 use tauri::{Manager, PhysicalPosition, PhysicalSize, WebviewWindow, WindowEvent};
 
+mod park;
+
 /// Bottom-left quarter of the primary monitor, clipped to its work area (so it never sits under the taskbar).
 fn slot(w: &WebviewWindow) -> Option<(PhysicalPosition<i32>, PhysicalSize<u32>)> {
     let m = w.primary_monitor().ok().flatten()?;
@@ -52,7 +54,14 @@ fn main() {
                 if affinity(&keep) != "0x11" {
                     let _ = keep.set_content_protected(true);
                 }
-                if keep.is_minimized().unwrap_or(false) {
+                // Alt+V Alt+V parked it (park.rs): the reader minimized it on purpose, so leave it minimized.
+                let minimized = keep.is_minimized().unwrap_or(false);
+                match park::keep(park::parked_for(std::time::Instant::now()), minimized) {
+                    park::Keep::Leave => continue,
+                    park::Keep::Unpark => park::set_parked(None),
+                    park::Keep::Restore => {}
+                }
+                if minimized {
                     let _ = keep.unminimize();
                 }
                 if !keep.is_visible().unwrap_or(true) {
@@ -68,7 +77,12 @@ fn main() {
             let pin = w.clone();
             w.on_window_event(move |e| match e {
                 // Pinned: anything that moves or resizes it (a snap, a display change, a layout script) puts it back.
-                WindowEvent::Moved(_) | WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => place(&pin),
+                // A minimize is a move too (Windows parks the window at -32000): leave a minimized window alone.
+                WindowEvent::Moved(_) | WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
+                    if !pin.is_minimized().unwrap_or(false) {
+                        place(&pin)
+                    }
+                }
                 _ => {}
             });
             if std::env::args().any(|a| a == "--selftest") {
@@ -83,6 +97,7 @@ fn main() {
 
 /// Alt+E toggles Ears and Alt+M toggles Mouth in ui/talk.js, from any app (global shortcuts). Each press flips one
 /// switch; the page owns the state. With no talk config the page has no `vizierTalk.state.room`, and a press does nothing.
+/// Alt+V Alt+V (V for Vizier) minimizes the window and brings it back (park.rs); a single Alt+V does nothing.
 fn talk_shortcuts() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
     let ears = Shortcut::new(Some(Modifiers::ALT), Code::KeyE);
@@ -101,11 +116,35 @@ fn talk_shortcuts() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     let pright = Shortcut::new(None, Code::ArrowRight);
     let lock = Shortcut::new(Some(Modifiers::ALT), Code::KeyK);
     let follow = Shortcut::new(Some(Modifiers::ALT), Code::KeyF);   // Alt+F: the agent following the reader's voice on / off
+    let vizier = Shortcut::new(Some(Modifiers::ALT), Code::KeyV);   // Alt+V Alt+V: minimize Vizier / bring it back
     tauri_plugin_global_shortcut::Builder::new()
-        .with_shortcuts([ears, mouth, down, up, tab, ptab, pdown, pup, pleft, pright, lock, follow])
-        .expect("Alt+E / Alt+M / Alt+Up / Alt+Down / Alt+T / Tab / Up / Down / Alt+K")
+        .with_shortcuts([ears, mouth, down, up, tab, ptab, pdown, pup, pleft, pright, lock, follow, vizier])
+        .expect("Alt+E / Alt+M / Alt+Up / Alt+Down / Alt+T / Tab / Up / Down / Alt+K / Alt+F / Alt+V")
         .with_handler(move |app, sc, ev| {
             if ev.state() != ShortcutState::Pressed {
+                return;
+            }
+            if sc == &vizier {
+                let now = std::time::Instant::now();
+                if !park::alt_v(now) {
+                    return;
+                }
+                if let Some(w) = app.get_webview_window("main") {
+                    let parked = park::parked_for(now).is_some();
+                    match park::toggle(parked, w.is_minimized().unwrap_or(false)) {
+                        park::Toggle::Minimize => {
+                            park::set_parked(Some(now));
+                            let _ = w.minimize();
+                        }
+                        park::Toggle::Restore => {
+                            park::set_parked(None);
+                            let _ = w.unminimize();
+                            let _ = w.show();
+                            let _ = w.set_always_on_top(true);
+                            place(&w);
+                        }
+                    }
+                }
                 return;
             }
             if sc == &follow {

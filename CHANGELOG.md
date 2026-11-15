@@ -5,6 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Alt+V Alt+V minimizes Vizier** from any app; the same again brings it back. Before, the window keeper un-minimized
+  the window every 2 s, so a minimize never stuck. Parked this way, the keeper leaves it minimized (content protection
+  still holds); restored from the taskbar, it is kept on screen as before after 3 s. One Alt+V does nothing. No rule
+  about when Vizier shows: it still opens on screen. Tests: `app/src/park.rs` (`rustc --test`), `server/tests/test_minimize.py`.
+
 ### Fixed
 - **The prompter's script survives a restart.** `POST /script` records its choice in `$VIZIER_DATA/current-script` and a
   restarted server shows it again, instead of falling back to `VIZIER_SCRIPTS` (a deploy-time default that had become a
