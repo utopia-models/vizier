@@ -6,6 +6,19 @@ and versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Alt+R records a VSL take** from any app, and the SETTINGS panel's first row ("Recording") does the same by keyboard.
+  Both, and an agent's own "record", `POST /vsl` (`{"toggle": true}` or `{"on": bool}`): the server answers at once and
+  runs `VIZIER_VSL_START_CMD` / `VIZIER_VSL_STOP_CMD` in the background, one at a time; `VIZIER_VSL_STATE` (a file that
+  exists while a take records) is the truth, and `/health` carries it as `vsl`, so the red REC pill and the row always
+  agree. Alt+R is native (main.rs POSTs on its own thread); the page paints the asked-for state in the same frame.
+
+### Fixed
+- **Tab, Alt+E, Alt+M and the arrows act at once while another app is in front.** WebView2 treated the on-screen,
+  always-on-top window as backgrounded/occluded behind the foreground app: timers parked and frames not drawn, so a key's
+  eval ran but nothing showed until a window change woke the page (Alt+V, a native minimize/restore, was the one key that
+  did). The WebView now runs with occlusion backgrounding and timer throttling off, the 2 s keeper re-marks it visible
+  if it drifted, every poll waits for its own last answer (no request pile-up on the page's connections), and SETTINGS
+  changes show in the same frame and sync in the background.
 - **Alt+V Alt+V minimizes Vizier** from any app; the same again brings it back. Before, the window keeper un-minimized
   the window every 2 s, so a minimize never stuck. Parked this way, the keeper leaves it minimized (content protection
   still holds); restored from the taskbar, it is kept on screen as before after 3 s. One Alt+V does nothing. No rule

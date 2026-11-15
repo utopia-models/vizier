@@ -54,6 +54,8 @@
   #talkmain .none { color:var(--dim); font:500 20px system-ui; }
   .tab.pinned { border-color:var(--fg); }
   #rec { color:var(--rec); font-weight:700; }
+  #vsl { display:none; color:#fff; background:#c0392b; border-radius:999px; padding:0 9px; font:700 12px/1.7 system-ui; margin-right:6px; }
+  #vsl.on { display:inline-block; } #vsl.wait { background:#6b2a24; }
   .grow { flex:1; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
   button { background:#1d2a3a; color:var(--fg); border:1px solid #2f4560; border-radius:6px; padding:3px 9px; font:13px system-ui; cursor:pointer; }
   button.on { background:#5a1d1d; border-color:#a04040; }
@@ -134,7 +136,7 @@
   <span class="tab rec" id="tab-rec" title="SCRIPT: the teleprompter; arrows step through the parts (S)">SCRIPT</span>
   <span class="tab ctx" id="tab-ctx" title="CONTEXT: what to know for this script">CONTEXT</span>
   <span class="tab call" id="tab-call" hidden title="CALL: shown automatically while a call is live">CALL</span>
-  <span class="grow"><span id="rec"></span> <span id="title">connecting…</span></span>
+  <span class="grow"><span id="vsl" title="Alt+R">● REC</span><span id="rec"></span> <span id="title">connecting…</span></span>
   <span id="spd"></span>
   <span id="media"></span>
   <button id="join" style="display:none">Join call</button>
@@ -145,7 +147,7 @@
 <audio id="callaudio" autoplay></audio>
 
 <section class="mode" id="m-rec">
-  <div id="keylegend"><b>↑ ↓</b> scroll &nbsp;·&nbsp; <b>← →</b> next / previous part &nbsp;·&nbsp; <b>Tab</b> Talk / Settings / Desks / Agents &nbsp;·&nbsp; <b>Alt+E</b> ears &nbsp;·&nbsp; <b>Alt+M</b> mouth &nbsp;·&nbsp; <b>Alt+V</b> show / hide &nbsp;·&nbsp; <b id="kfollow" style="cursor:pointer" onclick="window.vizierFollow()">Alt+F follow: ON</b></div>
+  <div id="keylegend"><b>↑ ↓</b> scroll &nbsp;·&nbsp; <b>← →</b> next / previous part &nbsp;·&nbsp; <b>Tab</b> Talk / Settings / Desks / Agents &nbsp;·&nbsp; <b>Alt+E</b> ears &nbsp;·&nbsp; <b>Alt+M</b> mouth &nbsp;·&nbsp; <b>Alt+V</b> show / hide &nbsp;·&nbsp; <b>Alt+R</b> record &nbsp;·&nbsp; <b id="kfollow" style="cursor:pointer" onclick="window.vizierFollow()">Alt+F follow: ON</b></div>
   <nav id="rtabs"><span data-t="script" class="on">SCRIPT</span><span data-t="context" hidden>CONTEXT</span><span data-t="notes" hidden>DO NOT SAY</span></nav>
   <div id="prompt"><div id="text"></div><div id="readline"></div></div>
   <div id="doc"></div>
@@ -177,6 +179,10 @@ let SERVER = "";
 const MEDIA = () => (Q.get("media") || CFG.media || SERVER).replace(/\/+$/, "");
 const CAM_PATH = () => CFG.camPath || "cam", CALL_PATH = () => CFG.callPath || "call-out";
 const api = (p, o) => fetch(SERVER + "/" + p, o);
+// every(ms, fn): fn again ms after the last run FINISHED, never while it is still waiting on the server. setInterval
+// stacked requests whenever the server answered slower than the interval, and those piled-up polls held the page's
+// connections the keys' own POSTs then queued behind.
+const every = (ms, fn) => { let busy = false; setInterval(async () => { if (busy) return; busy = true; try { await fn(); } catch {} finally { busy = false; } }, ms); };
 const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
 
 // ---------- mode: derived from /health every second, never stored ----------
@@ -224,6 +230,7 @@ async function pollHealth() {
     }
     else if (!$("rec").textContent.startsWith("saved")) $("rec").textContent = "";
     autoCam(!!h.cam_wanted);
+    if (h.vsl) vslFromServer(h.vsl);
     setMode();
   } catch { $("dot").classList.remove("on"); }
 }
@@ -323,8 +330,8 @@ window.vizierFollow = async () => {   // Alt+F (main.rs) or a click on the legen
   if (r) paintFollow(r.on);
 };
 function paintFollow(on) { followOn = on; const el = document.getElementById("kfollow"); if (el) { el.textContent = on ? "Alt+F follow: ON" : "Alt+F follow: OFF"; el.style.color = on ? "#3ddc84" : "#c0392b"; } }
-setInterval(async () => { const r = await api("prompter/follow").then(x => x.json()).catch(() => null); if (r && r.on !== followOn) paintFollow(r.on); }, 800);
-setInterval(async () => {   // a driver that hears the reader asks the prompter to jump (POST /prompter/goto); follow when seq changes
+every(800, async () => { const r = await api("prompter/follow").then(x => x.json()).catch(() => null); if (r && r.on !== followOn) paintFollow(r.on); });
+every(400, async () => {   // a driver that hears the reader asks the prompter to jump (POST /prompter/goto); follow when seq changes
   if (mode !== "rec" || !takes.length) return;
   const sn = await api("prompter/snap").then(r => r.json()).catch(() => null);   // an agent asked to LOOK at the prompter
   if (sn && window.__TAURI__) { if (snapSeq < 0) snapSeq = sn.seq; else if (sn.seq !== snapSeq) { snapSeq = sn.seq; window.__TAURI__.core.invoke("snapshot").catch(() => {}); } }
@@ -335,7 +342,7 @@ setInterval(async () => {   // a driver that hears the reader asks the prompter 
   gotoSeq = g.seq;
   if (g.part >= 1 && g.part - 1 !== t) goTake(g.part - 1);
   if (g.line >= 1) goLine(g.line - 1);
-}, 400);
+});
 function reportPos() {   // where the reader is in the script, for whoever drives the screen (POST /prompter/position)
   const k = takes[t]; if (!k) return;
   const body = JSON.stringify({ part: t + 1, parts: takes.length, title: k.title, line: curIdx + 1, lines: k.lines.length, text: (k.lines[curIdx] || "") });
@@ -522,6 +529,7 @@ function settingRows() {
   const cur = (d.voices || []).find(v => v.name === d.voice);
   const link = t && !t.room ? ' <span style="color:var(--dim)">· talk link not connected</span>' : "";
   return [
+    { k: "vsl", label: "Recording (VSL take)", v: vslLabel(), h: "← → or Alt+R" },
     { k: "voice", label: "Voice", v: d.voice ? esc(d.voice) + (cur && cur.accent ? ` <span style="color:var(--dim)">· ${esc(cur.accent)}</span>` : "") : "unknown", h: "← → previous / next voice" },
     { k: "ears", label: "Ears (your mic)", v: onoff(t ? t.ears : null) + link, h: "← → or Alt+E" },
     { k: "mouth", label: "Mouth (Scout's voice)", v: onoff(t ? t.mouth : null) + link, h: "← → or Alt+M" },
@@ -544,15 +552,54 @@ function drawSettings() {
 }
 async function loadSettings() { try { panel.settings.data = await getJSON("settings"); } catch (e) { panel.settings.data = { reachable: false, error: e.message }; } if (mode === "settings") drawSettings(); }
 async function changeSetting(d) {
-  const P = panel.settings, r = settingRows()[P.sel], w = (P.data || {}).wake; P.err = "";
-  try {
-    if (r.k === "voice") await postJSON("settings", { voice: d > 0 ? "next" : "prev" });
-    else if (r.k === "ears" || r.k === "mouth") { if (window.vizierTalk && talkState().room) await window.vizierTalk.toggle(r.k, "settings"); else P.err = "Ears and Mouth need the talk link (not connected)"; }
-    else if (r.k === "wake_on" && w) await postJSON("settings", { wake: { on: !w.on } });
-    else if (r.k === "wake_call" && w) await postJSON("settings", { wake: { call_n: Math.max(1, Math.min(w.call_max || 5, w.call_n + d)) } });
-  } catch (e) { P.err = `${r.label}: ${e.message}`; }
-  await loadSettings();
+  // Local first: the row shows the new value in this frame (optimistic), the server is told in the background, and its
+  // answer (or the next 2 s read) corrects the row. The panel never waits on the network to move.
+  const P = panel.settings, r = settingRows()[P.sel], data = P.data || {}, w = data.wake; P.err = "";
+  let send = null;
+  if (r.k === "vsl") { window.vizierRecToggle("settings"); return; }
+  if (r.k === "voice") {
+    const vs = data.voices || [], i = vs.findIndex(v => v.name === data.voice);
+    if (vs.length) data.voice = vs[((i < 0 ? 0 : i + (d > 0 ? 1 : -1)) + vs.length) % vs.length].name;
+    send = { voice: d > 0 ? "next" : "prev" };
+  } else if (r.k === "ears" || r.k === "mouth") {
+    if (window.vizierTalk && talkState().room) window.vizierTalk.toggle(r.k, "settings").then(drawSettings);
+    else P.err = "Ears and Mouth need the talk link (not connected)";
+  } else if (r.k === "wake_on" && w) { w.on = !w.on; send = { wake: { on: w.on } }; }
+  else if (r.k === "wake_call" && w) { w.call_n = Math.max(1, Math.min(w.call_max || 5, w.call_n + d)); send = { wake: { call_n: w.call_n } }; }
+  P.seq = (P.seq || 0) + 1;
+  drawSettings();
+  if (!send) return;
+  const mine = P.seq;
+  try { await postJSON("settings", send); } catch (e) { P.err = `${r.label}: ${e.message}`; }
+  if (mine === P.seq) loadSettings();   // a newer change is already in flight: its own read corrects the row
 }
+
+// ---------- VSL take: Alt+R (main.rs, native: it POSTs /vsl itself and tells this page), the SETTINGS row, or the
+// agent's "record" (POST /vsl on the server) all drive one switch. The page shows the asked-for state in the same frame
+// (optimistic) and /health (every 1 s) brings the server's truth, so Alt+R and the row can never disagree.
+const vslS = { on: false, busy: null, error: "", configured: true, local: 0 };
+function vslLabel() {
+  if (!vslS.configured) return '<span>not configured on this server</span>';
+  const s = vslS.busy === "saving" ? ' <span style="color:var(--dim)">· saving the last take…</span>' : vslS.busy === "starting" ? ' <span style="color:var(--dim)">· starting…</span>' : "";
+  return (vslS.on ? '<span class="on">● RECORDING</span>' : '<span class="off">Not recording</span>') + s + (vslS.error ? ` <span style="color:var(--rec)">· ${esc(vslS.error)}</span>` : "");
+}
+function vslPaint() {
+  const el = $("vsl"); el.classList.toggle("on", !!vslS.on); el.classList.toggle("wait", !!vslS.on && vslS.busy === "starting");
+  el.title = vslS.on ? "recording a VSL take · Alt+R stops" : "Alt+R records";
+  if (mode === "settings") drawSettings();
+}
+function vslFromServer(v) {
+  if (Date.now() - vslS.local < 1500 && v.on !== vslS.on) return;   // our own press is still on its way to the server
+  Object.assign(vslS, { on: !!v.on, busy: v.busy || null, error: v.error || "", configured: v.configured !== false }); vslPaint();
+}
+window.vizierRecLocal = on => { vslS.on = on === undefined ? !vslS.on : !!on; vslS.local = Date.now(); vslS.error = ""; vslPaint(); };   // main.rs, before its POST
+window.vizierRecServer = v => { if (v && typeof v === "object") { vslS.local = 0; vslFromServer(v); } };     // main.rs, the POST's answer
+window.vizierRecToggle = async (src = "page") => {   // the SETTINGS row (and a click on the REC pill)
+  window.vizierRecLocal();
+  try { const j = await postJSON("vsl", { on: vslS.on, src }); window.vizierRecServer(j); }
+  catch (e) { vslS.error = e.message; vslS.local = 0; vslPaint(); }
+};
+$("vsl").onclick = () => window.vizierRecToggle("click");
 function drawDesks() {
   const P = panel.desks, d = P.data, el = $("p-desks"), list = (d && d.desks) || [];
   P.sel = Math.max(0, Math.min(Math.max(0, list.length - 1), P.sel));
@@ -587,8 +634,8 @@ function panelChange(d, enter) {
   if (mode === "settings") { if (!settingRows()[panel.settings.sel].ro) changeSetting(d); }
   else if (mode === "desks" && (d > 0 || enter)) openDesk();
 }
-setInterval(() => { if (mode === "settings") loadSettings(); else if (mode === "agents") loadAgents(); }, 2000);
-setInterval(() => { if (mode === "desks") loadDesks(); }, 15000);
+every(2000, () => mode === "settings" ? loadSettings() : mode === "agents" ? loadAgents() : null);
+every(15000, () => mode === "desks" ? loadDesks() : null);
 window.vizierPanels = { panel, settingRows, goTab };   // headless checks
 
 // ---------- CALL: the feed renderer over WS /feed (frames: docs/openapi.yaml) ----------
@@ -735,7 +782,7 @@ $("build").onclick = () => { buildOpen = !buildOpen; $("build").classList.toggle
   try { if (window.__TAURI__) CFG = (await window.__TAURI__.core.invoke("config")) || {}; } catch (e) { console.error(e); }
   SERVER = (Q.get("server") || store.get("vizier.server") || DEFAULT()).replace(/\/+$/, "");
   connect(); pollHealth(); buildlog(); context(); scripts(); coach();
-  setInterval(pollHealth, 1000); setInterval(pollTalk, 500); setInterval(coach, 2000); setInterval(scripts, 2000); setInterval(buildlog, 5000); setInterval(context, 5000);
+  every(1000, pollHealth); every(500, pollTalk); every(2000, coach); every(2000, scripts); every(5000, buildlog); every(5000, context);
 })();
 </script><script type="module" src="talk.js"></script>
 </body></html>
