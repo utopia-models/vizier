@@ -16,6 +16,9 @@ every window on /feed redraws. The full contract is docs/openapi.yaml; connector
         GET  /prompter/scripts · /prompter/context · /prompter/note    POST /prompter/note {"text"}
         POST /prompter/record {"take"} | {"stop": true}   copy a camera stream into a take file (ffmpeg, optional)
         GET  /buildlog    tail of a plain-text log      GET /openapi.yaml
+        GET  /settings · POST /settings {"voice"} | {"wake"}   the voice agent's settings (VIZIER_VOICE_URL)
+        GET  /desks · POST /desks/open {"id"}   desks to open (VIZIER_DESKS_CMD, VIZIER_DESK_OPEN_CMD)
+        GET  /agents      the team's liveness (VIZIER_AGENTS_DIR)
   WS    /feed     ← {"type": "status"|"line"|"interim"|"suggestion"|"delta"|"done"|"cancel"|"script", ..., "t"}
 
 Configuration is environment variables, optionally loaded from a KEY=VALUE file (see vizier.env.example):
@@ -75,7 +78,7 @@ LOG = Path(os.environ.get("VIZIER_LOG", DATA / "events.jsonl"))
 TOKEN = os.environ.get("VIZIER_TOKEN", "")
 SCRIPTS = Path(os.environ.get("VIZIER_SCRIPTS", DATA / "scripts.md"))
 POSTED_SCRIPT = DATA / "posted-script.md"     # where POST /script {"markdown"} lands
-# The script the prompter shows survives a restart (knowledge#13257): POST /script records its choice here and
+# The script the prompter shows survives a restart (the deployment's issue 13257): POST /script records its choice here and
 # make_app() restores it, so a restart never puts VIZIER_SCRIPTS (a deploy-time default, often a past client's
 # script) back on top over what the agent last showed. {"clear": true} records NO_SCRIPT: the honest empty state.
 CURRENT_SCRIPT = DATA / "current-script"
@@ -91,6 +94,13 @@ CAM_WANTED_CMD = os.environ.get("VIZIER_CAM_WANTED_CMD", "")
 CAM_WANTED_TTL = float(os.environ.get("VIZIER_CAM_WANTED_TTL", "2"))
 BUILD_LOG = Path(os.environ.get("VIZIER_BUILD_LOG", DATA / "build-log.md"))
 MAX_LINES = int(os.environ.get("VIZIER_MAX_LINES", "5000"))   # a call keeps at most this many lines in memory
+# The agent's own settings, desks and team (the deployment's issue 13798: "Scout == Vizier", every setting in Vizier). All optional:
+# unset = the panel says it is not configured, never a made-up value.
+VOICE_URL = os.environ.get("VIZIER_VOICE_URL", "").rstrip("/")      # the voice agent's control API (GET /health, GET
+                                                                     # /voices, POST /voice, POST /address)
+DESKS_CMD = os.environ.get("VIZIER_DESKS_CMD", "")      # prints a JSON list [{"id", "name", "agent"?, "detail"?}]
+DESK_OPEN_CMD = os.environ.get("VIZIER_DESK_OPEN_CMD", "")   # opens one desk; "{id}" is replaced by the desk's id
+AGENTS_DIR = os.environ.get("VIZIER_AGENTS_DIR", "")    # one <agent>.json per agent (its liveness), read on each GET
 CHANNELS = ("me", "them")
 
 
@@ -556,6 +566,132 @@ async def prompter_record(req):
     return web.json_response({"recording": f"{take}-{n}", "stopped": prev.get("path")})
 
 
+# ---------- the agent's settings, desks and team (the deployment's issue 13798) ----------
+# The app's SETTINGS panel reads GET /settings and changes a value with POST /settings {"voice": "next"|"prev"|<name>}
+# or {"wake": {"on"?: bool, "call_n"?: int}}; this server forwards to the voice agent (VIZIER_VOICE_URL). Ears and Mouth
+# are the app's own LiveKit attributes (talk.js), so the panel flips them there, not here. DESKS lists VIZIER_DESKS_CMD's
+# output and POST /desks/open {"id"} runs VIZIER_DESK_OPEN_CMD for a listed id only. AGENTS summarizes every JSON
+# file in VIZIER_AGENTS_DIR: {agent, health, at, reasons, doing} from its `liveness` block (or the top level).
+
+async def _voice(method: str, path: str, payload: dict | None = None) -> tuple[int, dict]:
+    import aiohttp
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=8)) as c:
+            async with c.request(method, VOICE_URL + path, json=payload) as r:
+                try:
+                    return r.status, await r.json(content_type=None)
+                except ValueError:
+                    return r.status, {"error": (await r.text())[:200]}
+    except Exception as e:  # noqa: BLE001 - an unreachable agent is a status, not a traceback
+        return 0, {"error": f"{type(e).__name__}: {e}"[:200]}
+
+
+async def settings(req):
+    if not VOICE_URL:
+        if req.method == "POST":
+            await body(req)
+        return web.json_response({"configured": False, "error": "VIZIER_VOICE_URL is not set"})
+    if req.method == "POST":
+        b = await body(req)
+        if "voice" in b:
+            v = str(b["voice"])
+            st, out = await _voice("POST", "/voice", {"step": v} if v in ("next", "prev") else {"name": v})
+        elif isinstance(b.get("wake"), dict):
+            w = {k: b["wake"][k] for k in ("on", "call_n") if k in b["wake"]}
+            st, out = await _voice("POST", "/address", w)
+        else:
+            raise web.HTTPBadRequest(text=json.dumps({"error": "body: {voice} or {wake}"}), content_type="application/json")
+        log_event({"t": time.time(), "ev": "setting", "body": b, "status": st})
+        return web.json_response({"ok": 200 <= st < 300, "status": st, **out}, status=200 if 200 <= st < 300 else 502)
+    (hs, h), (vs, v) = await asyncio.gather(_voice("GET", "/health"), _voice("GET", "/voices"))
+    if hs != 200:
+        return web.json_response({"configured": True, "reachable": False, "error": h.get("error") or f"HTTP {hs}"})
+    voices = [{k: x.get(k) for k in ("name", "accent", "provider")} for x in (v.get("voices") or [])] if vs == 200 else []
+    return web.json_response({
+        "configured": True, "reachable": True, "room": h.get("room"),
+        "ears": h.get("ears"), "mouth": h.get("mouth"),
+        "voice": v.get("voice") if vs == 200 else None, "voices": voices,
+        "wake": h.get("address_rules"), "call_live": (h.get("address") or {}).get("call_live"),
+        "say": (h.get("address") or {}).get("say"),
+        "clients": [{"identity": c.get("identity"), "ears": c.get("ears"), "mouth": c.get("mouth")}
+                    for c in (h.get("clients") or []) if isinstance(c, dict)]})
+
+
+async def _run_json(cmd: str, timeout: float = 10) -> object:
+    p = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    try:
+        out, err = await asyncio.wait_for(p.communicate(), timeout)
+    except asyncio.TimeoutError:
+        p.kill()
+        raise RuntimeError(f"timed out after {timeout:g} s")
+    if p.returncode != 0:
+        raise RuntimeError(f"exit {p.returncode}: {err.decode(errors='replace').strip()[-200:]}")
+    return json.loads(out or b"null")
+
+
+async def _desk_list() -> list[dict]:
+    rows = await _run_json(DESKS_CMD)
+    return [{k: r.get(k) for k in ("id", "name", "agent", "detail")} for r in (rows or []) if isinstance(r, dict) and r.get("id")]
+
+
+async def desks(req):
+    if not DESKS_CMD:
+        return web.json_response({"configured": False, "desks": []})
+    try:
+        return web.json_response({"configured": True, "desks": await _desk_list()})
+    except Exception as e:  # noqa: BLE001
+        return web.json_response({"configured": True, "desks": [], "error": str(e)[:200]})
+
+
+async def desks_open(req):
+    b = await body(req)
+    if not (DESKS_CMD and DESK_OPEN_CMD):
+        return web.json_response({"ok": False, "error": "VIZIER_DESKS_CMD / VIZIER_DESK_OPEN_CMD are not set"}, status=501)
+    want = str(b.get("id") or "")
+    try:
+        ids = {d["id"] for d in await _desk_list()}
+    except Exception as e:  # noqa: BLE001
+        return web.json_response({"ok": False, "error": str(e)[:200]}, status=502)
+    if want not in ids:   # only a listed id ever reaches the command line
+        return web.json_response({"ok": False, "error": f"no desk {want!r}"}, status=404)
+    import shlex
+    argv = [a.replace("{id}", want) for a in shlex.split(DESK_OPEN_CMD)]
+    t0 = time.time()
+    p = await asyncio.create_subprocess_exec(*argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+    try:
+        out, _ = await asyncio.wait_for(p.communicate(), 60)
+    except asyncio.TimeoutError:
+        p.kill()
+        return web.json_response({"ok": False, "error": "desk open timed out after 60 s"}, status=504)
+    said = out.decode(errors="replace").strip()[-300:]
+    log_event({"t": time.time(), "ev": "desk_open", "id": want, "rc": p.returncode, "s": round(time.time() - t0, 2)})
+    return web.json_response({"ok": p.returncode == 0, "rc": p.returncode, "said": said, "s": round(time.time() - t0, 2)},
+                             status=200 if p.returncode == 0 else 502)
+
+
+def agent_row(name: str, d: dict) -> dict:
+    lv = d.get("liveness") if isinstance(d.get("liveness"), dict) else d
+    doing = lv.get("task") or lv.get("doing") or lv.get("externalEvent")
+    return {"agent": d.get("agent") or name, "health": lv.get("health") or "unknown",
+            "at": lv.get("healthAt") or lv.get("lastCycleAt") or d.get("fetchedAt"),
+            "reasons": [str(x) for x in (lv.get("healthReasons") or [])][:3],
+            "doing": doing if isinstance(doing, str) else (json.dumps(doing)[:120] if doing else None)}
+
+
+async def agents(_req):
+    if not AGENTS_DIR:
+        return web.json_response({"configured": False, "agents": []})
+    rows = []
+    for f in sorted(Path(AGENTS_DIR).glob("*.json")):
+        try:
+            d = json.loads(f.read_text())
+        except (OSError, ValueError):
+            continue
+        if isinstance(d, dict):
+            rows.append(agent_row(f.stem, d))
+    return web.json_response({"configured": True, "agents": rows})
+
+
 # ---------- misc ----------
 
 async def buildlog(req):
@@ -700,6 +836,11 @@ def make_app() -> web.Application:
     r.add_post("/prompter/record", prompter_record)
     r.add_get("/feed", feed)
     r.add_get("/buildlog", buildlog)
+    r.add_get("/settings", settings)
+    r.add_post("/settings", settings)
+    r.add_get("/desks", desks)
+    r.add_post("/desks/open", desks_open)
+    r.add_get("/agents", agents)
     return app
 
 

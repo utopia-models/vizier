@@ -54,7 +54,7 @@ fn main() {
                 if affinity(&keep) != "0x11" {
                     let _ = keep.set_content_protected(true);
                 }
-                // Alt+V Alt+V parked it (park.rs): the reader minimized it on purpose, so leave it minimized.
+                // Alt+V parked it (park.rs): the reader hid it on purpose, so leave it minimized.
                 let minimized = keep.is_minimized().unwrap_or(false);
                 match park::keep(park::parked_for(std::time::Instant::now()), minimized) {
                     park::Keep::Leave => continue,
@@ -97,7 +97,8 @@ fn main() {
 
 /// Alt+E toggles Ears and Alt+M toggles Mouth in ui/talk.js, from any app (global shortcuts). Each press flips one
 /// switch; the page owns the state. With no talk config the page has no `vizierTalk.state.room`, and a press does nothing.
-/// Alt+V Alt+V (V for Vizier) minimizes the window and brings it back (park.rs); a single Alt+V does nothing.
+/// Alt+V (V for Vizier) pops the window up bottom-left, in its slot, and the next Alt+V hides it again (park.rs;
+/// the deployment's issue 13798, the user's card 2026-11-15 2:09 PM: "Alt+V pops Vizier bottom-left, small"). Was Alt+V Alt+V.
 fn talk_shortcuts() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
     let ears = Shortcut::new(Some(Modifiers::ALT), Code::KeyE);
@@ -116,7 +117,7 @@ fn talk_shortcuts() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     let pright = Shortcut::new(None, Code::ArrowRight);
     let lock = Shortcut::new(Some(Modifiers::ALT), Code::KeyK);
     let follow = Shortcut::new(Some(Modifiers::ALT), Code::KeyF);   // Alt+F: the agent following the reader's voice on / off
-    let vizier = Shortcut::new(Some(Modifiers::ALT), Code::KeyV);   // Alt+V Alt+V: minimize Vizier / bring it back
+    let vizier = Shortcut::new(Some(Modifiers::ALT), Code::KeyV);   // Alt+V: pop Vizier up / hide it
     tauri_plugin_global_shortcut::Builder::new()
         .with_shortcuts([ears, mouth, down, up, tab, ptab, pdown, pup, pleft, pright, lock, follow, vizier])
         .expect("Alt+E / Alt+M / Alt+Up / Alt+Down / Alt+T / Tab / Up / Down / Alt+K / Alt+F / Alt+V")
@@ -126,9 +127,6 @@ fn talk_shortcuts() -> tauri::plugin::TauriPlugin<tauri::Wry> {
             }
             if sc == &vizier {
                 let now = std::time::Instant::now();
-                if !park::alt_v(now) {
-                    return;
-                }
                 if let Some(w) = app.get_webview_window("main") {
                     let parked = park::parked_for(now).is_some();
                     match park::toggle(parked, w.is_minimized().unwrap_or(false)) {
@@ -142,6 +140,7 @@ fn talk_shortcuts() -> tauri::plugin::TauriPlugin<tauri::Wry> {
                             let _ = w.show();
                             let _ = w.set_always_on_top(true);
                             place(&w);
+                            let _ = w.set_focus();
                         }
                     }
                 }

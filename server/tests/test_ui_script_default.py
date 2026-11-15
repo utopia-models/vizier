@@ -1,4 +1,4 @@
-"""Replay test (Tyler 2026-11-14): the Script / Context tabs, Tab to switch, arrows to step and the helper bar must not
+"""Replay test (the user 2026-11-14): the Script / Context tabs, Tab to switch, arrows to step and the helper bar must not
 disappear again. TALK became the default mode and hid all of them; the default is the SCRIPT view now."""
 import re
 from pathlib import Path
@@ -28,12 +28,12 @@ def test_tab_and_arrow_handlers_exist():
 
 
 def test_one_top_row_talk_script_context():
-    """Tyler 2026-11-14: the top bar is TALK / SCRIPT / CONTEXT and nothing else (no second SCRIPT row, no Do not say);
-    Tab cycles them. CALL appears only while a call is live."""
+    """the user 2026-11-14: one top bar, no second SCRIPT row, no Do not say; CALL appears only while a call is live.
+    Superseded in part by his cards of 2026-11-15 2:09 PM (the deployment's issue 13798): the row also carries SETTINGS / DESKS /
+    AGENTS and Tab cycles TALK / SETTINGS / DESKS / AGENTS (test_panels_ui.py); SCRIPT and CONTEXT stay in the row."""
     for i, label in (("tab-talk", "TALK"), ("tab-rec", "SCRIPT"), ("tab-ctx", "CONTEXT")):
         assert re.search(rf'id="{i}"[^>]*>{label}</span>', HTML), f"top bar lost {label}"
     assert re.search(r"#rtabs \{ display:none !important; \}", HTML), "the second tab row must stay hidden"
-    assert 'const order = ["talk", "script", "context"]' in HTML, "Tab must cycle TALK, SCRIPT, CONTEXT"
 
 
 def test_context_tab_is_live_activity():

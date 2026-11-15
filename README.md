@@ -152,14 +152,28 @@ SCRIPT and CONTEXT share one type size (32 px by default). Speed and type size a
 | mouse wheel / trackpad | scroll by hand; pauses the auto-scroll |
 | PageDown / PageUp, ↓ / ↑ | next / previous line, also while scrolling |
 | Alt+↓ / Alt+↑ | the same from any app (global shortcut); they scroll CONTEXT / DO NOT SAY too |
-| Tab / Alt+T | next tab: SCRIPT, CONTEXT, DO NOT SAY |
+| Tab / Alt+T | next panel: TALK → SETTINGS → DESKS → AGENTS → TALK. From SCRIPT / CONTEXT, back to TALK. S opens SCRIPT |
 | Tab, ↑, ↓ (plain) | global in the desktop app: they work from any window, on that laptop only. Alt+K releases them and takes them again |
 | `+` `=` `]` / `-` `_` `[` | faster / slower (×1.15) |
 | Ctrl + / Ctrl − | bigger / smaller type (SCRIPT and CONTEXT together) |
 | Home | top of the part |
 | → / ← | next / previous part (starts a new take file while recording) |
 | Esc | stop the scroll and the recording |
-| Alt+V Alt+V | minimize Vizier from any app, and the same again brings it back (one Alt+V does nothing). Vizier is otherwise kept on screen: a minimized window is put back within 2 s unless you parked it this way |
+| Alt+V | hide Vizier from any app, and Alt+V again pops it back up bottom-left, in its slot, focused. Vizier is otherwise kept on screen: a minimized window is put back within 2 s unless you hid it this way |
+
+### The agent's panels: SETTINGS, DESKS, AGENTS
+
+Tab cycles four panels: **TALK** (the live transcript), **SETTINGS**, **DESKS** and **AGENTS**. Every one works by keyboard
+alone: ↑ ↓ pick a row, ← → change it (→ or Enter opens a desk). The arrows are global in the desktop app, so they reach the
+panel from any window (Alt+K releases them).
+
+| panel | what it shows | what the keys change | server config |
+|---|---|---|---|
+| SETTINGS | the agent's voice, Ears, Mouth, its wake rules (silent unless addressed; how many times its name is said in a call; outside a call once), whether a call is live | voice (previous / next in the agent's catalog), Ears, Mouth, silent-unless-asked on/off, the in-call name count | `VIZIER_VOICE_URL`: the voice agent's control API (`GET /health`, `GET /voices`, `POST /voice {"step"\|"name"}`, `POST /address {"on","call_n"}`) |
+| DESKS | the desks the agent can put on this screen | → / Enter: the agent opens the picked desk | `VIZIER_DESKS_CMD` prints `[{"id","name","agent"?,"detail"?}]`; `VIZIER_DESK_OPEN_CMD` opens one (`{id}` is replaced; only a listed id ever reaches it) |
+| AGENTS | each agent's health, what it is doing, how fresh | ↑ ↓ scroll | `VIZIER_AGENTS_DIR`: one `<agent>.json` per agent; read from its `liveness` block (`health`, `healthAt`, `healthReasons`, `task`/`externalEvent`) |
+
+Nothing configured = the panel says so; it never shows a value it did not read.
 
 ### Talk to an agent: Ears (Alt+E) and Mouth (Alt+M)
 

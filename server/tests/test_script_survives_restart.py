@@ -1,4 +1,4 @@
-"""Replay test (Tyler 2026-11-14, knowledge#13257, said twice): "the Mohamed script is outdated, why is it still up
+"""Replay test (the user 2026-11-14, the deployment's issue 13257, said twice): "the Mohamed script is outdated, why is it still up
 here?" The prompter showed a past client's script because every restart put the deploy-time VIZIER_SCRIPTS default
 back on top over what the agent had last shown. The script POST /script chose must survive a restart, and an agent
 must be able to take a script down ({"clear": true}) so the prompter shows the honest empty state."""

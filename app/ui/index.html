@@ -27,6 +27,20 @@
   .tab.call.on { background:var(--accent); }
   .tab.talk.on { background:var(--me); }
   .tab.ctx.on { background:var(--hi); }
+  .tab.set.on, .tab.desk.on, .tab.agt.on { background:var(--accent); }
+  /* SETTINGS / DESKS / AGENTS (the deployment's issue 13798): one list each, the selected row marked, arrows drive it */
+  .panel { flex:1; min-height:0; overflow-y:auto; padding:14px 28px 46px; }
+  .panel .row { display:flex; align-items:baseline; gap:18px; padding:10px 14px; border-radius:8px; border:1px solid transparent; font:500 24px/1.3 system-ui; }
+  .panel .row.sel { border-color:var(--hi); background:#14181f; }
+  .panel .row .k { flex:0 0 260px; color:var(--dim); font-size:18px; letter-spacing:.04em; }
+  .panel .row .v { flex:1; min-width:0; }
+  .panel .row .h { flex:0 0 auto; color:var(--dim); font:600 13px system-ui; letter-spacing:.04em; }
+  .panel .row .v .on { color:#3ddc84; } .panel .row .v .off { color:#c0392b; }
+  .panel .row.ro .v { color:var(--dim); }
+  .panel .msg { color:var(--dim); font:500 18px system-ui; padding:6px 14px; }
+  .panel .err { color:var(--rec); }
+  .panel .dot { display:inline-block; width:11px; height:11px; border-radius:50%; margin-right:10px; background:#5b6472; }
+  .panel .dot.green { background:#3ddc84; } .panel .dot.amber, .panel .dot.yellow { background:#ffd34d; } .panel .dot.red { background:#ff4d4d; }
   #rtabs { display:none !important; }   /* the one row of tabs is the header: TALK / SCRIPT / CONTEXT */
   /* TALK: a raw transcript, large, newest at the bottom */
   #talkmain { flex:1; min-height:0; overflow-y:auto; padding:18px 28px 28px; display:flex; flex-direction:column; user-select:text; }
@@ -69,6 +83,8 @@
   #coach b { color:#fff; }
   #keys { font:500 12px system-ui; color:var(--dim); }
   /* RECORD tabs: SCRIPT is the prompter; CONTEXT and DO NOT SAY are for reading while preparing */
+  .keylegend { position:fixed; left:0; right:0; bottom:0; z-index:5; padding:5px 14px; background:#0d0f12; border-top:1px solid var(--line); font:600 12px system-ui; color:var(--dim); letter-spacing:.02em; text-align:center; }
+  .keylegend b { color:var(--fg); }
   #keylegend { position:fixed; left:0; right:0; bottom:0; z-index:5; padding:5px 14px; background:#0d0f12; border-top:1px solid var(--line); font:600 12px system-ui; color:var(--dim); letter-spacing:.02em; text-align:center; }
   #keylegend b { color:var(--fg); }
   #rtabs { flex:0 0 auto; display:none; gap:4px; padding:6px 14px 0; border-bottom:1px solid var(--line); font:600 13px system-ui; letter-spacing:.06em; }
@@ -112,7 +128,10 @@
 <header>
   <span id="dot" title="link to the vizier service"></span><b>Vizier</b>
   <span class="tab talk" id="tab-talk" title="TALK: a live transcript of your conversation with Scout">TALK</span>
-  <span class="tab rec" id="tab-rec" title="SCRIPT: the teleprompter; arrows step through the parts">SCRIPT</span>
+  <span class="tab set" id="tab-settings" title="SETTINGS: every Scout setting; arrows change them">SETTINGS</span>
+  <span class="tab desk" id="tab-desks" title="DESKS: pick a desk, Scout opens it in the desk viewer">DESKS</span>
+  <span class="tab agt" id="tab-agents" title="AGENTS: what each lane agent is doing">AGENTS</span>
+  <span class="tab rec" id="tab-rec" title="SCRIPT: the teleprompter; arrows step through the parts (S)">SCRIPT</span>
   <span class="tab ctx" id="tab-ctx" title="CONTEXT: what to know for this script">CONTEXT</span>
   <span class="tab call" id="tab-call" hidden title="CALL: shown automatically while a call is live">CALL</span>
   <span class="grow"><span id="rec"></span> <span id="title">connecting…</span></span>
@@ -126,7 +145,7 @@
 <audio id="callaudio" autoplay></audio>
 
 <section class="mode" id="m-rec">
-  <div id="keylegend"><b>↑ ↓</b> scroll &nbsp;·&nbsp; <b>← →</b> next / previous part &nbsp;·&nbsp; <b>Tab</b> Talk / Script / Context &nbsp;·&nbsp; <b>Alt+E</b> ears &nbsp;·&nbsp; <b>Alt+M</b> mouth &nbsp;·&nbsp; <b>Alt+V Alt+V</b> minimize &nbsp;·&nbsp; <b id="kfollow" style="cursor:pointer" onclick="window.vizierFollow()">Alt+F follow: ON</b></div>
+  <div id="keylegend"><b>↑ ↓</b> scroll &nbsp;·&nbsp; <b>← →</b> next / previous part &nbsp;·&nbsp; <b>Tab</b> Talk / Settings / Desks / Agents &nbsp;·&nbsp; <b>Alt+E</b> ears &nbsp;·&nbsp; <b>Alt+M</b> mouth &nbsp;·&nbsp; <b>Alt+V</b> show / hide &nbsp;·&nbsp; <b id="kfollow" style="cursor:pointer" onclick="window.vizierFollow()">Alt+F follow: ON</b></div>
   <nav id="rtabs"><span data-t="script" class="on">SCRIPT</span><span data-t="context" hidden>CONTEXT</span><span data-t="notes" hidden>DO NOT SAY</span></nav>
   <div id="prompt"><div id="text"></div><div id="readline"></div></div>
   <div id="doc"></div>
@@ -135,6 +154,12 @@
 <section class="mode" id="m-talk">
   <div id="talkmain"><div class="sp"></div></div>
 </section>
+<section class="mode" id="m-settings"><div class="panel" id="p-settings"></div>
+  <div id="keylegend-s" class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> pick a setting &nbsp;·&nbsp; <b>← →</b> change it &nbsp;·&nbsp; <b>Alt+E</b> ears &nbsp;·&nbsp; <b>Alt+M</b> mouth &nbsp;·&nbsp; <b>Alt+V</b> show / hide</div></section>
+<section class="mode" id="m-desks"><div class="panel" id="p-desks"></div>
+  <div class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> pick a desk &nbsp;·&nbsp; <b>→</b> or <b>Enter</b> Scout opens it in the desk viewer</div></section>
+<section class="mode" id="m-agents"><div class="panel" id="p-agents"></div>
+  <div class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> scroll &nbsp;·&nbsp; the same status shows on Eagle Eye</div></section>
 <section class="mode" id="m-call">
   <div id="callmain"><div id="sugs"></div><div id="interim"></div><div id="lines"></div></div>
 </section>
@@ -160,29 +185,33 @@ const liveCall = () => !!health.call && !/^(bench-|probe)/.test(health.call);
 function autoMode() { return "rec"; }   // no CALL mode: on a call you Tab to SCRIPT
 function refreshTabs() {
   $("tab-talk").classList.toggle("on", mode === "talk");
+  for (const k of PANELS) $("tab-" + k).classList.toggle("on", mode === k);
   $("tab-rec").classList.toggle("on", mode === "rec" && rtab === "script");
   $("tab-ctx").classList.toggle("on", mode === "rec" && rtab === "context");
   $("tab-call").classList.toggle("on", mode === "call"); $("tab-call").hidden = mode !== "call";
 }
-function goTab(n) {   // TALK / SCRIPT / CONTEXT: the one row at the top
-  pinned = n === "talk" ? "talk" : "rec"; setMode();
-  if (n !== "talk") { showTab(n); $("doc").scrollTop = 0; }
+const PANELS = ["settings", "desks", "agents"];   // the deployment's issue 13798: Scout's panels beside TALK
+const MODES = ["rec", "call", "talk", ...PANELS];
+function goTab(n) {   // TALK / SETTINGS / DESKS / AGENTS, and SCRIPT / CONTEXT: the one row at the top
+  pinned = (n === "talk" || PANELS.includes(n)) ? n : "rec"; setMode();
+  if (pinned === "rec") { showTab(n); $("doc").scrollTop = 0; }
+  if (PANELS.includes(n)) panelOpen(n);
   refreshTabs();
 }
 function setMode() {
   const m = pinned || autoMode();
   if (m !== mode) {
     mode = m;
-    for (const k of ["rec", "call", "talk"]) { $("m-" + k).classList.toggle("on", m === k); $("tab-" + k).classList.toggle("on", m === k); }
+    for (const k of MODES) { $("m-" + k).classList.toggle("on", m === k); $("tab-" + k).classList.toggle("on", m === k); }
     $("join").style.display = m === "call" ? "" : "none";
     document.title = "Utopia Vizier"; document.body.dataset.mode = m;
     render();
   }
-  for (const k of ["rec", "call", "talk"]) $("tab-" + k).classList.toggle("pinned", pinned === k);
+  for (const k of MODES) $("tab-" + k).classList.toggle("pinned", pinned === k);
   refreshTabs();
   if (!liveCall() && pcs.length) leave();   // the call ended: stop sending the camera
 }
-$("tab-talk").onclick = () => goTab("talk"); $("tab-rec").onclick = () => goTab("script"); $("tab-ctx").onclick = () => goTab("context");
+$("tab-talk").onclick = () => goTab("talk"); for (const k of PANELS) $("tab-" + k).onclick = () => goTab(k); $("tab-rec").onclick = () => goTab("script"); $("tab-ctx").onclick = () => goTab("context");
 async function pollHealth() {
   try {
     const h = await api("health").then(r => r.json());
@@ -263,7 +292,7 @@ function hud() {
   $("spd").classList.toggle("play", playing);
 }
 function render() {
-  if (mode === "talk") { $("title").textContent = ""; return; }
+  if (mode === "talk" || PANELS.includes(mode)) { $("title").textContent = ""; return; }
   if (mode === "call") { $("title").textContent = health.call ? `call ${health.call}` : "no call"; return; }
   const k = takes[t];
   if (!k) { $("title").textContent = takes.length ? "" : "no takes yet"; return; }
@@ -315,14 +344,18 @@ function reportPos() {   // where the reader is in the script, for whoever drive
 }
 function step(d) { if (takes[t]) goLine(curIdx + d); }
 window.vizierStep = d => {
+  if (PANELS.includes(mode)) return panelStep(d);   // global Up / Down drive the panel's list
   if (mode !== "rec") return;
   if (rtab === "script") step(d); else $("doc").scrollTop += d * 140;   // CONTEXT / DO NOT SAY scroll by hand
 };
-window.vizierPart = d => { if (mode === "rec" && takes.length) { goTake(t + d); if (recording) record(); } };   // global Left / Right (main.rs)
-window.vizierTab = () => {   // Alt+T from any app, or Tab in the page: TALK -> SCRIPT -> CONTEXT -> TALK
+window.vizierPart = d => { if (PANELS.includes(mode)) return panelChange(d); if (mode === "rec" && takes.length) { goTake(t + d); if (recording) record(); } };   // global Left / Right (main.rs)
+window.vizierTab = () => {   // Alt+T from any app, or Tab in the page: TALK -> SETTINGS -> DESKS -> AGENTS -> TALK
+  // (the deployment's issue 13798, the user's card 2026-11-15 2:09 PM: Tab cycles the four panels). SCRIPT / CONTEXT are a click or S
+  // away and come up by themselves when a take records; from either of them Tab goes back to TALK.
   if (mode === "call") return;
-  const order = ["talk", "script", "context"], cur = mode === "talk" ? "talk" : (rtab === "context" ? "context" : "script");
-  goTab(order[(order.indexOf(cur) + 1) % order.length]);
+  if (recording) return;   // a take is recording: the prompter stays up
+  const order = ["talk", ...PANELS], cur = mode === "rec" ? null : mode;
+  goTab(cur ? order[(order.indexOf(cur) + 1) % order.length] : "talk");
 };   // the app's global Alt+Down / Alt+Up (main.rs)
 function goTake(i) { t = takes.length ? (i + takes.length) % takes.length : 0; built = ""; curIdx = 0; lastPos = ""; render(); }
 let last = 0, looping = false, pos = 0;   // pos: fractional scroll (scrollTop rounds to device pixels)
@@ -360,6 +393,20 @@ window.vizierKeyLatency = () => {
   const s = lat.slice().sort((a, b) => a - b), q = f => s.length ? +s[Math.min(s.length - 1, Math.floor(f * s.length))].toFixed(1) : null;
   return { n: s.length, p50: q(.5), p95: q(.95), max: s.length ? +s[s.length - 1].toFixed(1) : null };
 };
+document.addEventListener("keydown", e => {   // TALK and the panels: Tab, arrows, Enter, S (the app focused)
+  if (e.target.tagName === "INPUT" || mode === "rec" || mode === "call") return;
+  const k = e.key;
+  if (k === "Tab" && !e.ctrlKey && !e.altKey) window.vizierTab();
+  else if ((k === "s" || k === "S") && !e.ctrlKey && !e.altKey) goTab("script");
+  else if (!PANELS.includes(mode)) return;
+  else if (k === "ArrowDown") panelStep(1);
+  else if (k === "ArrowUp") panelStep(-1);
+  else if (k === "ArrowRight") panelChange(1);
+  else if (k === "ArrowLeft") panelChange(-1);
+  else if (k === "Enter" || k === " ") panelChange(1, true);
+  else return;
+  e.preventDefault();
+});
 const PAUSE_KEYS = new Set(["p", "P", "b", "B", ".", "F5", "Enter", "Pause", "MediaPlayPause"]);
 document.addEventListener("keydown", e => {
   if (e.target.tagName === "INPUT" || mode !== "rec" || !takes.length) return;
@@ -455,6 +502,94 @@ async function context() {
   const top = $("doc").scrollTop; showTab(rtab); $("doc").scrollTop = top;   // a live edit keeps the reader's place
   render();
 }
+
+// ---------- SETTINGS / DESKS / AGENTS: Scout's panels (the deployment's issue 13798, "Scout == Vizier") ----------
+// Every setting of the agent behind this window is here and changes by keyboard alone: Up/Down pick a row, Left/Right
+// change it (the app's global arrows reach the panel even when another window has focus; Alt+K releases them).
+// SETTINGS reads GET /settings (the server forwards to the voice agent) and changes a value with POST /settings; Ears
+// and Mouth are this app's own switches (talk.js), the same as Alt+E / Alt+M. DESKS: Right or Enter asks the server to
+// open the picked desk (POST /desks/open). AGENTS: GET /agents, each lane agent's liveness.
+const panel = { settings: { sel: 0, data: null, err: "" }, desks: { sel: 0, data: null, err: "" }, agents: { sel: 0, data: null, err: "" } };
+const talkState = () => (window.vizierTalk && window.vizierTalk.state) || null;
+const onoff = v => v == null ? "<span>unknown</span>" : `<span class="${v ? "on" : "off"}">${v ? "ON" : "OFF"}</span>`;
+async function getJSON(path) { const r = await api(path); return r.json(); }
+async function postJSON(path, b) {
+  const r = await api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) });
+  const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || ("HTTP " + r.status)); return j;
+}
+function settingRows() {
+  const d = panel.settings.data || {}, t = talkState(), w = d.wake || null, word = (w && w.word) ? w.word[0].toUpperCase() + w.word.slice(1) : "Scout";
+  const cur = (d.voices || []).find(v => v.name === d.voice);
+  const link = t && !t.room ? ' <span style="color:var(--dim)">· talk link not connected</span>' : "";
+  return [
+    { k: "voice", label: "Voice", v: d.voice ? esc(d.voice) + (cur && cur.accent ? ` <span style="color:var(--dim)">· ${esc(cur.accent)}</span>` : "") : "unknown", h: "← → previous / next voice" },
+    { k: "ears", label: "Ears (your mic)", v: onoff(t ? t.ears : null) + link, h: "← → or Alt+E" },
+    { k: "mouth", label: "Mouth (Scout's voice)", v: onoff(t ? t.mouth : null) + link, h: "← → or Alt+M" },
+    { k: "wake_on", label: "Silent unless asked", v: onoff(w ? w.on : null), h: "← → on / off" },
+    { k: "wake_call", label: "Wake word in a call", v: w ? `say "${esc(word)}" ×${w.call_n}` : "unknown", h: "← → fewer / more" },
+    { k: "wake_out", label: "Wake word outside a call", v: `say "${esc(word)}" once, with Ears and Mouth on`, h: "", ro: true },
+    { k: "call", label: "A call is live", v: d.call_live == null ? "unknown" : (d.call_live ? "yes" : "no"), h: "", ro: true },
+  ];
+}
+function drawSettings() {
+  const P = panel.settings, d = P.data, el = $("p-settings"), rows = settingRows();
+  P.sel = Math.max(0, Math.min(rows.length - 1, P.sel));
+  let head = "";
+  if (!d) head = `<div class="msg">reading Scout's settings…</div>`;
+  else if (d.configured === false) head = `<div class="msg">The voice agent is not configured on this server (VIZIER_VOICE_URL). Ears and Mouth still work.</div>`;
+  else if (d.reachable === false) head = `<div class="msg err">Scout's voice agent is not answering: ${esc(d.error || "")}</div>`;
+  el.innerHTML = head + (P.err ? `<div class="msg err">${esc(P.err)}</div>` : "") + rows.map((r, i) =>
+    `<div class="row${i === P.sel ? " sel" : ""}${r.ro ? " ro" : ""}" data-i="${i}"><span class="k">${r.label}</span><span class="v">${r.v}</span><span class="h">${r.h}</span></div>`).join("");
+  el.querySelectorAll(".row").forEach(x => x.onclick = () => { P.sel = +x.dataset.i; panelChange(1, true); });
+}
+async function loadSettings() { try { panel.settings.data = await getJSON("settings"); } catch (e) { panel.settings.data = { reachable: false, error: e.message }; } if (mode === "settings") drawSettings(); }
+async function changeSetting(d) {
+  const P = panel.settings, r = settingRows()[P.sel], w = (P.data || {}).wake; P.err = "";
+  try {
+    if (r.k === "voice") await postJSON("settings", { voice: d > 0 ? "next" : "prev" });
+    else if (r.k === "ears" || r.k === "mouth") { if (window.vizierTalk && talkState().room) await window.vizierTalk.toggle(r.k, "settings"); else P.err = "Ears and Mouth need the talk link (not connected)"; }
+    else if (r.k === "wake_on" && w) await postJSON("settings", { wake: { on: !w.on } });
+    else if (r.k === "wake_call" && w) await postJSON("settings", { wake: { call_n: Math.max(1, Math.min(w.call_max || 5, w.call_n + d)) } });
+  } catch (e) { P.err = `${r.label}: ${e.message}`; }
+  await loadSettings();
+}
+function drawDesks() {
+  const P = panel.desks, d = P.data, el = $("p-desks"), list = (d && d.desks) || [];
+  P.sel = Math.max(0, Math.min(Math.max(0, list.length - 1), P.sel));
+  let head = !d ? `<div class="msg">reading the desks…</div>` : d.configured === false ? `<div class="msg">No desks are configured on this server (VIZIER_DESKS_CMD).</div>`
+    : d.error ? `<div class="msg err">${esc(d.error)}</div>` : !list.length ? `<div class="msg">No desks.</div>` : "";
+  el.innerHTML = head + (P.err ? `<div class="msg ${P.ok ? "" : "err"}">${esc(P.err)}</div>` : "") + list.map((x, i) =>
+    `<div class="row${i === P.sel ? " sel" : ""}" data-i="${i}"><span class="k">${esc(x.agent || "")}</span><span class="v">${esc(x.name || x.id)}${x.detail ? ` <span style="color:var(--dim)">· ${esc(x.detail)}</span>` : ""}</span><span class="h">${i === P.sel ? "→ open in the desk viewer" : ""}</span></div>`).join("");
+  el.querySelectorAll(".row").forEach(x => x.onclick = () => { P.sel = +x.dataset.i; panelChange(1, true); });
+}
+async function loadDesks() { try { panel.desks.data = await getJSON("desks"); } catch (e) { panel.desks.data = { error: e.message }; } if (mode === "desks") drawDesks(); }
+async function openDesk() {
+  const P = panel.desks, x = ((P.data && P.data.desks) || [])[P.sel]; if (!x) return;
+  P.ok = true; P.err = `Opening ${x.name || x.id}…`; drawDesks();
+  try { const j = await postJSON("desks/open", { id: x.id }); P.ok = true; P.err = `${x.name || x.id}: opened (${j.s} s)`; }
+  catch (e) { P.ok = false; P.err = `${x.name || x.id}: ${e.message}`; }
+  drawDesks();
+}
+function ago(iso) { const t = Date.parse(iso || ""); if (!t) return ""; const m = Math.round((Date.now() - t) / 60000); return m < 1 ? "just now" : m < 120 ? m + " min ago" : Math.round(m / 60) + " h ago"; }
+function drawAgents() {
+  const d = panel.agents.data, el = $("p-agents"), list = (d && d.agents) || [];
+  el.innerHTML = !d ? `<div class="msg">reading the team…</div>` : d.configured === false ? `<div class="msg">Agent status is not configured on this server (VIZIER_AGENTS_DIR).</div>`
+    : !list.length ? `<div class="msg">No agent status files.</div>` : list.map(a =>
+    `<div class="row"><span class="k"><span class="dot ${esc(a.health)}"></span>${esc(a.agent)}</span><span class="v">${esc(a.doing || (a.reasons || []).join("; ") || a.health)}</span><span class="h">${esc(ago(a.at))}</span></div>`).join("");
+}
+async function loadAgents() { try { panel.agents.data = await getJSON("agents"); } catch (e) { panel.agents.data = { agents: [], error: e.message }; } if (mode === "agents") drawAgents(); }
+function panelOpen(n) { ({ settings: () => { drawSettings(); loadSettings(); }, desks: () => { drawDesks(); loadDesks(); }, agents: () => { drawAgents(); loadAgents(); } })[n](); }
+function panelStep(d) {
+  if (mode === "agents") { $("p-agents").scrollTop += d * 80; return; }
+  panel[mode].sel += d; mode === "settings" ? drawSettings() : drawDesks();
+}
+function panelChange(d, enter) {
+  if (mode === "settings") { if (!settingRows()[panel.settings.sel].ro) changeSetting(d); }
+  else if (mode === "desks" && (d > 0 || enter)) openDesk();
+}
+setInterval(() => { if (mode === "settings") loadSettings(); else if (mode === "agents") loadAgents(); }, 2000);
+setInterval(() => { if (mode === "desks") loadDesks(); }, 15000);
+window.vizierPanels = { panel, settingRows, goTab };   // headless checks
 
 // ---------- CALL: the feed renderer over WS /feed (frames: docs/openapi.yaml) ----------
 const sugs = {}, seenSeq = new Set(); let ws, seenCall = null;
