@@ -10,9 +10,14 @@
 // LiveKit SDK. Ears off also mutes the mic track; Mouth off also unsubscribes from the agent's audio here.
 import { Room, RoomEvent, Track } from "https://cdn.jsdelivr.net/npm/livekit-client@2.15.7/+esm";
 
-const KEEP = "vizier.talk";   // Ears/Mouth survive an app restart or deploy (the WebView profile keeps localStorage)
-const kept = (() => { try { return JSON.parse(localStorage.getItem(KEEP) || "{}"); } catch (e) { return {}; } })();
-const state = { ears: !!kept.ears, mouth: !!kept.mouth, room: null, mic: null, audio: [], status: "off" };
+// Ears and Mouth are ON at every start (knowledge#13786, Tyler 2026-11-15: "I need Scout on demand at all times"; the
+// agent's voice must be heard on the laptop every time). A switch kept off from an earlier session silenced the agent
+// on the next launch with nothing on screen saying why (fresh WebView profile: both off, so nothing was ever heard).
+// When the agent speaks is the room's job (its ears process answers only a line that names it), not a stale switch.
+// Alt+E / Alt+M still turn either off for this session. vizier.json "talkStartOff": ["ears"|"mouth"] opts out (start()).
+const KEEP = "vizier.talk";   // kept for the record (last session's choice); never read back as the start state
+const state = { ears: true, mouth: true, room: null, mic: null, audio: [], status: "off" };
+let started = false;
 const keep = () => { try { localStorage.setItem(KEEP, JSON.stringify({ ears: state.ears, mouth: state.mouth })); } catch (e) { /* no storage */ } };
 
 function pill() {
@@ -97,6 +102,10 @@ async function creds(cfg) {
 }
 
 export async function start(cfg = {}) {
+  if (!started) {                        // the start state, once per launch (a reconnect keeps this session's toggles)
+    started = true;
+    for (const k of (cfg.talkStartOff || [])) if (k === "ears" || k === "mouth") state[k] = false;
+  }
   serverBase = (cfg.server || "").replace(/\/$/, "");
   const { url, token } = await creds(cfg);
   if (!url || !token) return;            // not configured: no pill, nothing joins (Vizier works as before)
