@@ -327,7 +327,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--exe", required=True); ap.add_argument("--host", required=True)
     ap.add_argument("--out", default=os.path.join(tempfile.gettempdir(), "vizier-smoke"))
-    ap.add_argument("--script", default=str(REPO / "examples" / "scripts.md"))
+    ap.add_argument("--script", default=str(Path(__file__).with_name("sample-script.md")))
     ap.add_argument("--user", default="", help="Windows user the app runs as (default: the vizier-app task's)")
     ap.add_argument("--cdp-port", type=int, default=9339); ap.add_argument("--remote-port", type=int, default=18799)
     ap.add_argument("--talk-url", default=""); ap.add_argument("--room", default="vizier-smoke")
