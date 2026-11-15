@@ -29,7 +29,7 @@
   .tab.ctx.on { background:var(--hi); }
   .tab.set.on, .tab.desk.on, .tab.agt.on { background:var(--accent); }
   /* SETTINGS / DESKS / AGENTS (the deployment's issue 13798): one list each, the selected row marked, arrows drive it */
-  .panel { flex:1; min-height:0; overflow-y:auto; padding:14px 28px 46px; }
+  .panel { flex:1; min-height:0; overflow-y:auto; padding:14px 28px 46px; scroll-padding:10px 0 50px; }   /* scrollIntoView clears the fixed key legend */
   .panel .row { display:flex; align-items:baseline; gap:18px; padding:10px 14px; border-radius:8px; border:1px solid transparent; font:500 24px/1.3 system-ui; }
   .panel .row.sel { border-color:var(--hi); background:#14181f; }
   .panel .row .k { flex:0 0 260px; color:var(--dim); font-size:18px; letter-spacing:.04em; }

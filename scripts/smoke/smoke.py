@@ -78,13 +78,19 @@ def fixture(d: Path, script: Path):
 
 
 class CDP:
-    def __init__(self, ws): self.ws, self.n, self.pending = ws, 0, {}
+    def __init__(self, ws): self.ws, self.n, self.pending, self.log = ws, 0, {}, []
 
     async def pump(self):
         async for m in self.ws:
             j = json.loads(m.data)
             if "id" in j and j["id"] in self.pending:
                 self.pending.pop(j["id"]).set_result(j)
+            elif j.get("method") == "Log.entryAdded":   # network refusals (CORS, blocked requests) land here, not in JS
+                e = j["params"]["entry"]; self.log.append(f"{e.get('level')} {e.get('source')}: {e.get('text', '')[:200]} {e.get('url', '')[:100]}")
+            elif j.get("method") == "Runtime.exceptionThrown":
+                d = j["params"]["exceptionDetails"]; self.log.append(f"exception: {d.get('text')} {d.get('exception', {}).get('description', '')[:200]}")
+            elif j.get("method") == "Runtime.consoleAPICalled" and j["params"].get("type") in ("error", "warning"):
+                self.log.append("console." + j["params"]["type"] + ": " + " ".join(str(a.get("value", a.get("description", ""))) for a in j["params"]["args"])[:200])
 
     async def call(self, method, **params):
         self.n += 1; f = asyncio.get_event_loop().create_future(); self.pending[self.n] = f
@@ -154,11 +160,12 @@ async def sel_visible(c, pid):
 
 
 async def drive(c: CDP, out: Path, talk: bool, state: Path):
-    await c.call("Page.enable"); await c.call("Runtime.enable")
+    await c.call("Page.enable"); await c.call("Runtime.enable"); await c.call("Log.enable")
     ok("the page loaded", await until(lambda: c.js("!!window.vizierPanels && !!window.vizierTalk"), 20))
     ok("the page linked to the server (feed)", await until(lambda: c.js("document.getElementById('dot').classList.contains('on')"), 15))
-    ok("the script reached the page", await until(lambda: c.js("document.querySelectorAll('#text p').length > 0"), 15),
-       f"{await c.js('document.querySelectorAll(\"#text p\").length')} lines")
+    got = await until(lambda: c.js("document.querySelectorAll('#text p').length > 0"), 15)
+    why = "" if got else await c.js("fetch(SERVER + '/prompter/scripts').then(r => r.status + ' ' + r.headers.get('access-control-allow-origin')).catch(e => 'fetch error: ' + e)")
+    ok("the script reached the page", got, f"{await c.js('document.querySelectorAll(\"#text p\").length')} lines; mode {await c.js('mode')}; takes {await c.js('takes.length')}; origin {await c.js('location.origin')} {why}")
     if talk:
         ok("the talk link joined LiveKit", await until(lambda: c.js("!!window.vizierTalk.state.room"), 20),
            str(await c.js("window.vizierTalk.state.status")))
@@ -315,6 +322,7 @@ Register-ScheduledTask -TaskName vizier-smoke -Action $a -Settings $s -Principal
                     ok("the run finished", False, f"{type(e).__name__}: {e}")
                     try: await c.shot(out, "crash")
                     except Exception: pass  # noqa: BLE001,E701
+                for l in c.log[:25]: print("  page log:", l)
                 pump.cancel()
     finally:
         ps(a.host, "Stop-ScheduledTask vizier-smoke -ErrorAction SilentlyContinue; Get-CimInstance Win32_Process -Filter \"name='vizier.exe'\" | "
