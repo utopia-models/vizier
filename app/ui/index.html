@@ -83,6 +83,7 @@
   #readline::before { content:""; position:absolute; left:6px; top:-6px; border:6px solid transparent; border-left:11px solid var(--hi); }
   #spd { font:600 12px ui-monospace, monospace; color:var(--dim); white-space:nowrap; }   /* one line: a wrapped HUD tripled the header's height */
   #spd.play { color:#3c3; }
+  #spd, #gear, #cfg { display:none !important; }   /* Tyler 2026-11-16: no speed HUD, no server-config row on screen */
   #coach { flex:0 0 auto; padding:10px 20px; background:#13202e; color:#9fd3ff; font:600 21px/1.32 system-ui;
            border-top:2px solid #2f6aa0; white-space:pre-line; max-height:34%; overflow:hidden; }
   #coach b { color:#fff; }
