@@ -59,7 +59,9 @@ def test_script_tab_hides_coach_build_and_heading():
 
 
 def test_type_size_default_and_ceiling():
-    assert re.search(r'let fontPx = Math\.min\(40, \+store\.get\("vizier\.type2"\) \|\| 22\);', HTML)
+    # ceiling 28 px since knowledge#14087 (S6: a CDP read of the live window shows type of 28 px or less)
+    assert re.search(r'const TYPE_MAX = 28;', HTML)
+    assert re.search(r'let fontPx = Math\.min\(TYPE_MAX, \+store\.get\("vizier\.type2"\) \|\| 22\);', HTML)
     assert '"vizier.type"' not in HTML, "the old key would bring the oversized stored size back"
 
 
