@@ -261,7 +261,7 @@ fn http_post_json(base: &str, path: &str, body: &str) -> Result<String, String> 
 }
 
 /// The page must keep running and painting while the window is on screen but not the foreground app (the reader is
-/// in Moonlight or a call; the keys are global). If WebView2 was left marked invisible (IsVisible false: hidden, not
+/// over a remote-desktop stream or a call; the keys are global). If WebView2 was left marked invisible (IsVisible false: hidden, not
 /// rendered, timers parked), a key's eval runs but nothing is drawn until some window change wakes it, which is what
 /// made Tab, Alt+E and Alt+M "take a while to register" while Alt+V (a native window change) was instant. Read first,
 /// write only on drift (#12581).

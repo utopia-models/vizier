@@ -63,7 +63,7 @@ claude mcp add vizier -e VIZIER_URL=http://127.0.0.1:8786 -- python3 /path/to/vi
 | `post_line {ch, text, final?}` | shows a transcript line (`me` / `them`); `final=false` is live interim text |
 | `post_bullets {bullets, for?}` | shows 1-6 short bullets of what to say next, on top of the overlay |
 | `read_transcript {since?}` | the open call's final lines, oldest first |
-| `set_script {markdown}` | puts a script on the teleprompter (`## ` block per take, one line per breath) |
+| `set_script {markdown}` | puts a script on the teleprompter (`## ` block per take, one line per breath; only spoken lines show: headings, `>` coaching notes, `Coach:`-style labels, `[...]` / `(...)` directions and `[show]` cues are dropped) |
 | `set_status {text}` | the overlay's one-line status |
 | `set_note {text}` | the teleprompter's one-line note |
 | `start_call {call_id?, title?}` · `end_call` | open / close a call |
@@ -152,7 +152,7 @@ exit 0 only when every step passes.
 ### Prompter keys
 
 The script scrolls continuously; the current line is the one on the reading line (the arrow, a fifth of the way down).
-SCRIPT and CONTEXT share one type size (32 px by default). Speed and type size are remembered. Presenter clickers send PageDown/PageUp and B, `.` or F5, so they work as-is.
+SCRIPT shows the spoken lines and nothing else: no coach note, no BUILD footer, no part heading (those read on CONTEXT). SCRIPT and CONTEXT share one type size (22 px by default, 12 to 40). Speed and type size are remembered. Presenter clickers send PageDown/PageUp and B, `.` or F5, so they work as-is.
 
 | key | does |
 |---|---|
@@ -168,7 +168,7 @@ SCRIPT and CONTEXT share one type size (32 px by default). Speed and type size a
 | Home | top of the part |
 | → / ← | next / previous part (starts a new take file while recording) |
 | Esc | stop the scroll and the recording |
-| Alt+V | hide Vizier from any app, and Alt+V again pops it back up bottom-left, in its slot, focused. Vizier is otherwise kept on screen: a minimized window is put back within 2 s unless you hid it this way |
+| Alt+V | hide Vizier from any app, and Alt+V again pops it back up, focused. Vizier opens bottom-left, the bottom-left quarter of the primary monitor; it is resizable and stays where you put it. A minimized window is put back within 2 s unless you hid it this way |
 
 ### The agent's panels: SETTINGS, DESKS, AGENTS
 

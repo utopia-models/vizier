@@ -15,7 +15,7 @@ def test_four_panels_and_their_tabs_exist():
 def test_tab_cycles_the_four_panels():
     fn = HTML[HTML.index("window.vizierTab = () =>"):]
     fn = fn[: fn.index("};")]
-    assert 'const order = ["talk", ...PANELS]' in fn
+    assert 'const order = ["talk", ...PANELS, "script"]' in fn   # Tab reaches SCRIPT (#14)
     assert re.search(r'const PANELS = \["settings", "desks", "agents"\]', HTML)
 
 

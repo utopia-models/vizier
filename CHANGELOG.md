@@ -5,6 +5,19 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **The SCRIPT tab shows only the spoken lines, at a readable size, in a smaller window** (the user 2026-11-16 3:13 AM MT,
+  recording a custom VSL from an outline: "I'm barely able to read the script. The text is extremely large... literally taking
+  up half the screen... there's this section called coach on part... build", vizier#15; #16-#20). The coach bar, build log,
+  part heading and on-screen cues are hidden on SCRIPT. The type size is 22 px by default under a new store key (a drifted
+  stored size is dropped), capped at 40 px; the reading line sits at 10 %. The window opens as the bottom-left quarter of the
+  primary monitor, is resizable, and stays where the reader puts it. `parse_takes` (and the page, the same rule) drops
+  headings, `>` coaching notes, `Coach:` / `Coach on part N:` / `Note:` / `Direction:` / `Cue:` labels, rules, whole-line
+  `[...]` / `(...)` directions and `[show]` / `[scout]` cues inside a part, and strips list markers, so an agent's line numbers
+  stay the screen's and the arrows never step onto a hidden paragraph. Header HUD and key legend are one row each. A part
+  built while the prompter was hidden is built again when it shows. Replay test `server/tests/test_spoken_lines.py`; the
+  smoke test checks only spoken lines render and counts the rows that fit.
+
 ### Added
 - **A smoke test every build runs before it is staged** (`scripts/smoke/smoke.py`): the built exe on the real Windows box
   with `--smoke` (WebView2 DevTools port, own profile, no global shortcuts; `smoke_key` presses Alt+V / Alt+R / Alt+E /
