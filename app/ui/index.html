@@ -348,10 +348,16 @@ window.vizierFollow = async () => {   // Alt+F (main.rs) or a click on the legen
 };
 function paintFollow(on) { followOn = on; const el = document.getElementById("kfollow"); if (el) { el.textContent = on ? "Alt+F follow: ON" : "Alt+F follow: OFF"; el.style.color = on ? "#3ddc84" : "#c0392b"; } }
 every(800, async () => { const r = await api("prompter/follow").then(x => x.json()).catch(() => null); if (r && r.on !== followOn) paintFollow(r.on); });
+// An agent asked to LOOK at the app (POST /prompter/snap): whatever tab is showing goes to live.png. Every mode, every
+// tab, a script loaded or not: laptop-eye on Ra bumps it every 2 s and draws live.png into its frame of the laptop,
+// because the window is excluded from screen capture (knowledge#14117). Inside the RECORD-only poll below it answered
+// only during a take, so "snap only returns a seq" (scout, 2026-11-16 2:25 AM).
+every(400, async () => {
+  const sn = await api("prompter/snap").then(r => r.json()).catch(() => null);
+  if (sn && window.__TAURI__) { if (snapSeq < 0) snapSeq = sn.seq; else if (sn.seq !== snapSeq) { snapSeq = sn.seq; window.__TAURI__.core.invoke("snapshot").catch(() => {}); } }
+});
 every(400, async () => {   // a driver that hears the reader asks the prompter to jump (POST /prompter/goto); follow when seq changes
   if (mode !== "rec" || !takes.length) return;
-  const sn = await api("prompter/snap").then(r => r.json()).catch(() => null);   // an agent asked to LOOK at the prompter
-  if (sn && window.__TAURI__) { if (snapSeq < 0) snapSeq = sn.seq; else if (sn.seq !== snapSeq) { snapSeq = sn.seq; window.__TAURI__.core.invoke("snapshot").catch(() => {}); } }
   const g = await api("prompter/goto").then(r => r.json()).catch(() => null);
   if (!g) return;
   if (gotoSeq < 0) { gotoSeq = g.seq; return; }   // the first read only learns the counter
