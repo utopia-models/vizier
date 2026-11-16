@@ -18,14 +18,15 @@ use tauri::{Manager, PhysicalPosition, PhysicalSize, WebviewWindow, WindowEvent}
 
 mod park;
 
-/// Bottom-left quarter of the primary monitor, clipped to its work area (so it never sits under the taskbar).
+/// Bottom-left of the primary monitor, half its width and 60% of its height, clipped to its work area (so it never sits under the taskbar).
 fn slot(w: &WebviewWindow) -> Option<(PhysicalPosition<i32>, PhysicalSize<u32>)> {
     let m = w.primary_monitor().ok().flatten()?;
     let (pos, size, wa) = (*m.position(), *m.size(), *m.work_area());
-    let top = pos.y + (size.height / 2) as i32;
+    // Half the width, 60% of the height, sitting on the bottom of the work area. Set once at launch; after that the
+    // reader can drag and resize it and it stays where they put it.
     let bottom = (wa.position.y + wa.size.height as i32).min(pos.y + size.height as i32);
-    let h = (bottom - top).max(240) as u32;
-    Some((PhysicalPosition::new(pos.x, top), PhysicalSize::new(size.width / 2, h)))
+    let h = ((size.height * 3 / 5) as i32).min(bottom - pos.y).max(240);
+    Some((PhysicalPosition::new(pos.x, bottom - h), PhysicalSize::new(size.width / 2, h as u32)))
 }
 
 fn place(w: &WebviewWindow) {
@@ -93,7 +94,6 @@ fn main() {
                 if !keep.is_always_on_top().unwrap_or(false) {
                     let _ = keep.set_always_on_top(true);
                 }
-                place(&keep);
                 #[cfg(windows)]
                 keep_rendering(&keep);
             });
@@ -101,9 +101,9 @@ fn main() {
             grant_media(&w);
             let pin = w.clone();
             w.on_window_event(move |e| match e {
-                // Pinned: anything that moves or resizes it (a snap, a display change, a layout script) puts it back.
+                // Not pinned any more: the reader resizes and moves it. A display-scale change re-places it.
                 // A minimize is a move too (Windows parks the window at -32000): leave a minimized window alone.
-                WindowEvent::Moved(_) | WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
+                WindowEvent::ScaleFactorChanged { .. } => {
                     if !pin.is_minimized().unwrap_or(false) {
                         place(&pin)
                     }
@@ -186,7 +186,6 @@ fn hotkey(app: &tauri::AppHandle, name: &str) {
                     let _ = w.unminimize();
                     let _ = w.show();
                     let _ = w.set_always_on_top(true);
-                    place(&w);
                     let _ = w.set_focus();
                 }
             }
