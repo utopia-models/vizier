@@ -17,12 +17,15 @@
   html, body { height:100%; }
   body { margin:0; background:var(--bg); color:var(--fg); font:20px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif;
          overflow:hidden; display:flex; flex-direction:column; user-select:none; }
-  header { flex:0 0 auto; display:flex; align-items:center; gap:10px; padding:6px 12px; padding-right:170px; /* keeps Ears/Mouth (the fixed pill, top right) clear of the header */ border-bottom:1px solid var(--line);
+  /* one row at the default (quarter-screen) width: 6 px gaps, 7 px tab padding, no 'hidden' badge (the gear's tooltip says it);
+     padding-right keeps the Ears/Mouth pill (fixed, top right, ~130 px) clear. Before, the HUD wrapped to three lines (vizier#15). */
+  header { flex:0 0 auto; display:flex; align-items:center; gap:6px; padding:6px 10px; padding-right:150px; border-bottom:1px solid var(--line);
            font:500 14px system-ui; color:var(--dim); background:#07090c; }
   header b { color:var(--fg); font-weight:600; }
   #dot { width:9px; height:9px; border-radius:50%; background:#c44; display:inline-block; }
   #dot.on { background:#3c3; }
-  .tab { padding:2px 10px; border-radius:5px; border:1px solid transparent; cursor:pointer; letter-spacing:.06em; }
+  .tab { padding:2px 7px; border-radius:5px; border:1px solid transparent; cursor:pointer; letter-spacing:.04em; }
+  #hide { display:none; }
   .tab.on { color:#000; background:var(--hi); font-weight:700; }
   .tab.call.on { background:var(--accent); }
   .tab.talk.on { background:var(--me); }
@@ -78,7 +81,7 @@
   /* the reading line (READ_AT, a third of the way down), marked by an arrow in the margin: the current line is the one on it */
   #readline { position:absolute; left:0; right:0; top:calc(10% + .7em); height:0; font-size:var(--type); pointer-events:none; }
   #readline::before { content:""; position:absolute; left:6px; top:-6px; border:6px solid transparent; border-left:11px solid var(--hi); }
-  #spd { font:600 12px ui-monospace, monospace; color:var(--dim); }
+  #spd { font:600 12px ui-monospace, monospace; color:var(--dim); white-space:nowrap; }   /* one line: a wrapped HUD tripled the header's height */
   #spd.play { color:#3c3; }
   #coach { flex:0 0 auto; padding:10px 20px; background:#13202e; color:#9fd3ff; font:600 21px/1.32 system-ui;
            border-top:2px solid #2f6aa0; white-space:pre-line; max-height:34%; overflow:hidden; }
@@ -87,7 +90,7 @@
   /* RECORD tabs: SCRIPT is the prompter; CONTEXT and DO NOT SAY are for reading while preparing */
   .keylegend { position:fixed; left:0; right:0; bottom:0; z-index:5; padding:5px 14px; background:#0d0f12; border-top:1px solid var(--line); font:600 12px system-ui; color:var(--dim); letter-spacing:.02em; text-align:center; }
   .keylegend b { color:var(--fg); }
-  #keylegend { position:fixed; left:0; right:0; bottom:0; z-index:5; padding:5px 14px; background:#0d0f12; border-top:1px solid var(--line); font:600 12px system-ui; color:var(--dim); letter-spacing:.02em; text-align:center; }
+  #keylegend { position:fixed; left:0; right:0; bottom:0; z-index:5; padding:5px 14px; background:#0d0f12; border-top:1px solid var(--line); font:600 12px system-ui; color:var(--dim); letter-spacing:.02em; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }   /* one line (23 px): the rest of the window is script */
   #keylegend b { color:var(--fg); }
   #rtabs { flex:0 0 auto; display:none; gap:4px; padding:6px 14px 0; border-bottom:1px solid var(--line); font:600 13px system-ui; letter-spacing:.06em; }
   #rtabs.on { display:flex; }
@@ -143,13 +146,13 @@
   <span id="media"></span>
   <button id="join" style="display:none">Join call</button>
   <span id="hide" class="on" title="this window is excluded from every screen capture, stream and screen share (SetWindowDisplayAffinity WDA_EXCLUDEFROMCAPTURE); always on">hidden</span>
-  <button id="gear" title="server URL">⚙</button>
+  <button id="gear" title="server URL. This window is excluded from every screen capture, stream and screen share (SetWindowDisplayAffinity WDA_EXCLUDEFROMCAPTURE), always">⚙</button>
 </header>
 <div id="cfg"><span>server</span><input id="srv" spellcheck="false"><button id="srv-save">save</button></div>
 <audio id="callaudio" autoplay></audio>
 
 <section class="mode" id="m-rec">
-  <div id="keylegend"><b>↑ ↓</b> scroll &nbsp;·&nbsp; <b>← →</b> next / previous part &nbsp;·&nbsp; <b>Tab</b> Talk / Settings / Desks / Agents / Script &nbsp;·&nbsp; <b>Alt+E</b> ears &nbsp;·&nbsp; <b>Alt+M</b> mouth &nbsp;·&nbsp; <b>Alt+V</b> show / hide &nbsp;·&nbsp; <b>Alt+R</b> record &nbsp;·&nbsp; <b id="kfollow" style="cursor:pointer" onclick="window.vizierFollow()">Alt+F follow: ON</b></div>
+  <div id="keylegend"><b>↑ ↓</b> scroll &nbsp;·&nbsp; <b>← →</b> part &nbsp;·&nbsp; <b>Tab</b> Talk / Settings / Desks / Agents / Script &nbsp;·&nbsp; <b>Alt+E</b> ears &nbsp;·&nbsp; <b>Alt+M</b> mouth &nbsp;·&nbsp; <b>Alt+V</b> show / hide &nbsp;·&nbsp; <b>Alt+R</b> record &nbsp;·&nbsp; <b id="kfollow" style="cursor:pointer" onclick="window.vizierFollow()">Alt+F follow: ON</b></div>
   <nav id="rtabs"><span data-t="script" class="on">SCRIPT</span><span data-t="context" hidden>CONTEXT</span><span data-t="notes" hidden>DO NOT SAY</span></nav>
   <div id="prompt"><div id="text"></div><div id="readline"></div></div>
   <div id="doc"></div>
@@ -286,6 +289,15 @@ let takes = [], t = 0, recording = false, playing = false, built = "", curIdx = 
 let speed = +store.get("vizier.speed") || 60;   // px per second
 let fontPx = Math.min(40, +store.get("vizier.type2") || 22);   // SCRIPT and CONTEXT share it (CSS --type)
 const READ_AT = 0.10;                            // the reading line, as a fraction of the prompter's height
+// Only spoken lines reach the SCRIPT tab (the user 2026-11-16 3:13 AM, recording a VSL from an outline: "I'm barely able to
+// read the script... there's this section called coach on part... build", vizier#15). Dropped: headings (#), coaching notes (a >
+// quote or a Coach: / Coach on part N: / Note: / Direction: / Cue: / Tone: / Delivery: / Beat: / Pause: label), rules (---),
+// whole-line stage directions in [] or (), and the [show] / [scout] on-screen cues; a list marker is stripped. The server's
+// parse_takes (server/vizier.py) drops the same, so an agent's line numbers (/prompter/goto, /prompter/position) match the
+// screen and the arrows never step onto a hidden paragraph; the rule lives here too so an older server still renders clean.
+// "(scout) line" stays: scout speaks it.
+const NOT_SPOKEN = /^(#|>|(-{3,}|\*{3,}|_{3,})$|\[[^\]]*\]$|\([^)]*\)$|\[(show|scout)\]|(coach(ing)?(\s+on\s+part\s+\S+)?|notes?|directions?|cues?|tone|delivery|beat|pause)\s*[:\-–—])/i;
+const spoken = lines => lines.map(l => String(l).trim().replace(/^([-*•]|\d+[.)])\s+/, "").trim()).filter(l => l && !NOT_SPOKEN.test(l));
 // Author labels never reach the screen: with "hideLabels": ["editor"] in the app's config, "(editor, 2026-11-12)" in a
 // title and "editor:" before a line are dropped (for scripts several writers annotate). Empty list = shown as written.
 const labels = () => (CFG.hideLabels || []).map(x => String(x).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).filter(Boolean);
@@ -307,12 +319,15 @@ function render() {
   if (!k) { $("title").textContent = takes.length ? "" : "no takes yet"; return; }
   const name = unlabel(k.title.replace(/^[A-Za-z0-9]+\s*·\s*/, ""));
   $("title").textContent = (recording ? "● Recording · " : "") + `${SCRIPT_NAME} · part ${t + 1} of ${takes.length} · ${name}`;
-  const key = t + "\n" + JSON.stringify(k.lines);
+  const lines = spoken(k.lines), key = t + "\n" + JSON.stringify(lines);
   if (key !== built) {   // a new part, or a live edit of this one: rebuild, keeping the reader's line when the part is the same
     const samePart = built.split("\n")[0] === String(t), keep = samePart ? Math.max(0, curIdx) : 0;
     built = key;
-    $("text").innerHTML = `<div class="padtop"></div>` + k.lines.map(l => /^\s*\[(show|scout)\]/i.test(l) ? `<p class="cue">${esc(l.replace(/^\s*\[(show|scout)\]\s*/i, ""))}</p>` : `<p>${/^\s*\(scout\)/i.test(l) ? `<span class="mark">(Scout)</span> ` + esc(unlabel(l.replace(/^\s*\(scout\)\s*/i, ""))) : esc(unlabel(l))}</p>`).join("") + `<div class="pad"></div>`;
-    curIdx = -1; goLine(Math.min(keep, k.lines.length - 1));
+    $("text").innerHTML = `<div class="padtop"></div>` + lines.map(l => `<p>${/^\s*\(scout\)/i.test(l) ? `<span class="mark">(Scout)</span> ` + esc(unlabel(l.replace(/^\s*\(scout\)\s*/i, ""))) : esc(unlabel(l))}</p>`).join("") + `<div class="pad"></div>`;
+    curIdx = -1; goLine(Math.min(keep, lines.length - 1));
+    // Built while hidden (the takes can arrive before the first /health sets the mode, or SCRIPT is behind CONTEXT): mark()
+    // saw no geometry and marked the LAST line. Build again on the next render, once it shows (the smoke test caught it).
+    if (!$("text").clientHeight) built = "";
   }
   hud();
 }
@@ -347,7 +362,8 @@ every(400, async () => {   // a driver that hears the reader asks the prompter t
 });
 function reportPos() {   // where the reader is in the script, for whoever drives the screen (POST /prompter/position)
   const k = takes[t]; if (!k) return;
-  const body = JSON.stringify({ part: t + 1, parts: takes.length, title: k.title, line: curIdx + 1, lines: k.lines.length, text: (k.lines[curIdx] || "") });
+  const lines = spoken(k.lines);
+  const body = JSON.stringify({ part: t + 1, parts: takes.length, title: k.title, line: curIdx + 1, lines: lines.length, text: (lines[curIdx] || "") });
   if (body === lastPos) return; lastPos = body;
   api("prompter/position", { method: "POST", headers: { "Content-Type": "application/json" }, body }).catch(() => {});
 }
@@ -485,6 +501,7 @@ function showTab(tb) {
   document.querySelectorAll("#rtabs span").forEach(s => s.classList.toggle("on", s.dataset.t === tb));
   $("prompt").style.display = tb === "script" ? "" : "none";
   $("doc").classList.toggle("on", tb !== "script");
+  if (tb === "script") render();   // a part built while the prompter was hidden is built again now that it shows
   if (tb === "context") {
     const top = $("doc").scrollTop;
     const doing = buildLines.slice().reverse().map(l => { const m = l.match(/^(?:\d{4}-\d\d-\d\d[ T])?(\d\d:\d\dZ?):?\s+(.*)$/);

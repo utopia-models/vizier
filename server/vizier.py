@@ -359,11 +359,30 @@ async def script(req):
     return web.json_response({"ok": True, "takes": n})
 
 
+# Only spoken lines are a take's lines (the user 2026-11-16 3:13 AM, recording a VSL from an outline: "I'm barely able to read
+# the script... there's this section called coach on part... build", vizier#15). Dropped: headings (#), coaching notes (a >
+# quote or a Coach: / Coach on part N: / Note: / Direction: / Cue: / Tone: / Delivery: / Beat: / Pause: label), rules (---),
+# whole-line stage directions in [] or (), and the [show] / [scout] on-screen cues; a list marker is stripped. app/ui/index.html
+# applies the same rule (NOT_SPOKEN, byte-identical; tests/test_spoken_lines.py holds them together), so an agent's line numbers
+# (/prompter/goto, /prompter/position) are the screen's. "(scout) line" stays: scout speaks it.
+NOT_SPOKEN = re.compile(r"^(#|>|(-{3,}|\*{3,}|_{3,})$|\[[^\]]*\]$|\([^)]*\)$|\[(show|scout)\]|(coach(ing)?(\s+on\s+part\s+\S+)?|notes?|directions?|cues?|tone|delivery|beat|pause)\s*[:\-–—])", re.I)
+LIST_MARK = re.compile(r"^([-*•]|\d+[.)])\s+")
+
+
+def spoken(lines) -> list[str]:
+    out = []
+    for l in lines:
+        l = LIST_MARK.sub("", l.strip().replace("**", "")).strip()
+        if l and not NOT_SPOKEN.match(l):
+            out.append(l)
+    return out
+
+
 def parse_takes(text: str) -> list[dict]:
     takes = []
     for block in ("\n" + text).split("\n## ")[1:]:
         title, *rest = block.split("\n")
-        takes.append({"title": title.strip(), "lines": [l.strip().replace("**", "") for l in rest if l.strip()]})
+        takes.append({"title": title.strip(), "lines": spoken(rest)})
     # A script with numbered parts ("1 · Hello") keeps only those: its other blocks ("Do not say") are notes.
     if any(re.match(r"\d", k["title"]) for k in takes):
         takes = [k for k in takes if re.match(r"\d", k["title"])]

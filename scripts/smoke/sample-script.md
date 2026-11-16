@@ -1,6 +1,10 @@
 # Smoke script: the prompter's fixture
 
 ## 1 · Opening
+### Hook
+> Coach: warm and slow; this heading and note are an outline's, never spoken (vizier#15)
+[show] the OCC
+Coach on part 1: land the problem before the offer.
 Opening line 1: long enough to wrap once the type is large, so the part runs past the window.
 Opening line 2: long enough to wrap once the type is large, so the part runs past the window.
 Opening line 3: long enough to wrap once the type is large, so the part runs past the window.

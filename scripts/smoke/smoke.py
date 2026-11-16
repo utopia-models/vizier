@@ -21,7 +21,7 @@ What it does (every step is a PASS/FAIL line, with a screenshot in --out; exit 0
   4. Stops the smoke instance and its task, whatever happened.
 Needs: ssh to the box (Windows OpenSSH, PowerShell), python3 with aiohttp here (server/requirements.txt).
 """
-import argparse, asyncio, base64, hashlib, hmac, json, os, shlex, socket, subprocess, sys, tempfile, time
+import argparse, asyncio, base64, hashlib, hmac, json, os, re, shlex, socket, subprocess, sys, tempfile, time
 from pathlib import Path
 
 import aiohttp
@@ -261,6 +261,18 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
     await c.js("window.vizierPanels.goTab('script')"); await asyncio.sleep(0.4)
     vis = await c.js("(()=>{const p=document.querySelector('#text p.cur');if(!p)return null;const r=p.getBoundingClientRect();return {t:p.textContent.slice(0,60),top:r.top,bottom:r.bottom,h:innerHeight,disp:getComputedStyle(document.getElementById('prompt')).display}})()")
     ok("SCRIPT shows the script's text inside the window", vis and vis["t"] and vis["disp"] != "none" and 0 <= vis["top"] < vis["h"], str(vis))
+    # vizier#15: the outline's heading, coach note, cue and "Coach on part" label never render (not even hidden: the arrows
+    # step over DOM paragraphs); the coach note and BUILD footer are off SCRIPT; at least 4 rows of type fit the default window
+    shown = await c.js("[...document.querySelectorAll('#text p')].map(p=>p.textContent)")
+    unspoken = [l for l in (shown or []) if re.match(r"^(#|>|\[|\(|Coach\b)", l)]
+    ok("SCRIPT shows only the spoken lines (no heading, coach note, cue or label from the outline)", bool(shown) and not unspoken, str(unspoken or shown[:2]))
+    fit = await c.js("(()=>{const b=document.getElementById('text').getBoundingClientRect(),k=document.getElementById('keylegend').getBoundingClientRect();"
+                     "const lh=parseFloat(getComputedStyle(document.querySelector('#text p')).lineHeight);const area=Math.min(b.bottom,k.top)-b.top;"
+                     "return {rows:Math.floor(area/lh),area:Math.round(area),lh,w:innerWidth,h:innerHeight,type:parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--type')),"
+                     "hdr:Math.round(document.querySelector('header').getBoundingClientRect().height),leg:Math.round(k.height),"
+                     "coach:getComputedStyle(document.getElementById('coach')).display,build:getComputedStyle(document.getElementById('build')).display}})()")
+    ok("SCRIPT at the default window and type: at least 4 lines at once, type <= 40 px, one-row header and legend, no coach note, no BUILD",
+       bool(fit) and fit["rows"] >= 4 and fit["type"] <= 40 and fit["hdr"] <= 40 and fit["leg"] <= 30 and fit["coach"] == "none" and fit["build"] == "none", str(fit))
     n = await c.js("document.querySelectorAll('#text p').length")
     for _ in range(n + 2): await c.key("ArrowDown")
     cur = await c.js("(()=>{const ps=[...document.querySelectorAll('#text p')],p=document.querySelector('#text p.cur'),r=p.getBoundingClientRect();return {i:ps.indexOf(p),n:ps.length,top:r.top,h:innerHeight}})()")

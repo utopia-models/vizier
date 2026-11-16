@@ -23,7 +23,7 @@ def test_helper_bar_lists_the_keys():
 
 
 def test_tab_and_arrow_handlers_exist():
-    assert 'e.key === "Tab"' in HTML and "window.vizierTab" in HTML
+    assert 'k === "Tab"' in HTML and "window.vizierTab" in HTML
     assert "window.vizierPart" in HTML and "ArrowDown" in HTML and "ArrowUp" in HTML
 
 

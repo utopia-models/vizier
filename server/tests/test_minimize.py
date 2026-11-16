@@ -21,12 +21,12 @@ def test_one_alt_v_pops_vizier_up_or_hides_it():
     assert ".minimize()" in MAIN, "nothing ever hides the window"
     restore = MAIN[MAIN.index("park::Toggle::Restore =>"):]
     restore = restore[: restore.index("}")]
-    assert "place(&w)" in restore and "set_focus" in restore, "Alt+V must put Vizier back in its slot and focus it"
+    assert ".unminimize()" in restore and "set_focus" in restore, "Alt+V must bring Vizier back and focus it (not re-placed: since #18 it stays where the reader put it)"
 
 
 def test_keeper_leaves_a_parked_window_alone():
     loop = MAIN[MAIN.index("std::thread::spawn(move || loop {"):]
-    loop = loop[: loop.index("place(&keep);")]
+    loop = loop[: loop.index("keep_rendering(&keep);")]   # the keeper no longer re-places the window (#18)
     assert "park::keep(" in loop, "the 2 s keeper restores a minimized window without asking park.rs"
     assert loop.index("park::keep(") < loop.index(".unminimize()"), "the keeper un-minimizes before consulting the park"
     assert loop.index("set_content_protected") < loop.index("park::keep("), "content protection must hold while parked"
