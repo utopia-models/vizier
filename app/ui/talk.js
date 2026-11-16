@@ -135,6 +135,8 @@ export async function start(cfg = {}) {
     a.style.display = "none";
     document.body.appendChild(a);
     state.audio.push(a);
+    if (sc.out && a.setSinkId) a.setSinkId(sc.out.deviceId).catch((e) => tlog(`sink: ${e.message || e}`));
+    watchVoice(track);
   });
   // No local barge-in mute: the agent keeps talking over any sound in the room, and only its own name, heard by the
   // agent process in the room, stops it. A local mute on "mic is an active speaker" muted the agent whenever the
@@ -158,6 +160,10 @@ export async function start(cfg = {}) {
     applyMouth();
     await applyEars();
     await publishSwitches();
+    room.on(RoomEvent.ParticipantAttributesChanged, (changed, p) => {
+      if (p !== room.localParticipant && changed.mode === "conversation") selfCheck("conversation");
+    });
+    selfCheck("start");
   } catch (e) {
     state.status = `connect failed: ${e.message || e}`;
     tlog(`join failed: ${e.message || e}; retry in 5 s`);
@@ -240,20 +246,205 @@ export async function loopback({ freq = 1000, ms = 900 } = {}) {
   return report;
 }
 
-window.vizierTalk = { toggle, start, state, loopback };
+// Device self-check (the deployment's issue 14085). The case: a Bluetooth DJI Mic Mini paired mid-session added
+// "Headset (DJI Mic Mini Hands-Free)" as an output, the OS made it the default, and the agent's voice went to a device
+// with no speaker (13 min 59 s of silence). Three checks, on joining the room, on every device change (a pairing fires
+// devicechange; the check runs 0.8 s later, so a pairing is fixed in about a second) and on every entry to the agent's
+// conversation mode (its `mode` attribute):
+//   playback  the agent's audio plays on a laptop speaker output, never a Hands-Free/headset/DJI one. Fix: setSinkId
+//             on every agent audio element (the app's own output, so it holds whatever the OS default becomes).
+//   mic       the Ears track is on the DJI mic, and the raw mic is above digital silence. Fix: switch the track to it.
+//   heard     the next time the agent speaks after a check, the raw mic (no echo cancellation) rises 10 dB over its
+//             own level within 1 s. No tone is played (the room makes no sound of its own): the agent's own voice is
+//             the probe. Not heard -> re-pin the output once; still not heard -> an unfixed failure.
+// Each run POSTs its rows to the server (/talk/selfcheck), which adds the floor row, keeps them in
+// DATA/talk-selfcheck.jsonl and has the agent speak one line only for a failure with no fix.
+const BAD_OUT = /hands[- ]?free|headset|dji/i;
+const DJI = /dji/i;
+const MIC_FLOOR_DB = -90;      // digital silence (a muted/absent capture) reads far below this; a live mic in a quiet room is above it
+const HEARD_DB = 10, HEARD_MS = 1000;
+const sc = { out: null, running: false, again: null, pending: null, ac: null, mic: null, micId: null, voices: [] };
+const db = (x) => Math.round((x > 0 ? 20 * Math.log10(x) : -200) * 10) / 10;
+
+function rms(analyser) {
+  const buf = new Float32Array(analyser.fftSize);
+  analyser.getFloatTimeDomainData(buf);
+  let s = 0;
+  for (const v of buf) s += v * v;
+  return db(Math.sqrt(s / buf.length));
+}
+
+function realDevices(list, kind) {   // "default"/"communications" are aliases of a real device: skip them
+  return list.filter((d) => d.kind === kind && d.deviceId && d.deviceId !== "default" && d.deviceId !== "communications");
+}
+
+async function rawMic(deviceId) {    // one raw capture of the Ears device (no AEC/NS/AGC), shared by the mic and heard checks
+  if (sc.mic && sc.micId === deviceId) return sc.mic;
+  if (sc.mic) sc.mic.stream.getTracks().forEach((t) => t.stop());
+  sc.ac = sc.ac || new AudioContext();
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: {
+    ...(deviceId ? { deviceId: { exact: deviceId } } : {}), echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+  const analyser = sc.ac.createAnalyser();
+  analyser.fftSize = 2048;
+  sc.ac.createMediaStreamSource(stream).connect(analyser);
+  sc.mic = { stream, analyser };
+  sc.micId = deviceId;
+  return sc.mic;
+}
+
+async function pinOutput(target) {
+  let moved = 0;
+  for (const a of state.audio) {
+    if (!a.setSinkId) throw new Error("setSinkId unsupported");
+    if (a.sinkId !== target.deviceId) { await a.setSinkId(target.deviceId); moved++; }
+  }
+  return moved;
+}
+
+async function checkPlayback(devs) {
+  const outs = realDevices(devs, "audiooutput");
+  const def = devs.find((d) => d.kind === "audiooutput" && d.deviceId === "default");
+  const good = outs.filter((d) => !BAD_OUT.test(d.label));
+  const target = good.find((d) => /speaker/i.test(d.label)) || good[0];
+  const row = { check: "playback", os_default: def ? def.label : null, outputs: outs.map((d) => d.label) };
+  if (!target) return { ...row, pass: false, fixed: false, code: "no_speaker_output", how: "no non-headset output" };
+  const was = sc.out;
+  sc.out = target;
+  try {
+    const moved = await pinOutput(target);
+    const how = moved ? `moved ${moved} agent audio to ${target.label}` : (was && was.deviceId !== target.deviceId
+      ? `output now ${target.label}` : `on ${target.label}`);
+    return { ...row, pass: true, fixed: moved > 0, how, output: target.label };
+  } catch (e) {
+    return { ...row, pass: false, fixed: false, code: "sink_failed", how: String(e.message || e), output: target.label };
+  }
+}
+
+async function checkMic(devs) {
+  const ins = realDevices(devs, "audioinput");
+  const dji = ins.find((d) => DJI.test(d.label));
+  const track = state.mic && state.mic.track && state.mic.track.mediaStreamTrack;
+  const cur = track ? (track.getSettings().deviceId || "") : "";
+  const curLabel = (ins.find((d) => d.deviceId === cur) || {}).label || (track ? track.label : null);
+  const row = { check: "mic", inputs: ins.map((d) => d.label) };
+  let how = `on ${curLabel}`, fixed = false;
+  if (!dji) {   // still tap the mic Ears uses, so "heard" is measured on it
+    try { await rawMic(cur || undefined); } catch (e) { /* no mic at all */ }
+    return { ...row, pass: false, fixed: false, code: "no_dji", how: `no DJI input; ears on ${curLabel}`, mic: curLabel };
+  }
+  if (state.room && track && cur !== dji.deviceId) {
+    try {
+      await state.room.switchActiveDevice("audioinput", dji.deviceId);
+      how = `switched ears from ${curLabel} to ${dji.label}`; fixed = true;
+    } catch (e) {
+      return { ...row, pass: false, fixed: false, code: "dji_switch_failed", how: String(e.message || e), mic: curLabel };
+    }
+  }
+  const m = await rawMic(dji.deviceId);
+  let peak = -200;
+  for (let i = 0; i < 30; i++) { peak = Math.max(peak, rms(m.analyser)); await sleep(50); }
+  if (peak <= MIC_FLOOR_DB) return { ...row, pass: false, fixed, code: "mic_silent", how, mic: dji.label, level_db: peak };
+  return { ...row, pass: true, fixed, how, mic: dji.label, level_db: peak };
+}
+
+// heard: an analyser on each agent audio track; a voice onset (after >= 0.6 s quiet) with a check pending starts a
+// 1 s window on the raw mic.
+function watchVoice(track) {
+  try {
+    sc.ac = sc.ac || new AudioContext();
+    const an = sc.ac.createAnalyser();
+    an.fftSize = 2048;
+    sc.ac.createMediaStreamSource(new MediaStream([track.mediaStreamTrack])).connect(an);
+    sc.voices.push(an);
+  } catch (e) { tlog(`selfcheck: voice tap failed: ${e.message || e}`); }
+}
+
+(function heardLoop() {
+  let quietSince = performance.now(), base = [];
+  setInterval(async () => {
+    if (!sc.mic || !sc.voices.length) return;
+    const m = rms(sc.mic.analyser);
+    const v = Math.max(...sc.voices.map(rms));
+    if (v < -50) { base.push(m); if (base.length > 10) base.shift(); return void (quietSince = quietSince || performance.now()); }
+    const onset = quietSince && performance.now() - quietSince >= 600;
+    quietSince = 0;
+    if (!onset || !sc.pending || sc.pending.window) return;
+    const floor = base.length ? [...base].sort((a, b) => a - b)[base.length >> 1] : m;
+    const p = sc.pending;
+    p.window = true;
+    const t0 = performance.now();
+    while (performance.now() - t0 < HEARD_MS) {
+      const now = rms(sc.mic.analyser);
+      if (now - floor >= HEARD_DB) {
+        sc.pending = null;
+        return post(p.trigger, [{ check: "heard", pass: true, how: p.retry ? "heard after re-pinning the output" : "heard",
+          fixed: !!p.retry, ms: Math.round(performance.now() - t0), rise_db: Math.round((now - floor) * 10) / 10,
+          output: sc.out && sc.out.label }]);
+      }
+      await sleep(20);
+    }
+    if (!p.retry) {   // not heard: re-pin the output and judge the next line
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      const pb = await checkPlayback(devs);
+      sc.pending = { trigger: p.trigger, retry: true };
+      return post(p.trigger, [pb]);
+    }
+    sc.pending = null;
+    post(p.trigger, [{ check: "heard", pass: false, fixed: false, code: "not_heard", how: `no ${HEARD_DB} dB rise in ${HEARD_MS} ms`,
+      output: sc.out && sc.out.label }]);
+  }, 50);
+})();
+
+function post(trigger, rows) {
+  rows.forEach((r) => tlog(`selfcheck ${trigger} ${r.check} ${r.pass ? "pass" : "FAIL"} ${r.how || ""}`));
+  if (serverBase) fetch(serverBase + "/talk/selfcheck", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ trigger, rows }) }).catch(() => {});
+}
+
+export async function selfCheck(trigger = "manual") {
+  if (sc.running) { sc.again = trigger; return null; }
+  sc.running = true;
+  const t = performance.now();
+  try {
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    const rows = [await checkPlayback(devs), await checkMic(devs)];
+    rows.forEach((r) => { r.ms_since_trigger = Math.round(performance.now() - t); });
+    sc.pending = { trigger };   // the agent's next line answers "heard"
+    post(trigger, rows);
+    return rows;
+  } catch (e) {
+    tlog(`selfcheck ${trigger} failed: ${e.message || e}`);
+    return null;
+  } finally {
+    sc.running = false;
+    if (sc.again) { const a = sc.again; sc.again = null; selfCheck(a); }
+  }
+}
+
+let devTimer = null;
+if (navigator.mediaDevices && navigator.mediaDevices.addEventListener)
+  navigator.mediaDevices.addEventListener("devicechange", () => {
+    clearTimeout(devTimer);
+    devTimer = setTimeout(() => { if (state.room) selfCheck("devicechange"); }, 800);
+  });
+
+window.vizierTalk = { toggle, start, state, loopback, selfCheck };
 window.vizierTalkLog = tlog;   // the page script logs its feed link to the same file
 // POST /talk/loopback/run on the server asks this page to run the check (no console in the release app): poll its counter.
-(function pollLoopbackRun() {
+// POST /talk/selfcheck/run asks for a self-check the same way.
+function pollRun(path, fn) {
   let seen = null;
   setInterval(async () => {
     if (!serverBase) return;
     try {
-      const n = (await (await fetch(serverBase + "/talk/loopback/run")).json()).n;
+      const n = (await (await fetch(serverBase + path)).json()).n;
       if (seen === null) { seen = n; return; }   // the first read is the baseline, never a run
-      if (n !== seen) { seen = n; await loopback(); }
+      if (n !== seen) { seen = n; await fn(); }
     } catch (e) { /* server not reachable yet */ }
   }, 5000);
-})();
+}
+pollRun("/talk/loopback/run", () => loopback());
+pollRun("/talk/selfcheck/run", () => selfCheck("server"));
 window.addEventListener("keydown", (e) => {   // in-page fallback (a plain browser, or the app focused)
   if (!e.altKey || e.ctrlKey || e.metaKey) return;
   const k = e.code === "KeyE" ? "ears" : e.code === "KeyM" ? "mouth" : null;

@@ -490,6 +490,94 @@ async def talk_loopback_run(req):
     return web.json_response(dict(LOOPBACK_RUN))
 
 
+# ---------- device self-check (the deployment's issue 14085) ----------
+# The app checks the laptop's devices (talk.js selfCheck: playback, mic, heard) on joining the room, on every device
+# change (a Bluetooth mic pairing adds a "Hands-Free" output that the OS can make the default) and on every entry to
+# the agent's conversation mode, fixes what it can, and POSTs {"trigger", "rows": [{"check", "pass", "fixed"?, "how",
+# ...}]}. This server adds the floor row (VIZIER_FLOOR, the shared floor record both voice rooms read; unset = no floor
+# row), appends every row to DATA/talk-selfcheck.jsonl, and when a row failed with no fix, speaks ONE line through the
+# voice agent (VIZIER_VOICE_URL POST /say), never the same line twice within SELFCHECK_SAY_GAP_S. GET returns the last run.
+FLOOR = os.environ.get("VIZIER_FLOOR", "")
+FLOOR_OTHER = os.environ.get("VIZIER_FLOOR_OTHER", "")       # the other room's name in the floor record's last_said
+SELFCHECK_SAY_GAP_S = float(os.environ.get("VIZIER_SELFCHECK_SAY_GAP_S", "600"))
+SELFCHECK = {"last": None, "said": {}, "run": 0}
+
+
+def floor_row(now: float | None = None) -> dict | None:
+    """The floor check: the shared floor record parses, and the other room's last_said is empty or carries a time
+    (the echo filter's input). None when VIZIER_FLOOR is unset."""
+    if not FLOOR:
+        return None
+    now = time.time() if now is None else now
+    try:
+        rec = json.loads(Path(FLOOR).read_text())
+    except (OSError, ValueError) as e:
+        return {"check": "floor", "pass": False, "fixed": False, "code": "floor_unreadable",
+                "how": f"floor record unreadable: {type(e).__name__}"}
+    other = ((rec.get("last_said") or {}).get(FLOOR_OTHER) or {}) if FLOOR_OTHER else {}
+    t = other.get("t")
+    row = {"check": "floor", "holder": rec.get("holder"), "how": "read"}
+    if other and not isinstance(t, (int, float)):
+        return {**row, "pass": False, "fixed": False, "code": "floor_no_time",
+                "how": f"last_said[{FLOOR_OTHER}] has no time"}
+    if isinstance(t, (int, float)):
+        row["other_said_age_s"] = round(now - t, 1)
+    return {**row, "pass": True}
+
+
+# What the agent says for an unfixed failure: a fixed table keyed by the row's `code` (the endpoint is open like
+# /talk/log, so no client text is ever spoken).
+SELFCHECK_SAY = {
+    "no_speaker_output": "no laptop speaker output exists, only a headset",
+    "sink_failed": "I could not move my voice to the laptop speakers",
+    "not_heard": "the mic did not hear my voice from the speakers; check the laptop volume",
+    "no_dji": "the DJI mic is not connected",
+    "dji_switch_failed": "I could not switch to the DJI mic",
+    "mic_silent": "the mic is silent",
+    "floor_unreadable": "the floor record is unreadable",
+    "floor_no_time": "the floor record is missing the other room's last line",
+}
+SELFCHECK_CHECKS = {"playback", "heard", "mic", "floor"}
+
+
+def selfcheck_line(rows: list) -> str:
+    """One sentence for every failure that has no fix ('' = nothing to say)."""
+    bad = [SELFCHECK_SAY.get(str(r.get("code")), f"the {r['check']} check failed") for r in rows
+           if r.get("pass") is False and not r.get("fixed") and r.get("check") in SELFCHECK_CHECKS]
+    return ("Self-check: " + "; ".join(dict.fromkeys(bad)) + ".") if bad else ""
+
+
+async def talk_selfcheck(req):
+    """POST {"trigger", "rows": [...]} from the app; GET: the last run."""
+    if req.method == "GET":
+        return web.json_response(SELFCHECK["last"] or {"error": "no self-check yet"}, status=200 if SELFCHECK["last"] else 404)
+    b = await body(req)
+    rows = [r for r in (b.get("rows") or []) if isinstance(r, dict) and r.get("check") in SELFCHECK_CHECKS][:16]
+    fr = floor_row()
+    if fr:
+        rows.append(fr)
+    now = time.time()
+    run = {"t": now, "trigger": str(b.get("trigger") or "?"), "rows": rows}
+    with open(DATA / "talk-selfcheck.jsonl", "a") as f:
+        for r in rows:
+            f.write(json.dumps({"t": now, "trigger": run["trigger"], **r}) + "\n")
+    line = selfcheck_line(rows)
+    run["said"] = None
+    if line and VOICE_URL and now - SELFCHECK["said"].get(line, 0) >= SELFCHECK_SAY_GAP_S:
+        SELFCHECK["said"][line] = now
+        st, out = await _voice("POST", "/say", {"say": line})
+        run["said"] = {"text": line, "status": st, "spoken": out.get("spoken", st == 200)}
+    SELFCHECK["last"] = run
+    return web.json_response({"ok": True, "rows": len(rows), "said": run["said"]})
+
+
+async def talk_selfcheck_run(req):
+    """POST: ask the app to run its self-check now (it polls GET {"n"}, like /talk/loopback/run)."""
+    if req.method == "POST":
+        SELFCHECK["run"] += 1
+    return web.json_response({"n": SELFCHECK["run"]})
+
+
 TALK = {"seq": 0, "lines": [], "partial": None}   # the live conversation with the agent, newest last (TALK mode in the app)
 TALK_KEEP = 300
 
@@ -919,6 +1007,10 @@ def make_app() -> web.Application:
     r.add_post("/talk/loopback", talk_loopback)
     r.add_get("/talk/loopback/run", talk_loopback_run)
     r.add_post("/talk/loopback/run", talk_loopback_run)
+    r.add_get("/talk/selfcheck", talk_selfcheck)
+    r.add_post("/talk/selfcheck", talk_selfcheck)
+    r.add_get("/talk/selfcheck/run", talk_selfcheck_run)
+    r.add_post("/talk/selfcheck/run", talk_selfcheck_run)
     r.add_get("/talk/transcript", talk_transcript)
     r.add_post("/talk/transcript", talk_transcript)
     r.add_get("/prompter/follow", prompter_follow)
