@@ -18,15 +18,14 @@ use tauri::{Manager, PhysicalPosition, PhysicalSize, WebviewWindow, WindowEvent}
 
 mod park;
 
-/// Bottom-left of the primary monitor (2/5 wide, 2/5 tall), clipped to its work area (so it never sits under the taskbar).
+/// Bottom-left quarter of the primary monitor, clipped to its work area (so it never sits under the taskbar).
 fn slot(w: &WebviewWindow) -> Option<(PhysicalPosition<i32>, PhysicalSize<u32>)> {
     let m = w.primary_monitor().ok().flatten()?;
     let (pos, size, wa) = (*m.position(), *m.size(), *m.work_area());
-    // Two fifths of the width, two fifths of the height, bottom-left: the prompter reads at a glance, not half the screen.
+    let top = pos.y + (size.height / 2) as i32;
     let bottom = (wa.position.y + wa.size.height as i32).min(pos.y + size.height as i32);
-    let h = ((size.height * 2 / 5) as i32).max(240);
-    let top = bottom - h;
-    Some((PhysicalPosition::new(pos.x, top), PhysicalSize::new(size.width * 2 / 5, h as u32)))
+    let h = (bottom - top).max(240) as u32;
+    Some((PhysicalPosition::new(pos.x, top), PhysicalSize::new(size.width / 2, h)))
 }
 
 fn place(w: &WebviewWindow) {
