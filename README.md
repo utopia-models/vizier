@@ -140,6 +140,10 @@ display affinity, `0x11` = hidden from capture) and `selftest.png` (what the pag
 the window is excluded from screen capture). `scripts/windows/` has a launcher and a window pinner for a machine you
 drive over SSH.
 
+**Read the live window.** The running app serves DevTools (CDP) on `127.0.0.1:9340` (`VIZIER_CDP_PORT`, `0` = off;
+`--smoke` uses its own `--smoke-port`, 9339). From another box: `ssh -N -L 9340:127.0.0.1:9340 <windows host>`, then
+`curl -s 127.0.0.1:9340/json` lists the page and any CDP client reads the DOM, the computed type size and the window's size.
+
 **Smoke test (every build, before it is staged):** `python3 scripts/smoke/smoke.py --exe <vizier.exe> --host <windows
 ssh host> [--script FILE] [--talk-url ws://… --livekit-key K --livekit-secret S]`. It starts a throwaway server here
 (dry VSL switch: Alt+R never reaches OBS), runs the built exe on the Windows box with `--smoke` (WebView2 DevTools
