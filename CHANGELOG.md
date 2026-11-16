@@ -6,6 +6,14 @@ and versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **Talk: device self-check** (`vizierTalk.selfCheck()`). Runs on joining the room, on every device change and on every
+  entry to the agent's `conversation` mode. It checks three things. **Playback:** the agent's audio plays on a speaker
+  output, never a Hands-Free, headset or DJI one, and is pinned there with `setSinkId`. **Mic:** Ears uses the DJI mic,
+  above digital silence. **Heard:** the raw mic rises 10 dB within 1 s of the agent's next line. No tone is played: the
+  agent's own voice is the probe. Rows go to `POST /talk/selfcheck` (kept in `DATA/talk-selfcheck.jsonl`; `GET` returns
+  the last run). The server adds a floor row (`VIZIER_FLOOR`, `VIZIER_FLOOR_OTHER`) and has the voice agent speak one
+  fixed line (`VIZIER_VOICE_URL` `/say`) only for a failure with no fix. `POST /talk/selfcheck/run` asks the app to
+  run it.
 - **A smoke test every build runs before it is staged** (`scripts/smoke/smoke.py`): the built exe on the real Windows box
   with `--smoke` (WebView2 DevTools port, own profile, no global shortcuts; `smoke_key` presses Alt+V / Alt+R / Alt+E /
   Alt+M through the same `hotkey()` the shortcuts run), driven with real key and wheel input against a throwaway server
