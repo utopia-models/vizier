@@ -80,7 +80,7 @@ The window reports where the reader is, and an agent that hears them keeps the s
 | `GET /prompter/position` | the current part, line and its text, with its age in seconds |
 | `POST /prompter/goto {"part", "line"}` | jumps the prompter there (1-based) |
 | `POST /prompter/follow {"on"}` or `{"toggle": true}` | the agent's speech-follow on / off (**Alt+F** in the app) |
-| `POST /prompter/snap` | the app writes a picture of what it shows (`%PUBLIC%\vizier\live.png`), since the window is hidden from capture |
+| `POST /prompter/snap` | the app writes a picture of what it shows (`%PUBLIC%\vizier\live.png`), any tab, any mode, since the window is hidden from capture; laptop-eye on Ra bumps it every 2 s (knowledge#14117) |
 | `POST /prompter/note {"text"}` | the one-line note under the script |
 
 ## Transcribe a call with LiveKit

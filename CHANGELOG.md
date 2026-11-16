@@ -6,6 +6,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Fixed
+- **`POST /prompter/snap` works in every mode** (knowledge#14117). The app wrote `live.png` only while RECORD showed a
+  script, because the snap check sat inside the RECORD-only goto poll; on any other tab, or with no script, a snap request
+  only moved the counter. It now has its own 400 ms poll, so laptop-eye on Ra (which bumps it every 2 s and draws
+  `live.png` into its frame of the laptop, the window being excluded from capture) sees what Vizier shows, whatever tab.
 - **The SCRIPT tab shows only the spoken lines, at a readable size, in a smaller window** (the user 2026-11-16 3:13 AM MT,
   recording a custom VSL from an outline: "I'm barely able to read the script. The text is extremely large... literally taking
   up half the screen... there's this section called coach on part... build", vizier#15; #16-#20). The coach bar, build log,
