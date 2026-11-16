@@ -287,7 +287,12 @@ async function pollTalk() {
 let SCRIPT_NAME = "Script";   // the script's own "# " title, from /prompter/context
 let takes = [], t = 0, recording = false, playing = false, built = "", curIdx = -1;
 let speed = +store.get("vizier.speed") || 60;   // px per second
-let fontPx = Math.min(40, +store.get("vizier.type2") || 22);   // SCRIPT and CONTEXT share it (CSS --type)
+const TYPE_MAX = 28;   // knowledge#14087: a readable prompter is 28 px or less (Tyler, 3:13 AM MT 11/16: "the text is extremely large")
+let fontPx = Math.min(TYPE_MAX, +store.get("vizier.type2") || 22);   // SCRIPT and CONTEXT share it (CSS --type)
+// On SCRIPT the DOM holds only the spoken lines: the coach note, the BUILD log, the part title and the last CONTEXT render are
+// emptied, not just hidden, so a CDP read of the window finds no outline label (knowledge#14087). CONTEXT refills them.
+const onScript = () => mode === "rec" && rtab === "script";
+function clearForScript() { $("coach").innerHTML = ""; $("coach").style.display = "none"; $("build").innerHTML = ""; $("build").classList.remove("on"); $("doc").innerHTML = ""; }
 const READ_AT = 0.10;                            // the reading line, as a fraction of the prompter's height
 // Only spoken lines reach the SCRIPT tab (the user 2026-11-16 3:13 AM, recording a VSL from an outline: "I'm barely able to
 // read the script... there's this section called coach on part... build", vizier#15). Dropped: headings (#), coaching notes (a >
@@ -318,7 +323,7 @@ function render() {
   const k = takes[t];
   if (!k) { $("title").textContent = takes.length ? "" : "no takes yet"; return; }
   const name = unlabel(k.title.replace(/^[A-Za-z0-9]+\s*·\s*/, ""));
-  $("title").textContent = (recording ? "● Recording · " : "") + `${SCRIPT_NAME} · part ${t + 1} of ${takes.length} · ${name}`;
+  $("title").textContent = mode === "rec" ? "" : (recording ? "● Recording · " : "") + `${SCRIPT_NAME} · part ${t + 1} of ${takes.length} · ${name}`;
   const lines = spoken(k.lines), key = t + "\n" + JSON.stringify(lines);
   if (key !== built) {   // a new part, or a live edit of this one: rebuild, keeping the reader's line when the part is the same
     const samePart = built.split("\n")[0] === String(t), keep = samePart ? Math.max(0, curIdx) : 0;
@@ -401,7 +406,7 @@ function play(on) {
 }
 function setSpeed(f) { speed = Math.max(10, Math.min(400, speed * f)); store.set("vizier.speed", speed); hud(); }
 function setFont(d) {
-  const keep = curIdx; fontPx = Math.max(12, Math.min(40, fontPx + d)); store.set("vizier.type2", fontPx);
+  const keep = curIdx; fontPx = Math.max(12, Math.min(TYPE_MAX, fontPx + d)); store.set("vizier.type2", fontPx);
   document.documentElement.style.setProperty("--type", fontPx + "px"); goLine(keep); hud();
 }
 // Every take records on the server from the camera stream: space starts a new file for the shown take (and the
@@ -465,6 +470,7 @@ document.documentElement.style.setProperty("--type", fontPx + "px");
 async function coach() {
   const n = await api("prompter/note").then(r => r.json()).catch(() => null);
   if (!n) return;
+  if (onScript()) { $("coach").innerHTML = ""; $("coach").style.display = "none"; return; }
   $("coach").innerHTML = n.text ? `<b>Coach on part ${esc(String(n.take).split("-")[0])}:</b> ` + esc(n.text) : "";
   $("coach").style.display = n.text ? "" : "none";
 }
@@ -502,6 +508,7 @@ function showTab(tb) {
   $("prompt").style.display = tb === "script" ? "" : "none";
   $("doc").classList.toggle("on", tb !== "script");
   if (tb === "script") render();   // a part built while the prompter was hidden is built again now that it shows
+  if (tb === "script" && mode === "rec") clearForScript();   // CONTEXT refills them on the next poll (coach 2 s, build 5 s)
   if (tb === "context") {
     const top = $("doc").scrollTop;
     const doing = buildLines.slice().reverse().map(l => { const m = l.match(/^(?:\d{4}-\d\d-\d\d[ T])?(\d\d:\d\dZ?):?\s+(.*)$/);
@@ -792,6 +799,7 @@ let buildOpen = false, buildLines = [];
 async function buildlog() {
   const j = await api("buildlog?n=30").then(r => r.json()).catch(() => null);
   buildLines = (j && j.lines) || []; if (mode === "rec" && rtab === "context") showTab("context");   // CONTEXT is live
+  if (onScript()) { $("build").innerHTML = ""; $("build").classList.remove("on"); return; }
   if (!j || !j.lines || !j.lines.length) { $("build").classList.remove("on"); return; }
   const ago = j.mtime ? Math.max(0, Math.round((Date.now() / 1000 - j.mtime) / 60)) : null;
   const shown = j.lines.slice().reverse().slice(0, buildOpen ? 12 : 3);
