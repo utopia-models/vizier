@@ -52,12 +52,18 @@ fn arg(name: &str) -> Option<String> {
 }
 
 fn main() {
-    if smoke() {
-        let port = arg("smoke-port").unwrap_or_else(|| "9339".into());
+    // DevTools (CDP) on loopback: the smoke test drives its own window on --smoke-port (9339); the live window serves it
+    // on VIZIER_CDP_PORT (9340, "0" = off) so an agent reads what Tyler sees over `ssh -L 9340:127.0.0.1:9340`
+    // (knowledge#14087: "a CDP read of the live window"; S5, Scout sees Vizier). WebView2 binds it to 127.0.0.1 only.
+    let port = if smoke() { arg("smoke-port").unwrap_or_else(|| "9339".into()) }
+               else { std::env::var("VIZIER_CDP_PORT").unwrap_or_else(|_| "9340".into()) };
+    if port != "0" {
         // The env var replaces the window's additionalBrowserArgs, so it carries them too (tauri.conf.json is the source).
         let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap_or_default();
         let base = conf["app"]["windows"][0]["additionalBrowserArgs"].as_str().unwrap_or("").to_string();
         std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", format!("{base} --remote-debugging-port={port}"));
+    }
+    if smoke() {
         let dir = std::env::var("PUBLIC").map(|p| std::path::PathBuf::from(p).join("vizier").join("smoke").join("webview"))
             .unwrap_or_else(|_| std::env::temp_dir().join("vizier-smoke-webview"));
         std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", dir);
