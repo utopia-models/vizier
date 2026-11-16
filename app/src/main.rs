@@ -18,14 +18,14 @@ use tauri::{Manager, PhysicalPosition, PhysicalSize, WebviewWindow, WindowEvent}
 
 mod park;
 
-/// Bottom-left of the primary monitor, half its width and 60% of its height, clipped to its work area (so it never sits under the taskbar).
+/// Bottom-left of the primary monitor, half its width and half its height, clipped to its work area (so it never sits under the taskbar).
 fn slot(w: &WebviewWindow) -> Option<(PhysicalPosition<i32>, PhysicalSize<u32>)> {
     let m = w.primary_monitor().ok().flatten()?;
     let (pos, size, wa) = (*m.position(), *m.size(), *m.work_area());
-    // Half the width, 60% of the height, sitting on the bottom of the work area. Set once at launch; after that the
+    // The bottom-left quarter: half the width, half the height, sitting on the bottom of the work area. Set once at launch; after that the
     // reader can drag and resize it and it stays where they put it.
     let bottom = (wa.position.y + wa.size.height as i32).min(pos.y + size.height as i32);
-    let h = ((size.height * 3 / 5) as i32).min(bottom - pos.y).max(240);
+    let h = ((size.height / 2) as i32).min(bottom - pos.y).max(240);
     Some((PhysicalPosition::new(pos.x, bottom - h), PhysicalSize::new(size.width / 2, h as u32)))
 }
 
