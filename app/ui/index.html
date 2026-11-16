@@ -73,10 +73,10 @@
   #text p.cue::before { content:"ON SCREEN  "; font-style:normal; font-weight:700; }
   #text .mark { font-size:.5em; font-weight:700; color:#7fb2ff; letter-spacing:.04em; vertical-align:middle; opacity:.8; }
   #text p.cue.cur { opacity:.55; color:#7fb2ff; }
-  #text .padtop { height:22%; }
+  #text .padtop { height:10%; }
   #text .pad { height:75%; }
   /* the reading line (READ_AT, a third of the way down), marked by an arrow in the margin: the current line is the one on it */
-  #readline { position:absolute; left:0; right:0; top:calc(22% + .7em); height:0; font-size:var(--type); pointer-events:none; }
+  #readline { position:absolute; left:0; right:0; top:calc(10% + .7em); height:0; font-size:var(--type); pointer-events:none; }
   #readline::before { content:""; position:absolute; left:6px; top:-6px; border:6px solid transparent; border-left:11px solid var(--hi); }
   #spd { font:600 12px ui-monospace, monospace; color:var(--dim); }
   #spd.play { color:#3c3; }
@@ -119,6 +119,8 @@
   #build { flex:0 0 auto; display:none; padding:6px 14px 8px; background:#0b0f0b; border-top:1px solid #24402a;
            font:14px/1.35 system-ui; color:var(--dim); cursor:pointer; max-height:40%; overflow:hidden; }
   #build.on { display:block; }
+  /* SCRIPT shows only the spoken lines: no coach bar, no build log, no part heading, no ON SCREEN cues */
+  body[data-mode="rec"] #coach, body[data-mode="rec"] #build, body[data-mode="rec"] #title, body[data-mode="rec"] #text p.cue { display:none !important; }
   #build .h { font:600 11px system-ui; letter-spacing:.08em; color:#6fbf7a; margin-bottom:3px; }
   #build div.l { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   #build div.l:first-of-type { color:var(--fg); }
@@ -282,8 +284,8 @@ async function pollTalk() {
 let SCRIPT_NAME = "Script";   // the script's own "# " title, from /prompter/context
 let takes = [], t = 0, recording = false, playing = false, built = "", curIdx = -1;
 let speed = +store.get("vizier.speed") || 60;   // px per second
-let fontPx = +store.get("vizier.type") || 32;   // SCRIPT and CONTEXT share it (CSS --type)
-const READ_AT = 0.22;                            // the reading line, as a fraction of the prompter's height
+let fontPx = Math.min(40, +store.get("vizier.type2") || 22);   // SCRIPT and CONTEXT share it (CSS --type)
+const READ_AT = 0.10;                            // the reading line, as a fraction of the prompter's height
 // Author labels never reach the screen: with "hideLabels": ["editor"] in the app's config, "(editor, 2026-11-12)" in a
 // title and "editor:" before a line are dropped (for scripts several writers annotate). Empty list = shown as written.
 const labels = () => (CFG.hideLabels || []).map(x => String(x).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).filter(Boolean);
@@ -383,7 +385,7 @@ function play(on) {
 }
 function setSpeed(f) { speed = Math.max(10, Math.min(400, speed * f)); store.set("vizier.speed", speed); hud(); }
 function setFont(d) {
-  const keep = curIdx; fontPx = Math.max(12, Math.min(64, fontPx + d)); store.set("vizier.type", fontPx);
+  const keep = curIdx; fontPx = Math.max(12, Math.min(40, fontPx + d)); store.set("vizier.type2", fontPx);
   document.documentElement.style.setProperty("--type", fontPx + "px"); goLine(keep); hud();
 }
 // Every take records on the server from the camera stream: space starts a new file for the shown take (and the
