@@ -5,6 +5,14 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Voice follow: the prompter highlights the word you are saying, from open-source parts**. Vosk runs in
+  the window as WebAssembly on the mic; a cadence clock (your measured words per second, paused by a voice-activity
+  detector) moves the highlight and the recognized words correct it, placing it on or ahead of your voice. Replayed on a
+  recorded 146 s read in the real page: median lag -576 ms (ahead), p95 403 ms, no move during a 2.4 s pause. It replaces
+  the agent-side follower that jumped whole lines from final utterances about 3 s behind. `scripts/fetch-voice.sh` fetches
+  the recognizer and the model (pinned by SHA-256); `scripts/follow-bench.mjs` and `scripts/follow-e2e.py` measure it.
+
 ### Changed
 - **The window is the reader's: drag it by its header, resize it by its edges, minimize it and it stays minimized.** The
   header is a drag region (`data-tauri-drag-region`), the window has a 480x270 floor, and every move and resize is written

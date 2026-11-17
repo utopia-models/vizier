@@ -79,7 +79,7 @@ The window reports where the reader is, and an agent that hears them keeps the s
 |---|---|
 | `GET /prompter/position` | the current part, line and its text, with its age in seconds |
 | `POST /prompter/goto {"part", "line"}` | jumps the prompter there (1-based) |
-| `POST /prompter/follow {"on"}` or `{"toggle": true}` | the agent's speech-follow on / off (**Alt+F** in the app) |
+| `POST /prompter/follow {"on"}` or `{"toggle": true}` | voice follow on / off (**Alt+F** in the app) |
 | `POST /prompter/snap` | the app writes a picture of what it shows (`%PUBLIC%\vizier\live.png`), any tab, any mode, since the window is hidden from capture; laptop-eye on Ra bumps it every 2 s (knowledge#14117) |
 | `POST /prompter/note {"text"}` | the one-line note under the script |
 
@@ -152,6 +152,27 @@ real key and wheel input: Tab through TALK, SETTINGS, DESKS, AGENTS and SCRIPT; 
 the selected row on screen; every SETTINGS row changed and changed back; Alt+E, Alt+M, Alt+V, Alt+R; and with a talk
 link, the laptop mic measured (the Ears track and the raw mic, RMS and the floor in dBFS). One screenshot per step;
 exit 0 only when every step passes.
+
+### Voice follow (Alt+F)
+
+On SCRIPT the prompter follows your voice word by word, with nothing paid and nothing sent anywhere: [Vosk](https://alphacephei.com/vosk/)
+(Kaldi, Apache-2.0) runs inside the window as WebAssembly on your mic, and `app/ui/follow.js` keeps the highlighted word
+on or just ahead of what you are saying.
+
+- **Pace:** a cadence clock at your words per second, measured from the recognizer's word times on every utterance and
+  remembered between takes. It runs only while the mic hears speech, so a pause holds the highlight where it is.
+- **Correction:** the words heard are fuzzy-matched to the script near the highlight. A match pushes the highlight to the
+  heard word + 1.5 words + the words spoken during the recognizer's own lag (also measured live); it pulls back only when
+  the clock is more than 3 words ahead. Two heard words that match further on re-lock a skipped sentence. Reading past a
+  part's last line moves to the next part.
+- **Your hands win:** the arrows, Home, the wheel and an agent's `POST /prompter/goto` move it, and following carries on from
+  there. **Alt+F** (or a click on its label) turns it off and on.
+- **Build:** `app/build.sh` runs `scripts/fetch-voice.sh`, which puts `vosk.js` (vosk-browser 0.0.8) and the 40 MB English
+  model into `app/ui/vendor/`, both pinned by SHA-256. No account, no key.
+- **Measure it:** `scripts/follow-bench.mjs` replays a recorded read through the tracker and prints the highlight lag
+  (median, p95), every stretch it sat more than a word behind for over 300 ms, and whether it moved during pauses;
+  `scripts/follow-e2e.py` runs the real page in headless Chromium with a recording as its mic and grades that.
+  `server/tests/test_voice_follow.py` holds it to the numbers on a synthetic read.
 
 ### Prompter keys
 

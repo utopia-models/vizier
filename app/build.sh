@@ -6,6 +6,7 @@
 # macOS / Windows hosts: `cargo build --release` in this directory.
 set -euo pipefail
 cd "$(dirname "$0")"
+../scripts/fetch-voice.sh >/dev/null   # voice follow: vosk.js + the speech model into ui/vendor/, pinned by SHA-256
 for d in /usr/lib/llvm-*/bin; do [ -x "$d/llvm-rc" ] && PATH="$d:$PATH"; done
 export PATH="$HOME/.cargo/bin:$PATH" CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$PWD/target}"
 # VIZIER_PROFILE=fast: the quick rebuild (Cargo.toml [profile.fast]); signed releases build `release`.

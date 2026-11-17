@@ -72,6 +72,8 @@
   #text { position:absolute; inset:0; overflow:hidden; padding:0 28px 0 30px; font:500 var(--type)/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
   #text p { margin:0 0 .3em; opacity:.45; }
   #text p.cur { opacity:1; color:var(--hi); }
+  /* voice follow (follow.js): the word the reader is on, a little ahead of the voice */
+  #text .w.now { color:#000; background:var(--hi); border-radius:4px; box-shadow:0 0 0 .12em var(--hi); }
   #text p.cue { font-size:.55em; font-style:italic; letter-spacing:.04em; opacity:.4; color:#7fb2ff; }
   #text p.cue::before { content:"ON SCREEN  "; font-style:normal; font-weight:700; }
   #text .mark { font-size:.5em; font-weight:700; color:#7fb2ff; letter-spacing:.04em; vertical-align:middle; opacity:.8; }
@@ -328,7 +330,10 @@ function render() {
   if (key !== built) {   // a new part, or a live edit of this one: rebuild, keeping the reader's line when the part is the same
     const samePart = built.split("\n")[0] === String(t), keep = samePart ? Math.max(0, curIdx) : 0;
     built = key;
-    $("text").innerHTML = `<div class="padtop"></div>` + lines.map(l => `<p>${/^\s*\(scout\)/i.test(l) ? `<span class="mark">(Scout)</span> ` + esc(unlabel(l.replace(/^\s*\(scout\)\s*/i, ""))) : esc(unlabel(l))}</p>`).join("") + `<div class="pad"></div>`;
+    // each written word is a span, in the order follow.js's tokenize() numbers them, so the voice can mark one
+    const words = l => sayText(l).split(/\s+/).filter(Boolean).map(w => `<span class="w">${esc(w)}</span>`).join(" ");
+    $("text").innerHTML = `<div class="padtop"></div>` + lines.map(l => `<p>${/^\s*\(scout\)/i.test(l) ? `<span class="mark">(Scout)</span> ` : ""}${words(l)}</p>`).join("") + `<div class="pad"></div>`;
+    nowEl = null; if (follow) follow.lastIdx = -1;   // repaint the voice's word in the new DOM
     curIdx = -1; goLine(Math.min(keep, lines.length - 1));
     // Built while hidden (the takes can arrive before the first /health sets the mode, or SCRIPT is behind CONTEXT): mark()
     // saw no geometry and marked the LAST line. Build again on the next render, once it shows (the smoke test caught it).
@@ -351,8 +356,49 @@ window.vizierFollow = async () => {   // Alt+F (main.rs) or a click on the legen
   const r = await api("prompter/follow", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ toggle: true }) }).then(x => x.json()).catch(() => null);
   if (r) paintFollow(r.on);
 };
-function paintFollow(on) { followOn = on; const el = document.getElementById("kfollow"); if (el) { el.textContent = on ? "Alt+F follow: ON" : "Alt+F follow: OFF"; el.style.color = on ? "#3ddc84" : "#c0392b"; } }
+function paintFollow(on) { followOn = on; if (on && followState === "error") followState = "off"; const el = document.getElementById("kfollow"); if (el) { el.textContent = on ? "Alt+F follow: ON" : "Alt+F follow: OFF"; el.style.color = on ? "#3ddc84" : "#c0392b"; } }
 every(800, async () => { const r = await api("prompter/follow").then(x => x.json()).catch(() => null); if (r && r.on !== followOn) paintFollow(r.on); });
+// ---------- VOICE FOLLOW (follow.js) ----------
+// The prompter follows the reader's voice word by word: Vosk in this window hears the mic (nothing leaves the machine),
+// a cadence clock keeps the highlight on or just ahead of the voice, the heard words correct it, a pause holds it. One
+// tracker spans every part, so reading on past a part's last line moves to the next part (without restarting a take).
+// The arrows, Home, the wheel and an agent's /prompter/goto always win: following carries on from where they put it.
+// Alt+F (or a click on the legend) turns it off and on. Needs vendor/vosk.js + the model (app/build.sh fetches both).
+let follow = null, followKey = "", flines = [], nowEl = null, followState = "off";
+const sayText = l => unlabel(String(l).replace(/^\s*\(scout\)\s*/i, ""));
+function globalLine(pi, li) { let n = 0; for (let k = 0; k < pi; k++) n += spoken(takes[k].lines).length; return n + Math.max(0, li); }
+function byHand() { if (follow && follow.tracker && takes[t]) follow.overrideLine(globalLine(t, curIdx)); }
+function paintNow(word) {
+  const g = flines[word.line]; if (!g) return;
+  if (g.pi !== t) goTake(g.pi);   // read on into the next part
+  if (g.li !== curIdx) goLine(g.li);
+  const el = (paras()[g.li] || { querySelectorAll: () => [] }).querySelectorAll(".w")[word.word];
+  if (el === nowEl) return;
+  if (nowEl) nowEl.classList.remove("now");
+  nowEl = el || null; if (nowEl) nowEl.classList.add("now");
+}
+function followLabel() {
+  const el = document.getElementById("kfollow"); if (!el || !followOn) return;
+  el.textContent = followState === "error" ? "Alt+F follow: no mic" : followState === "loading" ? "Alt+F follow: loading" : "Alt+F follow: ON";
+}
+async function followTick() {
+  const want = followOn && mode === "rec" && rtab === "script" && takes.length && window.Vosk && window.VizierFollow;
+  if (!want) { if (follow && follow.on) follow.stop(); if (nowEl) { nowEl.classList.remove("now"); nowEl = null; } return; }
+  if (!follow) follow = new window.VizierFollow.VoiceFollow({ model: "vendor/vosk-model-small-en-us-0.15.tar.gz",
+    onMove: paintNow, onState: (st, why) => { followState = st; followLabel(); if (st === "error") console.warn("voice follow:", why); } });
+  const key = JSON.stringify(takes);
+  if (key !== followKey) {   // a new or edited script: re-tokenize, keeping the reader where they are
+    followKey = key; flines = [];
+    takes.forEach((k, pi) => spoken(k.lines).forEach((l, li) => flines.push({ pi, li, text: sayText(l) })));
+    follow.setScript(flines.map(x => x.text), globalLine(t, curIdx));
+  }
+  if (!follow.on && followState !== "error") {
+    let deviceId;   // the DJI mic when it is there (Ears uses it too), else the default input
+    try { const d = (await navigator.mediaDevices.enumerateDevices()).find(x => x.kind === "audioinput" && /dji/i.test(x.label)); deviceId = d && d.deviceId; } catch (_) {}
+    follow.deviceId = deviceId; follow.start();
+  }
+}
+every(500, followTick);
 // An agent asked to LOOK at the app (POST /prompter/snap): whatever tab is showing goes to live.png. Every mode, every
 // tab, a script loaded or not: laptop-eye on Ra bumps it every 2 s and draws live.png into its frame of the laptop,
 // because the window is excluded from screen capture (knowledge#14117). Inside the RECORD-only poll below it answered
@@ -370,6 +416,7 @@ every(400, async () => {   // a driver that hears the reader asks the prompter t
   gotoSeq = g.seq;
   if (g.part >= 1 && g.part - 1 !== t) goTake(g.part - 1);
   if (g.line >= 1) goLine(g.line - 1);
+  byHand();
 });
 function reportPos() {   // where the reader is in the script, for whoever drives the screen (POST /prompter/position)
   const k = takes[t]; if (!k) return;
@@ -378,13 +425,13 @@ function reportPos() {   // where the reader is in the script, for whoever drive
   if (body === lastPos) return; lastPos = body;
   api("prompter/position", { method: "POST", headers: { "Content-Type": "application/json" }, body }).catch(() => {});
 }
-function step(d) { if (takes[t]) goLine(curIdx + d); }
+function step(d) { if (takes[t]) { goLine(curIdx + d); byHand(); } }
 window.vizierStep = d => {
   if (PANELS.includes(mode)) return panelStep(d);   // global Up / Down drive the panel's list
   if (mode !== "rec") return;
   if (rtab === "script") step(d); else $("doc").scrollTop += d * 140;   // CONTEXT / DO NOT SAY scroll by hand
 };
-window.vizierPart = d => { if (PANELS.includes(mode)) return panelChange(d); if (mode === "rec" && takes.length) { goTake(t + d); if (recording) record(); } };   // global Left / Right (main.rs)
+window.vizierPart = d => { if (PANELS.includes(mode)) return panelChange(d); if (mode === "rec" && takes.length) { goTake(t + d); byHand(); if (recording) record(); } };   // global Left / Right (main.rs)
 window.vizierTab = () => {   // Alt+T from any app, or Tab in the page: TALK -> SETTINGS -> DESKS -> AGENTS -> SCRIPT -> TALK
   // (the deployment's issue 13798; the user 2026-11-15 3:13 PM, "I can't tab over to script": SCRIPT is in the cycle, and the
   // prompter text is right here in this window). CONTEXT stays a click away; from it Tab goes on to TALK.
@@ -451,12 +498,12 @@ document.addEventListener("keydown", e => {
   const k = e.key;
   if (e.ctrlKey && (k === "+" || k === "=")) setFont(4);
   else if (e.ctrlKey && (k === "-" || k === "_")) setFont(-4);
-  else if (k === "ArrowRight") { goTake(t + 1); if (recording) record(); }
-  else if (k === "ArrowLeft") { goTake(t - 1); if (recording) record(); }
+  else if (k === "ArrowRight") { goTake(t + 1); byHand(); if (recording) record(); }
+  else if (k === "ArrowLeft") { goTake(t - 1); byHand(); if (recording) record(); }
   else if (k === "Escape") { play(false); record(true); }
   else if (k === "ArrowDown" || k === "PageDown") step(1);
   else if (k === "ArrowUp" || k === "PageUp") step(-1);
-  else if (k === "Home") goLine(0);
+  else if (k === "Home") { goLine(0); byHand(); }
   else if (k === " " || PAUSE_KEYS.has(k)) play();
   else if ((k === "r" || k === "R") && !e.ctrlKey && !recording) record();
   else if (k === "+" || k === "=" || k === "]") setSpeed(1.15);
@@ -469,7 +516,7 @@ document.addEventListener("keydown", e => {
 // in lines, so they are scaled to pixels).
 $("text").addEventListener("wheel", e => {
   e.preventDefault(); if (playing) play(false);
-  $("text").scrollTop += e.deltaMode === 1 ? e.deltaY * fontPx * 1.4 : e.deltaY; mark();
+  $("text").scrollTop += e.deltaMode === 1 ? e.deltaY * fontPx * 1.4 : e.deltaY; mark(); byHand();
 }, { passive: false });
 $("text").onclick = () => step(1);
 document.documentElement.style.setProperty("--type", fontPx + "px");
@@ -819,5 +866,5 @@ $("build").onclick = () => { buildOpen = !buildOpen; $("build").classList.toggle
   connect(); pollHealth(); buildlog(); context(); scripts(); coach();
   every(1000, pollHealth); every(500, pollTalk); every(2000, coach); every(2000, scripts); every(5000, buildlog); every(5000, context);
 })();
-</script><script type="module" src="talk.js" onerror="window.__TAURI__&&window.__TAURI__.core.invoke('talk_log',{line:new Date().toISOString()+' talk.js did not load: no talk link'})"></script>
+</script><script src="vendor/vosk.js"></script><script type="module">import * as F from "./follow.js"; window.VizierFollow = F;</script><script type="module" src="talk.js" onerror="window.__TAURI__&&window.__TAURI__.core.invoke('talk_log',{line:new Date().toISOString()+' talk.js did not load: no talk link'})"></script>
 </body></html>
