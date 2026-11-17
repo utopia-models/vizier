@@ -11,7 +11,7 @@
 #     it sits in the app's launch slot (bottom-left, half the screen each way).
 #   - the window meets no monitor at all (a display change): put back at the remembered rect, else the launch slot.
 # Finds the window through the vizier.exe process (a title lookup missed it on 2026-11-10). No other window is touched.
-# Log: C:\Users\Public\vizier-pin.log
+# Log: C:\Users\Public\vizier-pin.log, one line per run (timestamp, then each window), the last 160 runs kept.
 Add-Type @"
 using System; using System.Text; using System.Runtime.InteropServices;
 public class VP { public delegate bool EP(IntPtr h, IntPtr l);
@@ -67,4 +67,6 @@ foreach ($p in (Get-Process -Name vizier -ErrorAction SilentlyContinue)) {
   }
 }
 if (-not $log) { $log = @("vizier.exe not running") }
-($log + "at $(Get-Date -Format o)") | Set-Content C:\Users\Public\vizier-pin.log
+$LogFile = 'C:\Users\Public\vizier-pin.log'   # one line per run, the last 160 kept (about 2.7 h): the history a "why did it move" question needs
+$hist = @(if (Test-Path $LogFile) { Get-Content $LogFile | Select-Object -Last 159 })
+($hist + ("{0} {1}" -f (Get-Date -Format o), ($log -join ' | '))) | Set-Content $LogFile
