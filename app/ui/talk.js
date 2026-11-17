@@ -45,16 +45,31 @@ function pill() {
   return el;
 }
 
+// Is a mic track actually live in the room right now: published, its capture running (readyState "live", not ended by
+// an unplug), enabled and not muted. The Ears dot is green ONLY on this (knowledge#14720: the dot showed green all night
+// while the room saw mic_published=false, because it only ever looked at the switch and the room).
+export function micLive() {
+  const pub = state.mic;
+  const t = pub && pub.track;
+  const mst = t && t.mediaStreamTrack;
+  return !!(state.room && t && mst && mst.readyState === "live" && mst.enabled && !t.isMuted && !pub.isMuted);
+}
+
 function paint() {
   const el = pill();
   for (const k of ["ears", "mouth"]) {
     const dot = el.querySelector(`[data-k="${k}"] b`);
-    dot.style.color = state.room ? (state[k] ? "#3ddc84" : "#5b6472") : "#c0392b";
+    // Ears: green = a live mic track in the room; grey = switched off; red = no room, or on with no live track.
+    const on = k === "ears" ? micLive() : !!state.room;
+    dot.style.color = !state.room ? "#c0392b" : !state[k] ? "#5b6472" : on ? "#3ddc84" : "#c0392b";
   }
-  el.title = state.room ? `${state.room.name} · ${state.status}` : `not connected · ${state.status}`;
+  const live = micLive();
+  el.title = state.room ? `${state.room.name} · ${state.status}${state.ears && !live ? " · NO MIC TRACK" : ""}`
+    : `not connected · ${state.status}`;
   el.dataset.ears = state.ears ? "on" : "off";
   el.dataset.mouth = state.mouth ? "on" : "off";
   el.dataset.connected = state.room ? "yes" : "no";
+  el.dataset.micLive = live ? "yes" : "no";
 }
 
 async function publishSwitches() {
@@ -64,8 +79,70 @@ async function publishSwitches() {
   } catch (e) { console.warn("talk: attributes not set", e); }
 }
 
+// The input Ears should use: the DJI receiver's own USB input, never its Bluetooth "Hands-Free" profile (picking that
+// one drops the headset to the narrowband call profile); else any real input that is not a Hands-Free one; else the
+// OS default. Labels are empty until mic permission is granted, which grant_media gives this page.
+async function pickMic() {
+  const ins = realDevices(await navigator.mediaDevices.enumerateDevices(), "audioinput");
+  const ok = ins.filter((d) => !/hands[- ]?free/i.test(d.label));
+  return ok.find((d) => DJI.test(d.label)) || ok[0] || ins[0] || null;
+}
+
+// (Re)open the Ears mic from scratch: drop whatever track there is (ended, muted, or on a device that is gone) and
+// publish a new one on pickMic()'s device, asked for as `ideal`, never `exact`. LiveKit's own unmute restarts a track
+// with its old constraints, which on ETH 2026-11-17 05:58Z and 06:01Z failed as OverconstrainedError (the device
+// id it held had gone with a DJI replug) and left Ears with no track at all.
+let reopening = null;
+export function ensureMic(why) {
+  if (reopening) return reopening;
+  if (!state.room || !state.ears || micLive()) return Promise.resolve(false);
+  reopening = (async () => {
+    const lp = state.room.localParticipant;
+    const old = state.mic || lp.getTrackPublication(Track.Source.Microphone);
+    const dev = await pickMic().catch(() => null);
+    if (old && old.track) {
+      try { await lp.unpublishTrack(old.track, true); } catch (e) { tlog(`ears: unpublish failed: ${e.message || e}`); }
+    }
+    state.mic = null;
+    await lp.setMicrophoneEnabled(true,
+      { ...(dev ? { deviceId: { ideal: dev.deviceId } } : {}),
+        echoCancellation: true, noiseSuppression: true, autoGainControl: true, voiceIsolation: true, channelCount: 1 },
+      { dtx: false, red: false, audioPreset: AudioPresets.speech });
+    state.mic = lp.getTrackPublication(Track.Source.Microphone) || null;
+    watchEnded();
+    state.status = micLive() ? "connected" : "mic not live";
+    tlog(`ears: mic ${micLive() ? "live" : "NOT live"} on ${dev ? dev.label : "the default input"} (${why})`);
+    return true;
+  })().catch((e) => {
+    state.status = `ears: ${e.name || ""} ${e.message || e}`.trim();
+    tlog(`ears: reopen (${why}) failed: ${e.name || ""} ${e.message || e}`);
+    return false;
+  }).finally(() => { reopening = null; paint(); });
+  return reopening;
+}
+
+// An unplug ends the capture track: re-open at once rather than wait for the watchdog.
+function watchEnded() {
+  const mst = state.mic && state.mic.track && state.mic.track.mediaStreamTrack;
+  if (!mst || mst.__vizierWatched) return;
+  mst.__vizierWatched = true;
+  mst.addEventListener("ended", () => { tlog("ears: mic track ended (device gone?)"); paint(); ensureMic("track ended"); });
+}
+
+// The watchdog: once a second, Ears on with no live track -> re-open (a replug is back live within ~1-2 s, under the
+// 5 s the acceptance allows); the dot is repainted on every tick so it can never sit green over a dead track.
+setInterval(() => {
+  if (!state.room) return;
+  if (state.ears && !micLive()) ensureMic("watchdog");
+  paint();
+}, 1000);
+
 async function applyEars() {
   if (!state.room) return;
+  if (state.ears && !micLive()) {
+    await ensureMic("ears on");
+    return;
+  }
   if (state.ears && !state.mic) {
     // Stock WebRTC processing on the capture (Chrome's AEC3 echo canceller, noise suppression, AGC; voiceIsolation where
     // the platform has it), one channel. Published with DTX and RED off (the user 2026-11-15 3:13 PM, "a lot of buzz
@@ -78,6 +155,7 @@ async function applyEars() {
   } else if (state.mic) {
     await state.room.localParticipant.setMicrophoneEnabled(state.ears);
   }
+  watchEnded();
 }
 
 function applyMouth() {
@@ -322,12 +400,17 @@ async function checkPlayback(devs) {
 
 async function checkMic(devs) {
   const ins = realDevices(devs, "audioinput");
-  const dji = ins.find((d) => DJI.test(d.label));
+  const dji = ins.find((d) => DJI.test(d.label) && !/hands[- ]?free/i.test(d.label)) || ins.find((d) => DJI.test(d.label));
   const track = state.mic && state.mic.track && state.mic.track.mediaStreamTrack;
   const cur = track ? (track.getSettings().deviceId || "") : "";
   const curLabel = (ins.find((d) => d.deviceId === cur) || {}).label || (track ? track.label : null);
   const row = { check: "mic", inputs: ins.map((d) => d.label) };
   let how = `on ${curLabel}`, fixed = false;
+  if (state.ears && !micLive()) {   // no live track is a failure, never "pass on null"; the watchdog re-opens it
+    const ok = await ensureMic("selfcheck");
+    if (!micLive()) return { ...row, pass: false, fixed: false, code: "no_track", how: "Ears on but no live mic track", mic: null };
+    fixed = ok; how = "re-opened the mic track";
+  }
   if (!dji) {   // still tap the mic Ears uses, so "heard" is measured on it
     try { await rawMic(cur || undefined); } catch (e) { /* no mic at all */ }
     return { ...row, pass: false, fixed: false, code: "no_dji", how: `no DJI input; ears on ${curLabel}`, mic: curLabel };
@@ -425,10 +508,14 @@ let devTimer = null;
 if (navigator.mediaDevices && navigator.mediaDevices.addEventListener)
   navigator.mediaDevices.addEventListener("devicechange", () => {
     clearTimeout(devTimer);
-    devTimer = setTimeout(() => { if (state.room) selfCheck("devicechange"); }, 800);
+    devTimer = setTimeout(async () => {
+      if (!state.room) return;
+      await ensureMic("devicechange");
+      selfCheck("devicechange");
+    }, 800);
   });
 
-window.vizierTalk = { toggle, start, state, loopback, selfCheck };
+window.vizierTalk = { toggle, start, state, loopback, selfCheck, micLive, ensureMic };
 window.vizierTalkLog = tlog;   // the page script logs its feed link to the same file
 // POST /talk/loopback/run on the server asks this page to run the check (no console in the release app): poll its counter.
 // POST /talk/selfcheck/run asks for a self-check the same way.

@@ -7,7 +7,10 @@
 // Hidden from capture ALWAYS (a prompter and call notes must never reach a livestream, a screen share or a call):
 // SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE) through Tauri's content protection, set in tauri.conf.json, again
 // at setup, and checked every 2 s with topmost and shown (never the place or the size, never a minimize).
-// There is no switch to turn it off.
+// There is no switch to turn it off. On top of the main window's content protection, exclude_all() sets
+// WDA_EXCLUDEFROMCAPTURE on EVERY top-level window this process owns (knowledge#14720, Tyler 2026-11-17: "Vizier is
+// supposed to be invisible no matter what, only to me"), on the UI thread, at setup, after every re-show (Alt+V, the
+// keeper's show), on focus and resize, and on the 2 s check, so no window of ours is ever on screen un-excluded.
 //
 // The 2 s check READS first and writes only what drifted (#12581, "the cursor is very slow on the Vizier app"): it
 // used to call SetWindowDisplayAffinity and SetWindowPos(HWND_TOPMOST) unconditionally every tick, each one a
@@ -121,14 +124,17 @@ fn main() {
             let w = app.get_webview_window("main").expect("main window");
             place(&w);
             w.set_content_protected(true)?;
+            exclude_all_now();   // setup runs on the UI thread
             w.set_always_on_top(true)?;
             w.show()?;
+            exclude_all_now();
             let keep = w.clone();
             std::thread::spawn(move || loop {
                 std::thread::sleep(std::time::Duration::from_secs(2));
                 if affinity(&keep) != "0x11" {
                     let _ = keep.set_content_protected(true);
                 }
+                exclude_all(&keep);
                 // A minimized window (Alt+V, the taskbar, Win+D) is the reader's choice: left alone (park.rs).
                 let minimized = keep.is_minimized().unwrap_or(false);
                 match park::keep(park::parked_for(std::time::Instant::now()), minimized) {
@@ -137,7 +143,9 @@ fn main() {
                     park::Keep::Restore => {}
                 }
                 if !keep.is_visible().unwrap_or(true) {
+                    let _ = keep.set_content_protected(true);
                     let _ = keep.show();
+                    exclude_all(&keep);
                 }
                 if !keep.is_always_on_top().unwrap_or(false) {
                     let _ = keep.set_always_on_top(true);
@@ -152,7 +160,13 @@ fn main() {
                 // Not pinned: the reader drags it by its header and resizes it by its edges, and every move and resize
                 // is remembered (window.json), so it opens there next time. A minimize is a move too (Windows parks
                 // the window at -32000): remember_rect skips it. A display-scale change re-places it.
-                WindowEvent::Moved(_) | WindowEvent::Resized(_) => remember_rect(&pin),
+                WindowEvent::Moved(_) => remember_rect(&pin),
+                // A restore from minimized arrives as a Resized; a re-show takes focus: both re-assert the exclusion.
+                WindowEvent::Resized(_) => {
+                    exclude_all(&pin);
+                    remember_rect(&pin)
+                }
+                WindowEvent::Focused(true) => exclude_all(&pin),
                 WindowEvent::ScaleFactorChanged { .. } => {
                     if !pin.is_minimized().unwrap_or(false) {
                         place(&pin)
@@ -233,8 +247,10 @@ fn hotkey(app: &tauri::AppHandle, name: &str) {
                 }
                 park::Toggle::Restore => {
                     park::set_parked(None);
+                    let _ = w.set_content_protected(true);
                     let _ = w.unminimize();
                     let _ = w.show();
+                    exclude_all(&w);
                     let _ = w.set_always_on_top(true);
                     let _ = w.set_focus();
                 }
@@ -425,6 +441,41 @@ fn capture_preview(w: &WebviewWindow, path: std::path::PathBuf) {
         let _ = core.CapturePreview(COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, &stream, &done);
     });
 }
+
+/// WDA_EXCLUDEFROMCAPTURE on every visible top-level window of this process whose affinity is not already that (read
+/// first, write only on drift: #12581). Queued onto the UI thread, the thread that owns the windows.
+fn exclude_all(w: &WebviewWindow) {
+    let _ = w.run_on_main_thread(exclude_all_now);
+}
+
+#[cfg(windows)]
+fn exclude_all_now() {
+    #[link(name = "user32")]
+    extern "system" {
+        fn EnumWindows(f: extern "system" fn(isize, isize) -> i32, l: isize) -> i32;
+        fn GetWindowThreadProcessId(h: isize, pid: *mut u32) -> u32;
+        fn IsWindowVisible(h: isize) -> i32;
+        fn GetWindowDisplayAffinity(h: isize, aff: *mut u32) -> i32;
+        fn SetWindowDisplayAffinity(h: isize, aff: u32) -> i32;
+    }
+    const WDA_EXCLUDEFROMCAPTURE: u32 = 0x11;
+    extern "system" fn each(h: isize, me: isize) -> i32 {
+        let mut pid = 0u32;
+        unsafe {
+            GetWindowThreadProcessId(h, &mut pid);
+            if pid as isize == me && IsWindowVisible(h) != 0 {
+                let mut a = 0u32;
+                if GetWindowDisplayAffinity(h, &mut a) == 0 || a != WDA_EXCLUDEFROMCAPTURE {
+                    SetWindowDisplayAffinity(h, WDA_EXCLUDEFROMCAPTURE);
+                }
+            }
+        }
+        1
+    }
+    unsafe { EnumWindows(each, std::process::id() as isize) };
+}
+#[cfg(not(windows))]
+fn exclude_all_now() {}
 
 /// The window's display affinity as Windows reports it: 0x11 = WDA_EXCLUDEFROMCAPTURE (hidden), 0 = none.
 #[cfg(windows)]
