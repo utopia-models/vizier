@@ -91,7 +91,7 @@ fn place(w: &WebviewWindow) {
 /// `vizier.exe --smoke [--smoke-port=N] [--config=<file>]`: the app as the smoke test drives it (scripts/smoke/smoke.py).
 /// WebView2 opens a DevTools port (default 9339) so the harness drives the real page with real key and wheel events, in a
 /// profile of its own (%PUBLIC%\\vizier\\smoke\\webview), and no global shortcut is registered (the user's running Vizier
-/// holds them; the harness presses Alt+V / Alt+R / Alt+E / Alt+M through `smoke_key`, the same code the shortcuts run).
+/// holds them; the harness presses Alt+V / Alt+E / Alt+M through `smoke_key`, the same code the shortcuts run).
 fn smoke() -> bool {
     std::env::args().any(|a| a == "--smoke")
 }
@@ -179,7 +179,7 @@ fn main() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![selftest_report, config, snapshot, smoke_key, talk_log])
+        .invoke_handler(tauri::generate_handler![selftest_report, config, snapshot, smoke_key, talk_log, restart_app])
         .run(tauri::generate_context!())
         .expect("error while running Vizier");
 }
@@ -207,15 +207,14 @@ fn talk_shortcuts() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     let lock = Shortcut::new(Some(Modifiers::ALT), Code::KeyK);
     let follow = Shortcut::new(Some(Modifiers::ALT), Code::KeyF);   // Alt+F: the agent following the reader's voice on / off
     let vizier = Shortcut::new(Some(Modifiers::ALT), Code::KeyV);   // Alt+V: pop Vizier up / hide it
-    let rec = Shortcut::new(Some(Modifiers::ALT), Code::KeyR);      // Alt+R: start / stop a VSL take (rec_toggle)
     tauri_plugin_global_shortcut::Builder::new()
-        .with_shortcuts([ears, mouth, down, up, tab, ptab, pdown, pup, pleft, pright, lock, follow, vizier, rec])
-        .expect("Alt+E / Alt+M / Alt+Up / Alt+Down / Alt+T / Tab / Up / Down / Alt+K / Alt+F / Alt+V / Alt+R")
+        .with_shortcuts([ears, mouth, down, up, tab, ptab, pdown, pup, pleft, pright, lock, follow, vizier])
+        .expect("Alt+E / Alt+M / Alt+Up / Alt+Down / Alt+T / Tab / Up / Down / Alt+K / Alt+F / Alt+V")
         .with_handler(move |app, sc, ev| {
             if ev.state() != ShortcutState::Pressed {
                 return;
             }
-            let name = if sc == &vizier { "alt+v" } else if sc == &rec { "alt+r" } else if sc == &follow { "alt+f" }
+            let name = if sc == &vizier { "alt+v" } else if sc == &follow { "alt+f" }
                 else if sc == &pleft { "left" } else if sc == &pright { "right" } else if sc == &tab || sc == &ptab { "tab" }
                 else if sc == &down || sc == &pdown { "down" } else if sc == &up || sc == &pup { "up" }
                 else if sc == &ears { "alt+e" } else if sc == &mouth { "alt+m" } else { "" };
@@ -256,7 +255,6 @@ fn hotkey(app: &tauri::AppHandle, name: &str) {
                 }
             }
         }
-        "alt+r" => rec_toggle(app),
         "alt+f" => { let _ = w.eval("window.vizierFollow&&window.vizierFollow()"); }
         "left" | "right" => { let _ = w.eval(&format!("window.vizierPart&&window.vizierPart({})", if name == "right" { 1 } else { -1 })); }
         "tab" => { let _ = w.eval("window.vizierTab&&window.vizierTab()"); }
@@ -278,52 +276,6 @@ fn smoke_key(app: tauri::AppHandle, w: WebviewWindow, key: String) -> Result<boo
     hotkey(&app, &key);
     std::thread::sleep(std::time::Duration::from_millis(250));
     Ok(w.is_minimized().unwrap_or(false))
-}
-
-/// Alt+R: a VSL take on / off, native end to end. The page shows the asked-for state at once (vizierRecLocal), and this
-/// process POSTs /vsl {"toggle": true} to the server itself on a thread of its own, so the press never waits on the
-/// WebView's own timers or connections; the server answers at once (the take's start/stop runs there in the
-/// background) and the page gets that answer (vizierRecServer). The SETTINGS "Recording" row and the agent's "record"
-/// command POST the same /vsl, and the page's 1 s /health read keeps every one of them showing the same state.
-fn rec_toggle(app: &tauri::AppHandle) {
-    let w = app.get_webview_window("main");
-    if let Some(w) = &w {
-        let _ = w.eval("window.vizierRecLocal&&window.vizierRecLocal()");
-    }
-    let server = config(app.clone()).get("server").and_then(|v| v.as_str()).unwrap_or("http://127.0.0.1:8786").to_string();
-    std::thread::spawn(move || {
-        let answer = http_post_json(&server, "/vsl", r#"{"toggle":true,"src":"hotkey"}"#)
-            .unwrap_or_else(|e| serde_json::json!({ "error": e }).to_string());
-        if let Some(w) = w {
-            let v: serde_json::Value = serde_json::from_str(&answer).unwrap_or_else(|_| serde_json::json!({ "error": "bad answer" }));
-            let _ = w.eval(&format!("window.vizierRecServer&&window.vizierRecServer({v})"));
-        }
-    });
-}
-
-/// POST a JSON body to an http:// server (the Vizier server is plain HTTP on loopback): the body of the answer, or why
-/// not. std only, so Alt+R adds no crate; 3 s at most.
-fn http_post_json(base: &str, path: &str, body: &str) -> Result<String, String> {
-    use std::io::{Read, Write};
-    let rest = base.trim_end_matches('/').strip_prefix("http://").ok_or("Alt+R needs an http:// server")?;
-    let (hostport, prefix) = rest.split_once('/').map(|(h, p)| (h, format!("/{p}"))).unwrap_or((rest, String::new()));
-    let addr = if hostport.contains(':') { hostport.to_string() } else { format!("{hostport}:80") };
-    let sock = std::net::ToSocketAddrs::to_socket_addrs(&addr).map_err(|e| e.to_string())?.next().ok_or("no address")?;
-    let t = std::time::Duration::from_secs(3);
-    let mut c = std::net::TcpStream::connect_timeout(&sock, t).map_err(|e| e.to_string())?;
-    let _ = c.set_read_timeout(Some(t));
-    let _ = c.set_nodelay(true);
-    write!(c, "POST {prefix}{path} HTTP/1.1\r\nHost: {hostport}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len())
-        .map_err(|e| e.to_string())?;
-    let mut out = String::new();
-    c.read_to_string(&mut out).map_err(|e| e.to_string())?;
-    let (head, rest) = out.split_once("\r\n\r\n").ok_or("no answer")?;
-    let code = head.split_whitespace().nth(1).unwrap_or("");
-    if code.starts_with('2') || code == "409" {
-        Ok(rest.to_string())
-    } else {
-        Err(format!("HTTP {code}"))
-    }
 }
 
 /// The page must keep running and painting while the window is on screen but not the foreground app (the reader is
@@ -407,6 +359,19 @@ fn talk_log(line: String) -> Result<(), String> {
     let fresh = std::fs::metadata(&f).map(|m| m.len() > 1_000_000).unwrap_or(false);
     let mut o = std::fs::OpenOptions::new().create(true).append(!fresh).write(true).truncate(fresh).open(&f).map_err(|e| e.to_string())?;
     writeln!(o, "{}", line.replace(['\r', '\n'], " ")).map_err(|e| e.to_string())
+}
+
+/// `restart_app`: the last rung of talk.js's silent-mic ladder (knowledge#14720). On ETH 2026-11-17 the published mic
+/// sent exact digital zeros for 25 min; neither Alt+E nor a fresh getUserMedia in the same process brought audio back,
+/// only restarting the app did. talk.js asks for this only after two in-page re-opens left the track silent, and at most
+/// once per 10 min. Refused under --smoke (the harness owns that process).
+#[tauri::command]
+fn restart_app(app: tauri::AppHandle, why: String) -> Result<(), String> {
+    if smoke() {
+        return Err("restart_app is off in --smoke".into());
+    }
+    let _ = talk_log(format!("restart_app: {why}"));
+    app.restart()
 }
 
 /// `snapshot`: what the prompter shows right now, to %PUBLIC%\\vizier\\live.png, so an agent can LOOK at it over ssh (the

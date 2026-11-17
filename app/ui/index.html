@@ -4,15 +4,15 @@
 <!-- Vizier desktop app UI. One page, modes over one live link to the vizier service:
      CALL  = what is posted to the server's display API, over WS /feed: bullets on top, the transcript under them
              (Join call = WHIP camera+mic out, WHEP call audio in, when a media server is configured)
-     RECORD = the prompter: SCRIPT (continuous scroll, reading line, keys + clicker) | CONTEXT | DO NOT SAY
+     SCRIPT = the prompter: SCRIPT (continuous scroll, reading line, keys + clicker) | CONTEXT | DO NOT SAY
      TALK  = the plain live transcript of the conversation with the agent: your speech and its spoken replies, newest at
              the bottom, the partial shown live and replaced by the final (GET /talk/transcript, polled every 500 ms)
-     The mode follows /health: a recording running -> RECORD; a live call (not bench-*/probe) -> CALL; else TALK.
+     The mode follows /health: a live call (not bench-*/probe) -> CALL; else the prompter or TALK.
      Runs inside the Tauri shell (app/) and, for headless checks, in any browser: open index.html?server=<url>.
      Server URL, in order: ?server= · the gear (saved in localStorage) · the app's config (VIZIER_SERVER env or
      vizier.json, see README) · http://127.0.0.1:8786. -->
 <style>
-  :root { --type:18px; --bg:#000; --fg:#f4f4f4; --dim:#808a99; --hi:#ffd34d; --accent:#7cc4ff; --me:#9be59b; --line:#232833; --rec:#ff4d4d; }
+  :root { --type:18px; --bg:#000; --fg:#f4f4f4; --dim:#808a99; --hi:#ffd34d; --accent:#7cc4ff; --me:#9be59b; --line:#232833; --err:#ff4d4d; }
   * { box-sizing:border-box; }
   html, body { height:100%; }
   body { margin:0; background:var(--bg); color:var(--fg); font:20px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -43,7 +43,7 @@
   .panel .row .v .on { color:#3ddc84; } .panel .row .v .off { color:#c0392b; }
   .panel .row.ro .v { color:var(--dim); }
   .panel .msg { color:var(--dim); font:500 18px system-ui; padding:6px 14px; }
-  .panel .err { color:var(--rec); }
+  .panel .err { color:var(--err); }
   .panel .dot { display:inline-block; width:11px; height:11px; border-radius:50%; margin-right:10px; background:#5b6472; }
   .panel .dot.green { background:#3ddc84; } .panel .dot.amber, .panel .dot.yellow { background:#ffd34d; } .panel .dot.red { background:#ff4d4d; }
   #rtabs { display:none !important; }   /* the one row of tabs is the header: TALK / SCRIPT / CONTEXT */
@@ -58,7 +58,6 @@
   #talkmain .ln.partial::after { content:"▍"; margin-left:2px; color:var(--hi); }
   #talkmain .none { color:var(--dim); font:500 20px system-ui; }
   .tab.pinned { border-color:var(--fg); }
-  #rec { color:var(--rec); font-weight:700; }
   .grow { flex:1; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
   button { background:#1d2a3a; color:var(--fg); border:1px solid #2f4560; border-radius:6px; padding:3px 9px; font:13px system-ui; cursor:pointer; }
   button.on { background:#5a1d1d; border-color:#a04040; }
@@ -67,7 +66,7 @@
   #cfg input { flex:1; background:#000; color:var(--fg); border:1px solid #2f4560; border-radius:5px; padding:3px 6px; font:13px ui-monospace, monospace; }
   .mode { flex:1; min-height:0; display:none; flex-direction:column; }
   .mode.on { display:flex; }
-  /* RECORD */
+  /* SCRIPT (the prompter) */
   #prompt { flex:1; min-height:0; position:relative; }
   #text { position:absolute; inset:0; overflow:hidden; padding:0 28px 0 30px; font:500 var(--type)/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
   #text p { margin:0 0 .3em; opacity:.45; }
@@ -90,7 +89,7 @@
            border-top:2px solid #2f6aa0; white-space:pre-line; max-height:34%; overflow:hidden; }
   #coach b { color:#fff; }
   #keys { font:500 12px system-ui; color:var(--dim); }
-  /* RECORD tabs: SCRIPT is the prompter; CONTEXT and DO NOT SAY are for reading while preparing */
+  /* SCRIPT tabs: SCRIPT is the prompter; CONTEXT and DO NOT SAY are for reading while preparing */
   .keylegend { position:fixed; left:0; right:0; bottom:0; z-index:5; padding:5px 14px; background:#0d0f12; border-top:1px solid var(--line); font:600 12px system-ui; color:var(--dim); letter-spacing:.02em; text-align:center; }
   .keylegend b { color:var(--fg); }
   #keylegend { position:fixed; left:0; right:0; bottom:0; z-index:5; padding:5px 14px; background:#0d0f12; border-top:1px solid var(--line); font:600 12px system-ui; color:var(--dim); letter-spacing:.02em; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }   /* one line (23 px): the rest of the window is script */
@@ -144,7 +143,7 @@
   <span class="tab rec" id="tab-rec" title="SCRIPT: the teleprompter; arrows step through the parts (S)">SCRIPT</span>
   <span class="tab ctx" id="tab-ctx" title="CONTEXT: what to know for this script">CONTEXT</span>
   <span class="tab call" id="tab-call" hidden title="CALL: shown automatically while a call is live">CALL</span>
-  <span class="grow" data-tauri-drag-region><span id="rec"></span> <span id="title" data-tauri-drag-region>connecting…</span></span>
+  <span class="grow" data-tauri-drag-region><span id="title" data-tauri-drag-region>connecting…</span></span>
   <span id="spd"></span>
   <span id="media"></span>
   <button id="join" style="display:none">Join call</button>
@@ -155,7 +154,7 @@
 <audio id="callaudio" autoplay></audio>
 
 <section class="mode" id="m-rec">
-  <div id="keylegend"><b>↑ ↓</b> scroll &nbsp;·&nbsp; <b>← →</b> part &nbsp;·&nbsp; <b>Tab</b> Talk / Settings / Desks / Agents / Script &nbsp;·&nbsp; <b>Alt+E</b> ears &nbsp;·&nbsp; <b>Alt+M</b> mouth &nbsp;·&nbsp; <b>Alt+V</b> show / hide &nbsp;·&nbsp; <b>Alt+R</b> record &nbsp;·&nbsp; <b id="kfollow" style="cursor:pointer" onclick="window.vizierFollow()">Alt+F follow: ON</b></div>
+  <div id="keylegend"><b>↑ ↓</b> scroll &nbsp;·&nbsp; <b>← →</b> part &nbsp;·&nbsp; <b>Tab</b> Talk / Settings / Desks / Agents / Script &nbsp;·&nbsp; <b>Alt+E</b> ears &nbsp;·&nbsp; <b>Alt+M</b> mouth &nbsp;·&nbsp; <b>Alt+V</b> show / hide &nbsp;·&nbsp; <b id="kfollow" style="cursor:pointer" onclick="window.vizierFollow()">Alt+F follow: ON</b></div>
   <nav id="rtabs"><span data-t="script" class="on">SCRIPT</span><span data-t="context" hidden>CONTEXT</span><span data-t="notes" hidden>DO NOT SAY</span></nav>
   <div id="prompt"><div id="text"></div><div id="readline"></div></div>
   <div id="doc"></div>
@@ -194,7 +193,7 @@ const every = (ms, fn) => { let busy = false; setInterval(async () => { if (busy
 const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
 
 // ---------- mode: derived from /health every second, never stored ----------
-let health = { recording: null, call: null }, pinned = null, mode = null;
+let health = { call: null }, pinned = null, mode = null;
 const liveCall = () => !!health.call && !/^(bench-|probe)/.test(health.call);
 function autoMode() { return "rec"; }   // no CALL mode: on a call you Tab to SCRIPT
 function refreshTabs() {
@@ -229,15 +228,8 @@ $("tab-talk").onclick = () => goTab("talk"); for (const k of PANELS) $("tab-" + 
 async function pollHealth() {
   try {
     const h = await api("health").then(r => r.json());
-    health = h; recording = !!h.recording;
-    if (recording && rtab !== "script") showTab("script");   // a take started: back to the prompter
-    if (h.recording) {   // no recording mark here: OBS's red border is the signal (knowledge#14552, "less is more")
-      const part = String(h.recording).split("-")[0], i = takes.findIndex(k => letterOf(k) === part);
-      if (i >= 0 && i !== t) goTake(i);
-    }
-    else if (!$("rec").textContent.startsWith("saved")) $("rec").textContent = "";
+    health = h;
     autoCam(!!h.cam_wanted);
-    if (h.vsl) vslFromServer(h.vsl);
     setMode();
   } catch { $("dot").classList.remove("on"); }
 }
@@ -270,24 +262,22 @@ async function pollTalk() {
   if (stick) box.scrollTop = box.scrollHeight;
 }
 
-// ---------- RECORD: the prompter ----------
-// No key instructions on screen; a take can also be started from outside (POST /prompter/record) and the app follows
-// the part being recorded. Keys and the clicker drive the scroll:
-//   Space P B . F5 Enter   play/pause the scroll, nothing else (a clicker's "black screen"/"start show" send B . F5).
-//                    No key, click or scroll ever STARTS a recording take on its own (a stray take ran 04:20-04:36Z
-//                    2026-11-12 from a Space press): a take starts only on R (or POST /prompter/record from outside).
-//   R                start a take of the shown part      Esc  stop the scroll and the recording
+// ---------- SCRIPT: the prompter ----------
+// No recording in Vizier at all (knowledge#14720, Tyler 2026-11-17: "I don't want that functionality at all"): OBS is the
+// only recorder. Keys and the clicker drive the scroll:
+//   Space P B . F5 Enter   play/pause the scroll (a clicker's "black screen"/"start show" send B . F5)
+//   Esc              stop the scroll
 //   Mouse wheel / trackpad   scroll the script by hand at any time; it pauses the auto-scroll (manual always wins)
 //   PageDown/Up, Arrow Down/Up   next/previous line (the clicker's forward/back), works while scrolling
 //   + = ]  /  - _ [  faster / slower      Ctrl + / Ctrl -  bigger / smaller type (SCRIPT and CONTEXT together)
 //   Home  top of the part
-//   Arrow Right/Left next/previous part (restarts the take file while recording)      Esc  stop the recording
+//   Arrow Right/Left next/previous part
 // The scroll is continuous (requestAnimationFrame, px/s, and the loop only runs while playing: an always-on 60 Hz loop
 // kept the WebView busy for nothing and made the cursor drag over the window, #12581); the current line is the one crossing the reading line, a
 // third of the way down. A key acts synchronously and the next frame shows it; window.vizierKeyLatency measures it
 // (keydown timestamp -> the frame after the one that drew the change).
 let SCRIPT_NAME = "Script";   // the script's own "# " title, from /prompter/context
-let takes = [], t = 0, recording = false, playing = false, built = "", curIdx = -1;
+let takes = [], t = 0, playing = false, built = "", curIdx = -1;
 let speed = +store.get("vizier.speed") || 60;   // px per second
 const TYPE_MAX = 28;   // knowledge#14087: a readable prompter is 28 px or less (Tyler, 3:13 AM MT 11/16: "the text is extremely large")
 let fontPx = Math.min(TYPE_MAX, +store.get("vizier.type2") || 22);   // SCRIPT and CONTEXT share it (CSS --type)
@@ -313,7 +303,6 @@ const unlabel = s => {
   const A = "(?:" + l.join("|") + ")";
   return String(s).replace(new RegExp("\\s*\\(" + A + "(?:,[^)]*)?\\)", "gi"), "").replace(new RegExp("^\\s*" + A + ":\\s*", "i"), "").trim();
 };
-const letterOf = k => (k.title.match(/^([A-Za-z0-9]+)/) || ["X"])[0];
 const paras = () => $("text").querySelectorAll("p");
 function hud() {
   $("spd").textContent = (playing ? "▶ " : "❚❚ ") + Math.round(speed) + " px/s · " + fontPx + " px";
@@ -401,7 +390,7 @@ async function followTick() {
 every(500, followTick);
 // An agent asked to LOOK at the app (POST /prompter/snap): whatever tab is showing goes to live.png. Every mode, every
 // tab, a script loaded or not: laptop-eye on Ra bumps it every 2 s and draws live.png into its frame of the laptop,
-// because the window is excluded from screen capture (knowledge#14117). Inside the RECORD-only poll below it answered
+// because the window is excluded from screen capture (knowledge#14117). Inside the SCRIPT-only poll below it answered
 // only during a take, so "snap only returns a seq" (scout, 2026-11-16 2:25 AM).
 every(400, async () => {
   const sn = await api("prompter/snap").then(r => r.json()).catch(() => null);
@@ -431,12 +420,11 @@ window.vizierStep = d => {
   if (mode !== "rec") return;
   if (rtab === "script") step(d); else $("doc").scrollTop += d * 140;   // CONTEXT / DO NOT SAY scroll by hand
 };
-window.vizierPart = d => { if (PANELS.includes(mode)) return panelChange(d); if (mode === "rec" && takes.length) { goTake(t + d); byHand(); if (recording) record(); } };   // global Left / Right (main.rs)
+window.vizierPart = d => { if (PANELS.includes(mode)) return panelChange(d); if (mode === "rec" && takes.length) { goTake(t + d); byHand(); } };   // global Left / Right (main.rs)
 window.vizierTab = () => {   // Alt+T from any app, or Tab in the page: TALK -> SETTINGS -> DESKS -> AGENTS -> SCRIPT -> TALK
   // (the deployment's issue 13798; the user 2026-11-15 3:13 PM, "I can't tab over to script": SCRIPT is in the cycle, and the
   // prompter text is right here in this window). CONTEXT stays a click away; from it Tab goes on to TALK.
   if (mode === "call") return;
-  if (recording) return;   // a take is recording: the prompter stays up
   const order = ["talk", ...PANELS, "script"], cur = mode === "rec" ? (rtab === "script" ? "script" : "context") : mode;
   goTab(cur === "context" ? "talk" : order[(order.indexOf(cur) + 1) % order.length]);
 };   // the app's global Alt+Down / Alt+Up (main.rs)
@@ -461,15 +449,6 @@ function setSpeed(f) { speed = Math.max(10, Math.min(400, speed * f)); store.set
 function setFont(d) {
   const keep = curIdx; fontPx = Math.max(12, Math.min(TYPE_MAX, fontPx + d)); store.set("vizier.type2", fontPx);
   document.documentElement.style.setProperty("--type", fontPx + "px"); goLine(keep); hud();
-}
-// Every take records on the server from the camera stream: space starts a new file for the shown take (and the
-// scroll), switching take starts the next file, Esc stops. Same POSTs as prompter.html.
-async function record(stop) {
-  const r = await api("prompter/record", { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(stop ? { stop: true } : { take: letterOf(takes[t]) }) }).then(r => r.json()).catch(() => ({}));
-  recording = !stop && !!r.recording; if (recording) showTab("script"); render();
-  $("rec").textContent = !recording && r.stopped ? "saved " + r.stopped.split("/").pop() : "";
-  pollHealth();
 }
 const lat = [];
 window.vizierKeyLatency = () => {
@@ -498,14 +477,13 @@ document.addEventListener("keydown", e => {
   const k = e.key;
   if (e.ctrlKey && (k === "+" || k === "=")) setFont(4);
   else if (e.ctrlKey && (k === "-" || k === "_")) setFont(-4);
-  else if (k === "ArrowRight") { goTake(t + 1); byHand(); if (recording) record(); }
-  else if (k === "ArrowLeft") { goTake(t - 1); byHand(); if (recording) record(); }
-  else if (k === "Escape") { play(false); record(true); }
+  else if (k === "ArrowRight") { goTake(t + 1); byHand(); }
+  else if (k === "ArrowLeft") { goTake(t - 1); byHand(); }
+  else if (k === "Escape") play(false);
   else if (k === "ArrowDown" || k === "PageDown") step(1);
   else if (k === "ArrowUp" || k === "PageUp") step(-1);
   else if (k === "Home") { goLine(0); byHand(); }
   else if (k === " " || PAUSE_KEYS.has(k)) play();
-  else if ((k === "r" || k === "R") && !e.ctrlKey && !recording) record();
   else if (k === "+" || k === "=" || k === "]") setSpeed(1.15);
   else if (k === "-" || k === "_" || k === "[") setSpeed(1 / 1.15);
   else return;
@@ -532,7 +510,7 @@ async function scripts() {
   if (j && JSON.stringify(j) !== JSON.stringify(takes)) { takes = j; if (t >= takes.length) { t = 0; built = ""; } render(); }
 }
 
-// ---------- RECORD tabs: CONTEXT (<script>-context.md) and DO NOT SAY (the script's un-numbered blocks) ----------
+// ---------- SCRIPT tabs: CONTEXT (<script>-context.md) and DO NOT SAY (the script's un-numbered blocks) ----------
 let rtab = "script", ctx = { context: "", notes: [] }, ctxKey = "";
 function inline(s) { return esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/`([^`]+)`/g, "<code>$1</code>"); }
 function md(src) {   // just enough markdown for these notes: # headings, nested - / 1. lists, paragraphs, **bold**, `code`
@@ -555,7 +533,7 @@ function md(src) {   // just enough markdown for these notes: # headings, nested
   flush(); close(0); return out;
 }
 function showTab(tb) {
-  if (recording || tb === "notes") tb = "script";
+  if (tb === "notes") tb = "script";
   rtab = tb;
   document.querySelectorAll("#rtabs span").forEach(s => s.classList.toggle("on", s.dataset.t === tb));
   $("prompt").style.display = tb === "script" ? "" : "none";
@@ -608,7 +586,6 @@ function settingRows() {
   const cur = (d.voices || []).find(v => v.name === d.voice);
   const link = t && !t.room ? ' <span style="color:var(--dim)">· talk link not connected</span>' : "";
   return [
-    { k: "vsl", label: "Recording (VSL take)", v: vslLabel(), h: "← → or Alt+R" },
     { k: "voice", label: "Voice", v: d.voice ? esc(d.voice) + (cur && cur.accent ? ` <span style="color:var(--dim)">· ${esc(cur.accent)}</span>` : "") : "unknown", h: "← → previous / next voice" },
     { k: "ears", label: "Ears (your mic)", v: onoff(t ? t.ears : null) + link, h: "← → or Alt+E" },
     { k: "mouth", label: "Mouth (Scout's voice)", v: onoff(t ? t.mouth : null) + link, h: "← → or Alt+M" },
@@ -635,7 +612,6 @@ async function changeSetting(d) {
   // answer (or the next 2 s read) corrects the row. The panel never waits on the network to move.
   const P = panel.settings, r = settingRows()[P.sel], data = P.data || {}, w = data.wake; P.err = "";
   let send = null;
-  if (r.k === "vsl") { window.vizierRecToggle("settings"); return; }
   if (r.k === "voice") {
     const vs = data.voices || [], i = vs.findIndex(v => v.name === data.voice);
     if (vs.length) data.voice = vs[((i < 0 ? 0 : i + (d > 0 ? 1 : -1)) + vs.length) % vs.length].name;
@@ -653,29 +629,6 @@ async function changeSetting(d) {
   if (mine === P.seq) loadSettings();   // a newer change is already in flight: its own read corrects the row
 }
 
-// ---------- VSL take: Alt+R (main.rs, native: it POSTs /vsl itself and tells this page), the SETTINGS row, or the
-// agent's "record" (POST /vsl on the server) all drive one switch. The page shows the asked-for state in the same frame
-// (optimistic) and /health (every 1 s) brings the server's truth, so Alt+R and the row can never disagree.
-const vslS = { on: false, busy: null, error: "", configured: true, local: 0 };
-function vslLabel() {
-  if (!vslS.configured) return '<span>not configured on this server</span>';
-  const s = vslS.busy === "saving" ? ' <span style="color:var(--dim)">· saving the last take…</span>' : vslS.busy === "starting" ? ' <span style="color:var(--dim)">· starting…</span>' : "";
-  return (vslS.on ? '<span class="on">Recording</span>' : '<span class="off">Not recording</span>') + s + (vslS.error ? ` <span style="color:var(--rec)">· ${esc(vslS.error)}</span>` : "");
-}
-function vslPaint() {   // knowledge#14552: no REC pill; the SETTINGS row is the only place the state is written
-  if (mode === "settings") drawSettings();
-}
-function vslFromServer(v) {
-  if (Date.now() - vslS.local < 1500 && v.on !== vslS.on) return;   // our own press is still on its way to the server
-  Object.assign(vslS, { on: !!v.on, busy: v.busy || null, error: v.error || "", configured: v.configured !== false }); vslPaint();
-}
-window.vizierRecLocal = on => { vslS.on = on === undefined ? !vslS.on : !!on; vslS.local = Date.now(); vslS.error = ""; vslPaint(); };   // main.rs, before its POST
-window.vizierRecServer = v => { if (v && typeof v === "object") { vslS.local = 0; vslFromServer(v); } };     // main.rs, the POST's answer
-window.vizierRecToggle = async (src = "page") => {   // the SETTINGS row (and a click on the REC pill)
-  window.vizierRecLocal();
-  try { const j = await postJSON("vsl", { on: vslS.on, src }); window.vizierRecServer(j); }
-  catch (e) { vslS.error = e.message; vslS.local = 0; vslPaint(); }
-};
 function drawDesks() {
   const P = panel.desks, d = P.data, el = $("p-desks"), list = (d && d.desks) || [];
   P.sel = Math.max(0, Math.min(Math.max(0, list.length - 1), P.sel));

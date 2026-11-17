@@ -14,7 +14,6 @@ every window on /feed redraws. The full contract is docs/openapi.yaml; connector
         POST /status      {"text"}
         POST /script      {"markdown"} | {"path"}   the prompter's script (one `## ` block per take)
         GET  /prompter/scripts · /prompter/context · /prompter/note    POST /prompter/note {"text"}
-        POST /prompter/record {"take"} | {"stop": true}   copy a camera stream into a take file (ffmpeg, optional)
         GET  /buildlog    tail of a plain-text log      GET /openapi.yaml
         GET  /settings · POST /settings {"voice"} | {"wake"}   the voice agent's settings (VIZIER_VOICE_URL)
         GET  /desks · POST /desks/open {"id"}   desks to open (VIZIER_DESKS_CMD, VIZIER_DESK_OPEN_CMD)
@@ -87,7 +86,6 @@ NO_SCRIPT = DATA / "no-script.md"             # never written: pointing here sho
 TALK_SCRIPTS = Path(os.environ.get("VIZIER_TALK_SCRIPTS", DATA / "talk-scripts"))   # /prompter/scripts?file=<name>
 BRIEFS = Path(os.environ.get("VIZIER_BRIEFS", DATA / "briefs"))                     # /prompter/scripts?brief=<slug>
 TAKES = Path(os.environ.get("VIZIER_TAKES", DATA / "takes"))
-CAM = os.environ.get("VIZIER_CAM", "")       # an RTSP camera stream a take copies; empty = recording off
 # A shell command whose exit 0 means "a call wants the laptop camera now" (for example: the meeting browser is open).
 # /health reports it as cam_wanted and the desktop app publishes the camera by itself while it is true, so nobody has
 # to click Join call (and the meeting never shows "camera might be blocked" over a black frame). Empty = always false.
@@ -102,13 +100,6 @@ VOICE_URL = os.environ.get("VIZIER_VOICE_URL", "").rstrip("/")      # the voice 
 DESKS_CMD = os.environ.get("VIZIER_DESKS_CMD", "")      # prints a JSON list [{"id", "name", "agent"?, "detail"?}]
 DESK_OPEN_CMD = os.environ.get("VIZIER_DESK_OPEN_CMD", "")   # opens one desk; "{id}" is replaced by the desk's id
 AGENTS_DIR = os.environ.get("VIZIER_AGENTS_DIR", "")    # one <agent>.json per agent (its liveness), read on each GET
-# A VSL take, started and stopped by the reader (Alt+R in the app, the SETTINGS "Recording" row, or the agent's own
-# "record" command: all three POST /vsl). The command runs in the background and the POST answers at once, so the
-# key acts in milliseconds while the take's own start/stop (OBS, the desk, the review) takes what it takes.
-VSL_START_CMD = os.environ.get("VIZIER_VSL_START_CMD", "")   # e.g. "vsl start {name}"; {name} is shell-quoted
-VSL_STOP_CMD = os.environ.get("VIZIER_VSL_STOP_CMD", "")     # e.g. "vsl stop"
-VSL_STATE = os.environ.get("VIZIER_VSL_STATE", "")           # a file that exists while a take records (vsl's current.json)
-VSL_NAME = os.environ.get("VIZIER_VSL_NAME", "")             # the take's name; empty = the prompter script's name
 CHANNELS = ("me", "them")
 
 
@@ -435,7 +426,6 @@ async def prompter_context(req):
 
 NOTE = {"text": "", "take": "", "t": 0.0}   # one line shown on the prompter (e.g. an agent's review of the last take)
 POS: dict = {"part": 0, "parts": 0, "title": "", "line": 0, "lines": 0, "text": "", "t": 0.0}   # where the prompter is (POST /prompter/position)
-REC: dict = {}                              # {"proc", "path", "take", "t0"} while a take is recording
 
 
 async def prompter_note(req):
@@ -443,7 +433,7 @@ async def prompter_note(req):
         b = await body(req)
         NOTE.update(text=str(b.get("text", ""))[:300], take=str(b.get("take", ""))[:32], t=time.time())
         return web.json_response({"ok": True})
-    return web.json_response({**NOTE, "recording": REC.get("take")})
+    return web.json_response(NOTE)
 
 
 async def prompter_position(req):
@@ -647,102 +637,9 @@ async def prompter_goto(req):
     return web.json_response(GOTO)
 
 
-async def rec_stop():
-    p = REC.pop("proc", None)
-    if p and p.returncode is None:
-        p.stdin.write(b"q")          # ffmpeg finalizes the mp4 (moov atom) on q
-        await p.stdin.drain()
-        try:
-            await asyncio.wait_for(p.wait(), 8)
-        except asyncio.TimeoutError:
-            p.kill()
-        log_event({"t": time.time(), "ev": "take_stop", "path": REC.get("path"), "s": round(time.time() - REC.get("t0", 0), 1)})
-    return {k: REC.pop(k, None) for k in ("path", "take", "t0")}
-
-
-async def prompter_record(req):
-    """POST /prompter/record {"take": "A"} copies $VIZIER_CAM (no re-encode) into $VIZIER_TAKES/<take>-<n>.mp4,
-    stopping any running take; {"stop": true} stops. Off (409) when VIZIER_CAM is unset."""
-    b = await body(req)
-    prev = await rec_stop()
-    if b.get("stop"):
-        return web.json_response({"stopped": prev.get("path")})
-    if not CAM:
-        return bad("recording is off: set VIZIER_CAM to an RTSP camera stream", 409)
-    take = re.sub(r"[^A-Za-z0-9]", "", str(b.get("take") or "X"))[:8] or "X"
-    TAKES.mkdir(parents=True, exist_ok=True)
-    n = 1 + max([int(m.group(1)) for f in TAKES.glob(f"{take}-*.mp4") if (m := re.match(rf"{take}-(\d+)\.mp4$", f.name))] or [0])
-    path = TAKES / f"{take}-{n}.mp4"
-    p = await asyncio.create_subprocess_exec("ffmpeg", "-loglevel", "error", "-rtsp_transport", "tcp", "-i", CAM,
-                                             "-c", "copy", "-movflags", "+faststart", str(path),
-                                             stdin=asyncio.subprocess.PIPE)
-    REC.update(proc=p, path=str(path), take=f"{take}-{n}", t0=time.time())
-    log_event({"t": time.time(), "ev": "take_start", "path": str(path)})
-    return web.json_response({"recording": f"{take}-{n}", "stopped": prev.get("path")})
-
-
-# ---------- VSL takes: POST /vsl, the one switch behind Alt+R, the SETTINGS row and the agent's "record" ----------
-VSL: dict = {"want": None, "busy": None, "error": "", "name": None, "since": None, "on": False}
-
-
-def vsl_actual() -> bool:
-    """Is a take recording? The state file when there is one (vsl writes it once OBS records and removes it after the
-    review), else what this server last ran successfully."""
-    return Path(VSL_STATE).expanduser().is_file() if VSL_STATE else bool(VSL["on"])
-
-
-def vsl_view() -> dict:
-    actual = vsl_actual()
-    on = VSL["want"] if VSL["want"] is not None else actual
-    return {"configured": bool(VSL_START_CMD and VSL_STOP_CMD), "on": on, "actual": actual,
-            "pending": VSL["want"] is not None, "busy": VSL["busy"], "name": VSL["name"], "since": VSL["since"],
-            "error": VSL["error"]}
-
-
-async def _vsl_sync() -> None:
-    """Runs start/stop until the take matches what was last asked for. One command at a time: a start asked while a
-    stop is still reviewing waits for it (a start during a stop would have its state file deleted by that stop)."""
-    if VSL["busy"]:
-        return
-    try:
-        while VSL["want"] is not None and VSL["want"] != vsl_actual():
-            want = VSL["want"]
-            cmd = VSL_START_CMD.replace("{name}", shlex.quote(VSL["name"] or "vsl")) if want else VSL_STOP_CMD
-            VSL["busy"] = "starting" if want else "saving"
-            t0 = time.time()
-            p = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
-            out, _ = await p.communicate()
-            tail = out.decode(errors="replace").strip().splitlines()[-1:] or [""]
-            log_event({"t": time.time(), "ev": "vsl_" + ("start" if want else "stop"), "rc": p.returncode,
-                       "s": round(time.time() - t0, 1), "out": tail[0][:300]})
-            if p.returncode != 0:
-                VSL.update(error=f"{'start' if want else 'stop'} failed (exit {p.returncode}): {tail[0][:200]}", want=None)
-                break
-            VSL["on"] = want
-            if want == VSL["want"] and VSL_STATE and vsl_actual() != want:
-                break   # the command succeeded but the state file disagrees: report the file, do not loop
-        VSL["want"] = None
-    finally:
-        VSL["busy"] = None
-
-
-async def vsl(req):
-    """GET /vsl: {configured, on, actual, pending, busy, name, since, error}. POST /vsl {"on": bool} or {"toggle": true}
-    (optional "name"): answers at once with the state asked for; the command runs in the background."""
-    if req.method == "GET":
-        return web.json_response(vsl_view())
-    b = await body(req)
-    if not (VSL_START_CMD and VSL_STOP_CMD):
-        return bad("VSL recording is not configured on this server (VIZIER_VSL_START_CMD / VIZIER_VSL_STOP_CMD)", 409)
-    cur = vsl_view()["on"]
-    want = (not cur) if b.get("toggle") else bool(b.get("on"))
-    if want and not cur:
-        name = b.get("name") or VSL_NAME or current_script(req.app).stem
-        VSL.update(name=re.sub(r"[^a-z0-9]+", "-", str(name).lower()).strip("-")[:40] or "vsl", since=time.time())
-    VSL.update(want=want, error="")
-    log_event({"t": time.time(), "ev": "vsl_ask", "on": want, "src": str(b.get("src") or "")[:40]})
-    asyncio.get_running_loop().create_task(_vsl_sync())
-    return web.json_response(vsl_view())
+# No recording in Vizier (knowledge#14720, Tyler 2026-11-17 06:37Z: "I don't want that functionality at all"): the
+# camera take copier and the VSL take switch (its hotkey, its SETTINGS row, its endpoints) are gone. OBS is the only
+# recorder.
 
 
 # ---------- the agent's settings, desks and team (the deployment's issue 13798) ----------
@@ -917,10 +814,9 @@ async def cam_wanted() -> bool:
 
 async def health(req):
     c = S(req.app).call
-    return web.json_response({"ok": True, "recording": REC.get("take"), "call": c.id if c else None,
+    return web.json_response({"ok": True, "call": c.id if c else None,
                               "lines": len(c.lines) if c else 0, "feed_clients": len(S(req.app).feed.clients),
-                              "script": current_script(req.app).name, "cam_wanted": await cam_wanted(),
-                              "vsl": vsl_view()})
+                              "script": current_script(req.app).name, "cam_wanted": await cam_wanted()})
 
 
 async def openapi(_):
@@ -1017,7 +913,6 @@ def make_app() -> web.Application:
     r.add_post("/prompter/follow", prompter_follow)
     r.add_post("/prompter/snap", prompter_snap)
     r.add_post("/prompter/goto", prompter_goto)
-    r.add_post("/prompter/record", prompter_record)
     r.add_get("/feed", feed)
     r.add_get("/buildlog", buildlog)
     r.add_get("/settings", settings)
@@ -1025,8 +920,6 @@ def make_app() -> web.Application:
     r.add_get("/desks", desks)
     r.add_post("/desks/open", desks_open)
     r.add_get("/agents", agents)
-    r.add_get("/vsl", vsl)
-    r.add_post("/vsl", vsl)
     return app
 
 
