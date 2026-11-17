@@ -324,15 +324,19 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
     # ---- Alt+R (dry: the smoke server's VSL commands only touch a file)
     await c.js("window.vizierPanels.goTab('settings')")
     await c.js("window.__TAURI__.core.invoke('smoke_key', {key: 'alt+r'})")
-    on = await until(lambda: c.js("document.getElementById('vsl').classList.contains('on')"), 6)
+    # knowledge#14552: no REC pill or mark anywhere (OBS's red border is the signal); the SETTINGS row follows the take
+    row = "document.getElementById('p-settings').textContent"
+    on = await until(lambda: c.js(f"{row}.includes('Recording') && !{row}.includes('Not recording')"), 6)
     started = await until(lambda: asyncio.sleep(0, state.exists()), 8)
     await c.shot(out, "alt-r-on")
+    no_mark = await c.js("!document.getElementById('vsl') && !document.body.innerText.includes('● REC')")
     await c.js("window.__TAURI__.core.invoke('smoke_key', {key: 'alt+r'})")
-    off = await until(lambda: c.js("!document.getElementById('vsl').classList.contains('on')"), 6)
+    off = await until(lambda: c.js(f"{row}.includes('Not recording')"), 6)
     stopped = await until(lambda: asyncio.sleep(0, not state.exists()), 8)
     await c.shot(out, "alt-r-off")
-    ok("Alt+R starts a (dry) take and Alt+R stops it; the REC pill follows", on and started and off and stopped,
-       f"pill on={on} take started={started} pill off={off} take stopped={stopped}")
+    ok("Alt+R starts a (dry) take and Alt+R stops it; the SETTINGS row follows, no REC mark is shown",
+       on and started and no_mark and off and stopped,
+       f"row on={on} take started={started} no REC mark={no_mark} row off={off} take stopped={stopped}")
     errs = await c.js("(window.__smokeErrors||[]).slice(0,5)")
     ok("no uncaught page errors", not errs, str(errs))
 
