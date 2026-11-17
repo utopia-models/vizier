@@ -60,16 +60,17 @@ function paint() {
   for (const k of ["ears", "mouth"]) {
     const dot = el.querySelector(`[data-k="${k}"] b`);
     // Ears: green = a live mic track in the room; grey = switched off; red = no room, or on with no live track.
-    const on = k === "ears" ? micLive() : !!state.room;
+    const on = k === "ears" ? micLive() && !silentNow() : !!state.room;
     dot.style.color = !state.room ? "#c0392b" : !state[k] ? "#5b6472" : on ? "#3ddc84" : "#c0392b";
   }
   const live = micLive();
-  el.title = state.room ? `${state.room.name} · ${state.status}${state.ears && !live ? " · NO MIC TRACK" : ""}`
+  el.title = state.room ? `${state.room.name} · ${state.status}${state.ears && !live ? " · NO MIC TRACK" : silentNow() ? " · MIC SENDING SILENCE" : ""}`
     : `not connected · ${state.status}`;
   el.dataset.ears = state.ears ? "on" : "off";
   el.dataset.mouth = state.mouth ? "on" : "off";
   el.dataset.connected = state.room ? "yes" : "no";
   el.dataset.micLive = live ? "yes" : "no";
+  el.dataset.micSilent = silentNow() ? "yes" : "no";
 }
 
 async function publishSwitches() {
@@ -94,9 +95,9 @@ async function pickMic() {
 // with its old constraints, which on ETH 2026-11-17 05:58Z and 06:01Z failed as OverconstrainedError (the device
 // id it held had gone with a DJI replug) and left Ears with no track at all.
 let reopening = null;
-export function ensureMic(why) {
+export function ensureMic(why, force = false) {
   if (reopening) return reopening;
-  if (!state.room || !state.ears || micLive()) return Promise.resolve(false);
+  if (!state.room || !state.ears || (micLive() && !force)) return Promise.resolve(false);
   reopening = (async () => {
     const lp = state.room.localParticipant;
     const old = state.mic || lp.getTrackPublication(Track.Source.Microphone);
@@ -152,6 +153,69 @@ setInterval(async () => {
   } catch (e) { tlog(`ears: move to the preferred mic failed: ${e.message || e}`); }
   finally { moving = false; paint(); }
 }, 1000);
+
+// The silent-track ladder (knowledge#14720). On ETH 2026-11-17 07:0xZ the mic was published, live by every flag above,
+// and sent EXACT digital zeros for 25 min (scout's room: audio_age climbing with mic on); Alt+E did not bring audio back,
+// only an app restart did. A real mic never reads exactly 0: measured live on ETH 08:2xZ, the DJI's quietest 100 ms
+// window peaked at 0.011 (about -39 dBFS) with noise suppression on. So, once a second, read the sender's own stats:
+// media-source audioLevel (what is being encoded) and outbound-rtp packetsSent (DTX is off, so ~50 packets/s flow even
+// in a silent room). Exactly 0 or no new packets is "silent". Silent for SILENT_REOPEN_S -> re-open the mic (a fresh
+// getUserMedia, ensureMic(force)); still silent SILENT_AGAIN_S later -> once more; still silent at SILENT_RESTART_S ->
+// restart the app (main.rs restart_app), at most once per RESTART_GAP_MS, and never again until audio has been heard
+// after a restart that did not fix it (a mic muted in Windows also reads 0: no restart loop on it). Every rung is in
+// talk.log.
+const SILENT_REOPEN_S = 5, SILENT_AGAIN_S = 20, SILENT_RESTART_S = 60, RESTART_GAP_MS = 10 * 60 * 1000;
+const RESTART_KEY = "vizier.silentRestart";
+const silent = { since: 0, rung: 0, packets: null, track: null };
+async function senderSilent() {
+  const t = state.mic && state.mic.track;
+  if (!t || !t.sender || !t.sender.getStats) return null;   // not published yet: nothing to judge
+  let level = null, packets = null;
+  (await t.sender.getStats()).forEach((r) => {
+    if (r.type === "media-source" && typeof r.audioLevel === "number") level = r.audioLevel;
+    if (r.type === "outbound-rtp" && typeof r.packetsSent === "number") packets = r.packetsSent;
+  });
+  const stalled = packets !== null && silent.track === t && silent.packets !== null && packets <= silent.packets;
+  silent.packets = packets; silent.track = t;
+  if (level === null && packets === null) return null;
+  return level === 0 || stalled;
+}
+// Red on the Ears dot once the published mic has sent digital silence for 2 s (a live-but-silent track is no mic at all).
+function silentNow() { return !!(silent.since && Date.now() - silent.since >= 2000); }
+function restartMark() { try { return JSON.parse(localStorage.getItem(RESTART_KEY) || "null"); } catch (e) { return null; } }
+export async function silentTick(now = Date.now()) {
+  if (reopening) return "skip";   // a re-open in flight: the clock keeps running across it, so the ladder climbs
+  if (!state.room || !state.ears || !micLive()) { silent.since = 0; silent.rung = 0; return "skip"; }
+  const quiet = await senderSilent();
+  if (quiet === null) return "unknown";
+  if (!quiet) {
+    if (silent.since) tlog(`ears: audio back after ${Math.round((now - silent.since) / 1000)} s of digital silence (rung ${silent.rung})`);
+    silent.since = 0; silent.rung = 0;
+    const m = restartMark();
+    if (m && m.failed) { try { localStorage.setItem(RESTART_KEY, JSON.stringify({ t: m.t })); } catch (e) { /* no storage */ } }
+    return "audio";
+  }
+  if (!silent.since) { silent.since = now; tlog("ears: the published mic is sending digital silence"); }
+  const s = (now - silent.since) / 1000;
+  if (silent.rung === 0 && s >= SILENT_REOPEN_S) { silent.rung = 1; ensureMic("silent track", true); return "reopen"; }
+  if (silent.rung === 1 && s >= SILENT_AGAIN_S) { silent.rung = 2; ensureMic("still silent", true); return "reopen"; }
+  if (silent.rung === 2 && s >= SILENT_RESTART_S) {
+    silent.rung = 3;
+    const m = restartMark();
+    if (m && (m.failed || now - m.t < RESTART_GAP_MS)) {
+      tlog(`ears: silent ${Math.round(s)} s; NOT restarting (${m.failed ? "a restart already failed to fix it: Windows mute?" : "restarted under 10 min ago"})`);
+      if (m && !m.failed) { try { localStorage.setItem(RESTART_KEY, JSON.stringify({ t: m.t, failed: true })); } catch (e) { /* no storage */ } }
+      return "held";
+    }
+    try { localStorage.setItem(RESTART_KEY, JSON.stringify({ t: now })); } catch (e) { /* no storage */ }
+    tlog(`ears: silent ${Math.round(s)} s after two re-opens: restarting the app`);
+    try { if (window.__TAURI__) await window.__TAURI__.core.invoke("restart_app", { why: `mic silent ${Math.round(s)} s` }); }
+    catch (e) { tlog(`ears: restart_app failed: ${e.message || e}`); }
+    return "restart";
+  }
+  return "silent";
+}
+setInterval(() => { silentTick().catch((e) => tlog(`ears: silent check failed: ${e.message || e}`)); }, 1000);
 
 async function applyEars() {
   if (!state.room) return;
@@ -531,7 +595,7 @@ if (navigator.mediaDevices && navigator.mediaDevices.addEventListener)
     }, 800);
   });
 
-window.vizierTalk = { toggle, start, state, loopback, selfCheck, micLive, ensureMic, paint };
+window.vizierTalk = { toggle, start, state, loopback, selfCheck, micLive, ensureMic, paint, silentTick, silent };
 window.vizierTalkLog = tlog;   // the page script logs its feed link to the same file
 // POST /talk/loopback/run on the server asks this page to run the check (no console in the release app): poll its counter.
 // POST /talk/selfcheck/run asks for a self-check the same way.

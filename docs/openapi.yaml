@@ -34,7 +34,6 @@ paths:
                   ok: { type: boolean }
                   call: { type: [string, "null"], description: the open call's id }
                   lines: { type: integer, description: final lines in the open call }
-                  recording: { type: [string, "null"], description: the take being recorded }
                   feed_clients: { type: integer }
                   script: { type: string, description: file name of the prompter's current script }
                   cam_wanted: { type: boolean, description: "VIZIER_CAM_WANTED_CMD exits 0: the app publishes the camera to media by itself while true" }
@@ -207,7 +206,7 @@ paths:
                   notes: { type: array, items: { type: object, properties: { title: { type: string }, text: { type: string } } } }
   /prompter/note:
     get:
-      summary: The one-line note shown on the prompter, and the take recording now
+      summary: The one-line note shown on the prompter
       responses:
         "200":
           description: OK
@@ -219,7 +218,6 @@ paths:
                   text: { type: string }
                   take: { type: string }
                   t: { type: number }
-                  recording: { type: [string, "null"] }
     post:
       summary: Set the note (for example a review of the last take)
       requestBody:
@@ -228,21 +226,6 @@ paths:
       responses:
         "200": { description: Shown }
         "401": { $ref: "#/components/responses/Unauthorized" }
-  /prompter/record:
-    post:
-      summary: Start or stop a take (copies $VIZIER_CAM with ffmpeg, no re-encode)
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              oneOf:
-                - { type: object, required: [take], properties: { take: { type: string } } }
-                - { type: object, required: [stop], properties: { stop: { const: true } } }
-      responses:
-        "200": { description: Started or stopped }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "409": { description: Recording is off (no VIZIER_CAM) }
   /buildlog:
     get:
       summary: Tail of a plain-text log the app shows in its footer

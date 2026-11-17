@@ -105,7 +105,6 @@ Everything is an environment variable; `--config <file>` (or `$VIZIER_CONFIG`, o
 | `VIZIER_TOKEN` | when set, every POST needs `Authorization: Bearer <token>` | — (open) |
 | `VIZIER_DATA` | data directory: posted script, takes, event log | `~/.vizier` |
 | `VIZIER_SCRIPTS` | the prompter's script before any `POST /script` (markdown, one `## ` block per take); the last posted script, or a `{"clear": true}`, survives a restart | `$VIZIER_DATA/scripts.md` |
-| `VIZIER_CAM` | an RTSP camera stream the prompter's **R** key records takes from (needs ffmpeg) | — (off) |
 | `VIZIER_CAM_WANTED_CMD` | a shell command whose exit 0 means a call wants your camera now; `/health` reports it as `cam_wanted` and the app joins (camera + mic out, call audio in) by itself while it is true, and leaves when it goes false | — (never) |
 | `VIZIER_ALLOWED_ORIGINS` | extra CORS origins (comma-separated) besides the desktop app's | — |
 
@@ -145,11 +144,11 @@ drive over SSH.
 `curl -s 127.0.0.1:9340/json` lists the page and any CDP client reads the DOM, the computed type size and the window's size.
 
 **Smoke test (every build, before it is staged):** `python3 scripts/smoke/smoke.py --exe <vizier.exe> --host <windows
-ssh host> [--script FILE] [--talk-url ws://… --livekit-key K --livekit-secret S]`. It starts a throwaway server here
-(dry VSL switch: Alt+R never reaches OBS), runs the built exe on the Windows box with `--smoke` (WebView2 DevTools
+ssh host> [--script FILE] [--talk-url ws://… --livekit-key K --livekit-secret S]`. It starts a throwaway server here,
+runs the built exe on the Windows box with `--smoke` (WebView2 DevTools
 port, its own profile, no global shortcuts, so the user's running Vizier is untouched), and drives the real page with
 real key and wheel input: Tab through TALK, SETTINGS, DESKS, AGENTS and SCRIPT; every tab scrolled to its bottom with
-the selected row on screen; every SETTINGS row changed and changed back; Alt+E, Alt+M, Alt+V, Alt+R; and with a talk
+the selected row on screen; every SETTINGS row changed and changed back; Alt+E, Alt+M, Alt+V; and with a talk
 link, the laptop mic measured (the Ears track and the raw mic, RMS and the floor in dBFS). One screenshot per step;
 exit 0 only when every step passes.
 
@@ -181,8 +180,7 @@ SCRIPT shows the spoken lines and nothing else: no coach note, no BUILD footer, 
 
 | key | does |
 |---|---|
-| Space, P, B, `.`, F5, Enter | play / pause the scroll (never starts a recording) |
-| R | start a take of the shown part |
+| Space, P, B, `.`, F5, Enter | play / pause the scroll |
 | mouse wheel / trackpad | scroll by hand; pauses the auto-scroll |
 | PageDown / PageUp, ↓ / ↑ | next / previous line, also while scrolling |
 | Alt+↓ / Alt+↑ | the same from any app (global shortcut); they scroll CONTEXT / DO NOT SAY too |
@@ -191,8 +189,8 @@ SCRIPT shows the spoken lines and nothing else: no coach note, no BUILD footer, 
 | `+` `=` `]` / `-` `_` `[` | faster / slower (×1.15) |
 | Ctrl + / Ctrl − | bigger / smaller type (SCRIPT and CONTEXT together) |
 | Home | top of the part |
-| → / ← | next / previous part (starts a new take file while recording) |
-| Esc | stop the scroll and the recording |
+| → / ← | next / previous part |
+| Esc | stop the scroll |
 | Alt+V | hide Vizier from any app, and Alt+V again pops it back up, focused. Vizier opens where you last left it (`window.json` beside the exe; the first time, the bottom-left quarter of the primary monitor). Drag it by its header, resize it by its edges (480x270 minimum). A minimized window stays minimized, however you minimized it, until Alt+V or the taskbar brings it back |
 
 ### The agent's panels: SETTINGS, DESKS, AGENTS

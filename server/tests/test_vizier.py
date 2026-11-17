@@ -173,10 +173,10 @@ def test_token_guards_every_post(vz, monkeypatch):
     assert run(vz.make_app(), f) == (401, 200, 200)
 
 
-def test_record_is_off_without_a_camera(vz):
+def test_no_record_endpoints(vz):
     async def f(c):
-        return (await c.post("/prompter/record", json={"take": "A"})).status
-    assert run(vz.make_app(), f) == 409
+        return (await c.post("/prompter/record", json={"take": "A"})).status, (await c.post("/vsl", json={"on": True})).status
+    assert run(vz.make_app(), f) == (404, 404)   # knowledge#14720: no recording in Vizier; OBS records
 
 
 def test_note_round_trip(vz):
@@ -184,7 +184,7 @@ def test_note_round_trip(vz):
         await c.post("/prompter/note", json={"text": "slower on the hook", "take": "A-1"})
         return await (await c.get("/prompter/note")).json()
     j = run(vz.make_app(), f)
-    assert j["text"] == "slower on the hook" and j["take"] == "A-1" and j["recording"] is None
+    assert j["text"] == "slower on the hook" and j["take"] == "A-1" and "recording" not in j
 
 
 def test_openapi_is_served(vz):
