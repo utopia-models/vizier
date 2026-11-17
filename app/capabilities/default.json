@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The one Vizier window: core IPC plus the hide-from-capture toggle.",
+  "description": "The one Vizier window: core IPC, the hide-from-capture toggle, and dragging by its header (data-tauri-drag-region).",
   "windows": ["main"],
-  "permissions": ["core:default", "core:window:allow-set-content-protected"]
+  "permissions": ["core:default", "core:window:allow-set-content-protected", "core:window:allow-start-dragging", "core:window:deny-internal-toggle-maximize"]
 }

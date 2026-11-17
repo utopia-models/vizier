@@ -22,6 +22,8 @@
   header { flex:0 0 auto; display:flex; align-items:center; gap:6px; padding:6px 10px; padding-right:150px; border-bottom:1px solid var(--line);
            font:500 14px system-ui; color:var(--dim); background:#07090c; }
   header b { color:var(--fg); font-weight:600; }
+  /* the header is the grab bar (data-tauri-drag-region, main.rs remembers where it lands); the tabs and buttons keep their clicks */
+  header, header b, header .grow, #title { cursor:grab; } header:active { cursor:grabbing; } .tab, header button { cursor:pointer; }
   #dot { width:9px; height:9px; border-radius:50%; background:#c44; display:inline-block; }
   #dot.on { background:#3c3; }
   .tab { padding:2px 7px; border-radius:5px; border:1px solid transparent; cursor:pointer; letter-spacing:.04em; }
@@ -133,8 +135,8 @@
   #build .t { color:#6fbf7a; font:12px ui-monospace, monospace; margin-right:8px; }
 </style></head>
 <body>
-<header>
-  <span id="dot" title="link to the vizier service"></span><b>Vizier</b>
+<header data-tauri-drag-region>
+  <span id="dot" title="link to the vizier service"></span><b data-tauri-drag-region title="drag to move Vizier; its edges resize it">Vizier</b>
   <span class="tab talk" id="tab-talk" title="TALK: a live transcript of your conversation with Scout">TALK</span>
   <span class="tab set" id="tab-settings" title="SETTINGS: every Scout setting; arrows change them">SETTINGS</span>
   <span class="tab desk" id="tab-desks" title="DESKS: pick a desk, Scout opens it in the desk viewer">DESKS</span>
@@ -142,7 +144,7 @@
   <span class="tab rec" id="tab-rec" title="SCRIPT: the teleprompter; arrows step through the parts (S)">SCRIPT</span>
   <span class="tab ctx" id="tab-ctx" title="CONTEXT: what to know for this script">CONTEXT</span>
   <span class="tab call" id="tab-call" hidden title="CALL: shown automatically while a call is live">CALL</span>
-  <span class="grow"><span id="vsl" title="Alt+R">● REC</span><span id="rec"></span> <span id="title">connecting…</span></span>
+  <span class="grow" data-tauri-drag-region><span id="vsl" title="Alt+R">● REC</span><span id="rec"></span> <span id="title" data-tauri-drag-region>connecting…</span></span>
   <span id="spd"></span>
   <span id="media"></span>
   <button id="join" style="display:none">Join call</button>

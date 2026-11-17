@@ -12,6 +12,8 @@
         "title": "Utopia Vizier",
         "width": 1280,
         "height": 680,
+        "minWidth": 480,
+        "minHeight": 270,
         "x": 0,
         "y": 720,
         "alwaysOnTop": true,

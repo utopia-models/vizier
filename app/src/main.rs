@@ -1,11 +1,12 @@
-// Vizier desktop app. One always-on-top window pinned to the bottom-left quarter of the primary display (clipped
-// to the work area, so above the taskbar). The UI (ui/index.html) talks to the Vizier server itself; this file only
-// places the window, keeps it there, hides it from every capture, grants camera+mic, and hands the UI its
-// configuration.
+// Vizier desktop app. One always-on-top window that opens where the reader last left it (window.json beside the
+// exe), the first time in the bottom-left quarter of the primary display (clipped to the work area, so above the
+// taskbar). The reader drags it by its header and resizes it by its edges; a minimize sticks. The UI (ui/index.html)
+// talks to the Vizier server itself; this file only places the window, keeps it shown and topmost, hides it from
+// every capture, grants camera+mic, and hands the UI its configuration.
 //
 // Hidden from capture ALWAYS (a prompter and call notes must never reach a livestream, a screen share or a call):
 // SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE) through Tauri's content protection, set in tauri.conf.json, again
-// at setup, and checked every 2 s with the slot, topmost and un-minimize (a window found running but off screen).
+// at setup, and checked every 2 s with topmost and shown (never the place or the size, never a minimize).
 // There is no switch to turn it off.
 //
 // The 2 s check READS first and writes only what drifted (#12581, "the cursor is very slow on the Vizier app"): it
@@ -29,8 +30,52 @@ fn slot(w: &WebviewWindow) -> Option<(PhysicalPosition<i32>, PhysicalSize<u32>)>
     Some((PhysicalPosition::new(pos.x, bottom - h), PhysicalSize::new(size.width / 2, h as u32)))
 }
 
+/// Where the reader left the window, {"x","y","w","h"} in physical pixels: `window.json` beside the executable (on ETH
+/// C:\Users\Public\vizier\window.json, the file default-view and vizier-pin.ps1 read and write as well). Written on
+/// every move and resize while the window is on screen, read once at launch, so Vizier opens where it was left (the
+/// reader, 2026-11-17: "I would like to be able to move Vizier around... and change the size of it"). A rect that
+/// meets no monitor (a display change) or is implausibly small falls back to the slot.
+fn rect_file() -> Option<std::path::PathBuf> {
+    std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.join("window.json")))
+}
+const MIN_W: u32 = 320;
+const MIN_H: u32 = 180;
+
+fn saved_rect(w: &WebviewWindow) -> Option<(PhysicalPosition<i32>, PhysicalSize<u32>)> {
+    let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(rect_file()?).ok()?).ok()?;
+    let (x, y) = (v["x"].as_i64()? as i32, v["y"].as_i64()? as i32);
+    let (wd, ht) = (v["w"].as_u64()? as u32, v["h"].as_u64()? as u32);
+    if wd < MIN_W || ht < MIN_H {
+        return None;
+    }
+    // at least 100x50 px of it on some monitor, or it would open where nobody can reach it
+    let on_screen = w.available_monitors().ok()?.iter().any(|m| {
+        let (p, s) = (m.position(), m.size());
+        let ox = (x + wd as i32).min(p.x + s.width as i32) - x.max(p.x);
+        let oy = (y + ht as i32).min(p.y + s.height as i32) - y.max(p.y);
+        ox >= 100 && oy >= 50
+    });
+    on_screen.then(|| (PhysicalPosition::new(x, y), PhysicalSize::new(wd, ht)))
+}
+
+fn remember_rect(w: &WebviewWindow) {
+    if w.is_minimized().unwrap_or(true) {
+        return;
+    }
+    let (Ok(p), Ok(s)) = (w.outer_position(), w.outer_size()) else { return };
+    if p.x <= -30000 || p.y <= -30000 || s.width < MIN_W || s.height < MIN_H {
+        return;   // -32000,-32000 is where Windows parks a minimized window
+    }
+    let Some(f) = rect_file() else { return };
+    let text = format!(r#"{{"x":{},"y":{},"w":{},"h":{}}}"#, p.x, p.y, s.width, s.height);
+    if std::fs::read_to_string(&f).ok().as_deref() != Some(text.as_str()) {
+        let _ = std::fs::write(f, text);
+    }
+}
+
+/// At launch (and on a display-scale change): where the reader left it, else the slot.
 fn place(w: &WebviewWindow) {
-    if let Some((p, s)) = slot(w) {
+    if let Some((p, s)) = saved_rect(w).or_else(|| slot(w)) {
         if w.inner_size().ok() != Some(s) {
             let _ = w.set_size(s);
         }
@@ -84,15 +129,12 @@ fn main() {
                 if affinity(&keep) != "0x11" {
                     let _ = keep.set_content_protected(true);
                 }
-                // Alt+V parked it (park.rs): the reader hid it on purpose, so leave it minimized.
+                // A minimized window (Alt+V, the taskbar, Win+D) is the reader's choice: left alone (park.rs).
                 let minimized = keep.is_minimized().unwrap_or(false);
                 match park::keep(park::parked_for(std::time::Instant::now()), minimized) {
                     park::Keep::Leave => continue,
                     park::Keep::Unpark => park::set_parked(None),
                     park::Keep::Restore => {}
-                }
-                if minimized {
-                    let _ = keep.unminimize();
                 }
                 if !keep.is_visible().unwrap_or(true) {
                     let _ = keep.show();
@@ -107,8 +149,10 @@ fn main() {
             grant_media(&w);
             let pin = w.clone();
             w.on_window_event(move |e| match e {
-                // Not pinned any more: the reader resizes and moves it. A display-scale change re-places it.
-                // A minimize is a move too (Windows parks the window at -32000): leave a minimized window alone.
+                // Not pinned: the reader drags it by its header and resizes it by its edges, and every move and resize
+                // is remembered (window.json), so it opens there next time. A minimize is a move too (Windows parks
+                // the window at -32000): remember_rect skips it. A display-scale change re-places it.
+                WindowEvent::Moved(_) | WindowEvent::Resized(_) => remember_rect(&pin),
                 WindowEvent::ScaleFactorChanged { .. } => {
                     if !pin.is_minimized().unwrap_or(false) {
                         place(&pin)
@@ -128,7 +172,7 @@ fn main() {
 
 /// Alt+E toggles Ears and Alt+M toggles Mouth in ui/talk.js, from any app (global shortcuts). Each press flips one
 /// switch; the page owns the state. With no talk config the page has no `vizierTalk.state.room`, and a press does nothing.
-/// Alt+V (V for Vizier) pops the window up bottom-left, in its slot, and the next Alt+V hides it again (park.rs;
+/// Alt+V (V for Vizier) pops the window up where it was, and the next Alt+V minimizes it again (park.rs;
 /// the deployment's issue 13798, the user's card 2026-11-15 2:09 PM: "Alt+V pops Vizier bottom-left, small"). Was Alt+V Alt+V.
 fn talk_shortcuts() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
