@@ -172,7 +172,7 @@ SCRIPT shows the spoken lines and nothing else: no coach note, no BUILD footer, 
 | Home | top of the part |
 | → / ← | next / previous part (starts a new take file while recording) |
 | Esc | stop the scroll and the recording |
-| Alt+V | hide Vizier from any app, and Alt+V again pops it back up, focused. Vizier opens bottom-left, the bottom-left quarter of the primary monitor; it is resizable and stays where you put it. A minimized window is put back within 2 s unless you hid it this way |
+| Alt+V | hide Vizier from any app, and Alt+V again pops it back up, focused. Vizier opens where you last left it (`window.json` beside the exe; the first time, the bottom-left quarter of the primary monitor). Drag it by its header, resize it by its edges (480x270 minimum). A minimized window stays minimized, however you minimized it, until Alt+V or the taskbar brings it back |
 
 ### The agent's panels: SETTINGS, DESKS, AGENTS
 

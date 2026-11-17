@@ -5,6 +5,15 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **The window is the reader's: drag it by its header, resize it by its edges, minimize it and it stays minimized.** The
+  header is a drag region (`data-tauri-drag-region`), the window has a 480x270 floor, and every move and resize is written
+  to `window.json` beside the exe, which the next launch opens at (a rect that meets no monitor falls back to the bottom-left
+  slot). The 2 s keeper no longer un-minimizes: a minimize by Alt+V, the taskbar or Win+D sticks until Alt+V or the taskbar
+  brings it back (the reader, 2026-11-17: "when I do Alt+V to minimize Vizier, it comes back after 10 seconds"; "I would
+  like to be able to move Vizier around... and change the size of it"). `scripts/windows/vizier-pin.ps1` matches: it keeps
+  Vizier running and topmost, never its place, size or minimized state, and remembers the rect in the same file.
+
 ### Fixed
 - **`POST /prompter/snap` works in every mode** (knowledge#14117). The app wrote `live.png` only while RECORD showed a
   script, because the snap check sat inside the RECORD-only goto poll; on any other tab, or with no script, a snap request

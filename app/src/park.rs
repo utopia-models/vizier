@@ -1,9 +1,12 @@
 // park.rs: Alt+V hides Vizier, and Alt+V pops it back up (the deployment's issue 13798; it was Alt+V Alt+V until 2026-11-15). The reader asked for the option to minimize
 // the window, and only the option: no rule about when Vizier shows (it is still on screen by default, every launch).
 //
-// The window keeper in main.rs un-minimizes Vizier every 2 s, so a minimize (the title bar, Win+D, Win+M) never stuck.
-// While the reader has parked it with Alt+V, the keeper leaves the minimize alone. Content protection is not part
-// of this: it is enforced on a parked window exactly as on a shown one.
+// The window keeper in main.rs used to un-minimize Vizier every 2 s, so a minimize (the title bar, Win+D, Win+M) never
+// stuck, and it left the window alone only while parked by Alt+V. Since 2026-11-17 a MINIMIZED window is left alone
+// whatever minimized it (the reader: "when I do Alt+V to minimize Vizier, it comes back after 10 seconds. If I'm
+// minimizing Vizier for a reason"); the park state only decides what the next Alt+V does and when a window brought
+// back from the taskbar is the keeper's again. Content protection is not part of this: it is enforced on a parked
+// window exactly as on a shown one.
 //
 // Pure logic only (no Tauri), so it is tested on any host: `rustc --edition 2021 --test app/src/park.rs && ./park`.
 use std::sync::Mutex;
@@ -27,8 +30,8 @@ pub enum Keep {
 /// `parked_for`: how long ago Alt+V parked the window, `None` when it is not parked.
 pub fn keep(parked_for: Option<Duration>, minimized: bool) -> Keep {
     match parked_for {
+        _ if minimized => Keep::Leave,   // minimized by any route: the reader's choice, never undone by a timer
         None => Keep::Restore,
-        Some(_) if minimized => Keep::Leave,
         Some(d) if d >= GRACE => Keep::Unpark,
         Some(_) => Keep::Leave,
     }
@@ -78,9 +81,10 @@ mod tests {
     }
 
     #[test]
-    fn keeper_still_restores_an_unparked_window() {
-        // no rule about when Vizier shows: by default it is kept on screen, as before
-        assert_eq!(keep(None, true), Keep::Restore);
+    fn keeper_leaves_any_minimized_window_and_keeps_a_shown_one() {
+        // the taskbar button, Win+D, Win+M: a minimize sticks however it was made (2026-11-17)
+        assert_eq!(keep(None, true), Keep::Leave);
+        // a shown, unparked window is kept shown, topmost and painting, as before
         assert_eq!(keep(None, false), Keep::Restore);
     }
 
