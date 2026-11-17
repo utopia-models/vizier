@@ -44,6 +44,8 @@ jobs:
       - run: apt-get update -qq && apt-get install -y -qq nodejs >/dev/null   # test_camera_auto_publish runs the app's camStep
       - run: python -m venv /tmp/v && /tmp/v/bin/pip install -q -r server/requirements-dev.txt
       - run: cd server && /tmp/v/bin/python -m py_compile vizier.py && /tmp/v/bin/python -m pytest -q
+      - name: app ui unit tests (rejoin backoff)
+        run: node --test app/ui/backoff.test.mjs
       - name: connectors and examples
         run: |
           /tmp/v/bin/python -m py_compile connectors/mcp/vizier_mcp.py connectors/livekit/vizier_livekit.py examples/agent_loop.py

@@ -12,6 +12,7 @@
 // CDN import it replaced meant no join at all, and no trace of why, whenever that fetch did not load (the user 2026-11-15:
 // Vizier never tried to join room scout). Every join step is written to %PUBLIC%\\vizier\\talk.log (tlog), headless-readable.
 import { AudioPresets, Room, RoomEvent, Track } from "./livekit-client.esm.js";
+import { Rejoin } from "./backoff.js";
 
 export function tlog(msg) {
   const line = `${new Date().toISOString()} ${msg}`;
@@ -212,7 +213,18 @@ async function creds(cfg) {
   return { url: q.get("talkUrl") || cfg.talkUrl, token: q.get("talkToken") || cfg.talkToken };
 }
 
-export async function start(cfg = {}) {
+// ONE join in flight, ONE retry timer, 5 s doubling to 60 s with jitter, reset by a successful join (backoff.js; the
+// deployment's issue 14858: on 2026-11-17 a stalled server had this file stacking joins, about 100 a second within 73 s,
+// and the renderer crashed). start() from anywhere (launch, a retry, a caller) goes through the same gate.
+const rejoin = new Rejoin();
+export function start(cfg = {}) { return rejoin.run(() => join(cfg)); }
+function retry(cfg, what) {
+  const ms = rejoin.schedule(() => join(cfg));
+  tlog(ms ? `${what}; rejoining in ${Math.round(ms / 1000)} s` : `${what}; a rejoin is already scheduled`);
+}
+
+async function join(cfg) {
+  if (state.room) { tlog("start: already in the room"); return; }
   if (!started) {                        // the start state, once per launch (a reconnect keeps this session's toggles)
     started = true;
     for (const k of (cfg.talkStartOff || [])) if (k === "ears" || k === "mouth") state[k] = false;
@@ -240,15 +252,17 @@ export async function start(cfg = {}) {
     track.detach().forEach((a) => { a.remove(); state.audio = state.audio.filter((x) => x !== a); });
   });
   room.on(RoomEvent.Disconnected, (reason) => {
-    tlog(`disconnected (${reason}); rejoining in 3 s`);
+    // Only the room this page is IN rejoins here. A failed connect's cleanup disconnect (below) and a stale room's late
+    // event both land here too, and used to schedule a second join beside the failure path's own retry: the doubling.
+    if (state.room !== room) return;
     state.room = null; state.mic = null; state.status = "reconnecting"; paint();
-    setTimeout(() => start(cfg), 3000);
+    retry(cfg, `disconnected (${reason})`);
   });
   try {
     // A connect that never settles would leave no retry at all: 20 s, then it counts as a failure and is retried.
     await Promise.race([room.connect(url, token, { autoSubscribe: false }),
       new Promise((_, no) => setTimeout(() => no(new Error("no answer in 20 s")), 20000))]);
-    state.room = room; state.status = "connected";
+    state.room = room; state.status = "connected"; rejoin.success();
     tlog(`joined room ${room.name} as ${room.localParticipant.identity}`);
     note("restore");   // what this start brings back: the state the user last set, from localStorage
     applyMouth();
@@ -260,9 +274,8 @@ export async function start(cfg = {}) {
     selfCheck("start");
   } catch (e) {
     state.status = `connect failed: ${e.message || e}`;
-    tlog(`join failed: ${e.message || e}; retry in 5 s`);
-    try { room.disconnect(); } catch (x) { /* never connected */ }
-    setTimeout(() => start(cfg), 5000);
+    try { if (room.removeAllListeners) room.removeAllListeners(); room.disconnect(); } catch (x) { /* never connected */ }
+    retry(cfg, `join failed: ${e.message || e}`);
   }
   paint();
 }
