@@ -89,7 +89,8 @@ async function pickMic() {
 }
 
 // (Re)open the Ears mic from scratch: drop whatever track there is (ended, muted, or on a device that is gone) and
-// publish a new one on pickMic()'s device, asked for as `ideal`, never `exact`. LiveKit's own unmute restarts a track
+// publish a new one on pickMic()'s device (LiveKit asks for it exact and, if that fails, retries it as ideal, so a gone
+// device never fails the open). LiveKit's own unmute restarts a track
 // with its old constraints, which on ETH 2026-11-17 05:58Z and 06:01Z failed as OverconstrainedError (the device
 // id it held had gone with a DJI replug) and left Ears with no track at all.
 let reopening = null;
@@ -105,7 +106,7 @@ export function ensureMic(why) {
     }
     state.mic = null;
     await lp.setMicrophoneEnabled(true,
-      { ...(dev ? { deviceId: { ideal: dev.deviceId } } : {}),
+      { ...(dev ? { deviceId: dev.deviceId } : {}),   // a string: LiveKit asks exact, then retries as ideal
         echoCancellation: true, noiseSuppression: true, autoGainControl: true, voiceIsolation: true, channelCount: 1 },
       { dtx: false, red: false, audioPreset: AudioPresets.speech });
     state.mic = lp.getTrackPublication(Track.Source.Microphone) || null;
@@ -131,10 +132,25 @@ function watchEnded() {
 
 // The watchdog: once a second, Ears on with no live track -> re-open (a replug is back live within ~1-2 s, under the
 // 5 s the acceptance allows); the dot is repainted on every tick so it can never sit green over a dead track.
-setInterval(() => {
+// Every 5th tick, a live track on the wrong input (LiveKit restarts an ended track on the OS default, the laptop's own
+// array, measured on ETH 2026-11-17 06:56Z) is moved back to pickMic()'s device, so a replugged DJI is used again.
+let tick = 0, moving = false;
+setInterval(async () => {
   if (!state.room) return;
   if (state.ears && !micLive()) ensureMic("watchdog");
   paint();
+  if (++tick % 5 || moving || !state.ears || !micLive()) return;
+  moving = true;
+  try {
+    const want = await pickMic();
+    const cur = state.mic.track.mediaStreamTrack.getSettings().deviceId || "";
+    const curLabel = state.mic.track.mediaStreamTrack.label || "";
+    if (want && cur !== want.deviceId && curLabel !== want.label) {
+      await state.room.switchActiveDevice("audioinput", want.deviceId);
+      tlog(`ears: moved the mic from ${curLabel} to ${want.label}`);
+    }
+  } catch (e) { tlog(`ears: move to the preferred mic failed: ${e.message || e}`); }
+  finally { moving = false; paint(); }
 }, 1000);
 
 async function applyEars() {
@@ -515,7 +531,7 @@ if (navigator.mediaDevices && navigator.mediaDevices.addEventListener)
     }, 800);
   });
 
-window.vizierTalk = { toggle, start, state, loopback, selfCheck, micLive, ensureMic };
+window.vizierTalk = { toggle, start, state, loopback, selfCheck, micLive, ensureMic, paint };
 window.vizierTalkLog = tlog;   // the page script logs its feed link to the same file
 // POST /talk/loopback/run on the server asks this page to run the check (no console in the release app): poll its counter.
 // POST /talk/selfcheck/run asks for a self-check the same way.
