@@ -23,6 +23,11 @@ and versions follow [Semantic Versioning](https://semver.org/).
   Vizier running and topmost, never its place, size or minimized state, and remembers the rect in the same file.
 
 ### Fixed
+- **The talk room is joined once at a time, and a failed join backs off.** A failed connect scheduled a retry in 5 s and
+  its own cleanup disconnect scheduled another in 3 s, so the joins doubled every round: 2855 "join failed" lines in 73 s
+  (about 100 a second) while the room's server was unreachable on 2026-11-17, and the WebView2 renderer crashed, leaving a
+  dead bar. Now one join is in flight at a time, one retry is armed at a time, the wait is 5 s doubling to 60 s with up to
+  25% jitter, and a successful join resets it (`app/ui/backoff.js`, unit-tested with `node --test app/ui/backoff.test.mjs`).
 - **`POST /prompter/snap` works in every mode** (knowledge#14117). The app wrote `live.png` only while RECORD showed a
   script, because the snap check sat inside the RECORD-only goto poll; on any other tab, or with no script, a snap request
   only moved the counter. It now has its own 400 ms poll, so laptop-eye on Ra (which bumps it every 2 s and draws
