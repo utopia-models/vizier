@@ -59,8 +59,6 @@
   #talkmain .none { color:var(--dim); font:500 20px system-ui; }
   .tab.pinned { border-color:var(--fg); }
   #rec { color:var(--rec); font-weight:700; }
-  #vsl { display:none; color:#fff; background:#c0392b; border-radius:999px; padding:0 9px; font:700 12px/1.7 system-ui; margin-right:6px; }
-  #vsl.on { display:inline-block; } #vsl.wait { background:#6b2a24; }
   .grow { flex:1; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
   button { background:#1d2a3a; color:var(--fg); border:1px solid #2f4560; border-radius:6px; padding:3px 9px; font:13px system-ui; cursor:pointer; }
   button.on { background:#5a1d1d; border-color:#a04040; }
@@ -144,7 +142,7 @@
   <span class="tab rec" id="tab-rec" title="SCRIPT: the teleprompter; arrows step through the parts (S)">SCRIPT</span>
   <span class="tab ctx" id="tab-ctx" title="CONTEXT: what to know for this script">CONTEXT</span>
   <span class="tab call" id="tab-call" hidden title="CALL: shown automatically while a call is live">CALL</span>
-  <span class="grow" data-tauri-drag-region><span id="vsl" title="Alt+R">● REC</span><span id="rec"></span> <span id="title" data-tauri-drag-region>connecting…</span></span>
+  <span class="grow" data-tauri-drag-region><span id="rec"></span> <span id="title" data-tauri-drag-region>connecting…</span></span>
   <span id="spd"></span>
   <span id="media"></span>
   <button id="join" style="display:none">Join call</button>
@@ -231,8 +229,7 @@ async function pollHealth() {
     const h = await api("health").then(r => r.json());
     health = h; recording = !!h.recording;
     if (recording && rtab !== "script") showTab("script");   // a take started: back to the prompter
-    if (h.recording) {
-      $("rec").textContent = "● REC";
+    if (h.recording) {   // no recording mark here: OBS's red border is the signal (knowledge#14552, "less is more")
       const part = String(h.recording).split("-")[0], i = takes.findIndex(k => letterOf(k) === part);
       if (i >= 0 && i !== t) goTake(i);
     }
@@ -326,7 +323,7 @@ function render() {
   const k = takes[t];
   if (!k) { $("title").textContent = takes.length ? "" : "no takes yet"; return; }
   const name = unlabel(k.title.replace(/^[A-Za-z0-9]+\s*·\s*/, ""));
-  $("title").textContent = mode === "rec" ? "" : (recording ? "● Recording · " : "") + `${SCRIPT_NAME} · part ${t + 1} of ${takes.length} · ${name}`;
+  $("title").textContent = mode === "rec" ? "" : `${SCRIPT_NAME} · part ${t + 1} of ${takes.length} · ${name}`;
   const lines = spoken(k.lines), key = t + "\n" + JSON.stringify(lines);
   if (key !== built) {   // a new part, or a live edit of this one: rebuild, keeping the reader's line when the part is the same
     const samePart = built.split("\n")[0] === String(t), keep = samePart ? Math.max(0, curIdx) : 0;
@@ -424,7 +421,7 @@ async function record(stop) {
   const r = await api("prompter/record", { method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify(stop ? { stop: true } : { take: letterOf(takes[t]) }) }).then(r => r.json()).catch(() => ({}));
   recording = !stop && !!r.recording; if (recording) showTab("script"); render();
-  $("rec").textContent = recording ? "● REC " + r.recording : (r.stopped ? "saved " + r.stopped.split("/").pop() : "");
+  $("rec").textContent = !recording && r.stopped ? "saved " + r.stopped.split("/").pop() : "";
   pollHealth();
 }
 const lat = [];
@@ -616,11 +613,9 @@ const vslS = { on: false, busy: null, error: "", configured: true, local: 0 };
 function vslLabel() {
   if (!vslS.configured) return '<span>not configured on this server</span>';
   const s = vslS.busy === "saving" ? ' <span style="color:var(--dim)">· saving the last take…</span>' : vslS.busy === "starting" ? ' <span style="color:var(--dim)">· starting…</span>' : "";
-  return (vslS.on ? '<span class="on">● RECORDING</span>' : '<span class="off">Not recording</span>') + s + (vslS.error ? ` <span style="color:var(--rec)">· ${esc(vslS.error)}</span>` : "");
+  return (vslS.on ? '<span class="on">Recording</span>' : '<span class="off">Not recording</span>') + s + (vslS.error ? ` <span style="color:var(--rec)">· ${esc(vslS.error)}</span>` : "");
 }
-function vslPaint() {
-  const el = $("vsl"); el.classList.toggle("on", !!vslS.on); el.classList.toggle("wait", !!vslS.on && vslS.busy === "starting");
-  el.title = vslS.on ? "recording a VSL take · Alt+R stops" : "Alt+R records";
+function vslPaint() {   // knowledge#14552: no REC pill; the SETTINGS row is the only place the state is written
   if (mode === "settings") drawSettings();
 }
 function vslFromServer(v) {
@@ -634,7 +629,6 @@ window.vizierRecToggle = async (src = "page") => {   // the SETTINGS row (and a 
   try { const j = await postJSON("vsl", { on: vslS.on, src }); window.vizierRecServer(j); }
   catch (e) { vslS.error = e.message; vslS.local = 0; vslPaint(); }
 };
-$("vsl").onclick = () => window.vizierRecToggle("click");
 function drawDesks() {
   const P = panel.desks, d = P.data, el = $("p-desks"), list = (d && d.desks) || [];
   P.sel = Math.max(0, Math.min(Math.max(0, list.length - 1), P.sel));
