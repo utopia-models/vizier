@@ -11,6 +11,7 @@
 #     it sits in the app's launch slot (bottom-left, half the screen each way).
 #   - the window meets no monitor at all (a display change): put back at the remembered rect, else the launch slot.
 # Finds the window through the vizier.exe process (a title lookup missed it on 2026-11-10). No other window is touched.
+#   - every run: capture-audit.ps1 (Vizier must be invisible to every capture); its PASS/FAIL line joins this run's line.
 # Log: C:\Users\Public\vizier-pin.log, one line per run (timestamp, then each window), the last 160 runs kept.
 Add-Type @"
 using System; using System.Text; using System.Runtime.InteropServices;
@@ -67,6 +68,10 @@ foreach ($p in (Get-Process -Name vizier -ErrorAction SilentlyContinue)) {
   }
 }
 if (-not $log) { $log = @("vizier.exe not running") }
+# Capture audit every run (knowledge#14720): a screen capture that shows Vizier is a FAIL in this log and in
+# capture-audit.log beside the app (capture-audit.ps1, next to this file in the repo; deployed as C:\Users\Public\vizier\capture-audit.ps1).
+$audit = 'C:\Users\Public\vizier\capture-audit.ps1'
+if (Test-Path $audit) { $log += ((& powershell -NoProfile -ExecutionPolicy Bypass -File $audit 2>&1 | Select-Object -Last 1) -replace '^\S+ ', '') }
 $LogFile = 'C:\Users\Public\vizier-pin.log'   # one line per run, the last 160 kept (about 2.7 h): the history a "why did it move" question needs
 $hist = @(if (Test-Path $LogFile) { Get-Content $LogFile | Select-Object -Last 159 })
 ($hist + ("{0} {1}" -f (Get-Date -Format o), ($log -join ' | '))) | Set-Content $LogFile
