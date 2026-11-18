@@ -19,6 +19,7 @@ every window on /feed redraws. The full contract is docs/openapi.yaml; connector
         GET  /settings · POST /settings {"voice"} | {"wake"}   the voice agent's settings (VIZIER_VOICE_URL)
         GET  /desks · POST /desks/open {"id"}   desks to open (VIZIER_DESKS_CMD, VIZIER_DESK_OPEN_CMD)
         GET  /agents      the team's liveness (VIZIER_AGENTS_DIR)
+        GET  /horus-script  the agent's cue table + the current cue (VIZIER_HORUS_CUES, VIZIER_HORUS_STATE); read-only
   WS    /feed     ← {"type": "status"|"line"|"interim"|"suggestion"|"delta"|"done"|"cancel"|"script", ..., "t"}
 
 Configuration is environment variables, optionally loaded from a KEY=VALUE file (see vizier.env.example):
@@ -105,6 +106,8 @@ AGENTS_DIR = os.environ.get("VIZIER_AGENTS_DIR", "")    # one <agent>.json per a
 # A VSL take, started and stopped by the reader (Alt+R in the app, the SETTINGS "Recording" row, or the agent's own
 # "record" command: all three POST /vsl). The command runs in the background and the POST answers at once, so the
 # key acts in milliseconds while the take's own start/stop (OBS, the desk, the review) takes what it takes.
+HORUS_CUES = os.environ.get("VIZIER_HORUS_CUES", "")    # cue-list files, first that exists wins (os.pathsep-separated): a markdown table
+HORUS_STATE = os.environ.get("VIZIER_HORUS_STATE", "")  # vsl-follow's state.json: {"beat": "b3", "at": ...}, the current cue
 VSL_START_CMD = os.environ.get("VIZIER_VSL_START_CMD", "")   # e.g. "vsl start {name}"; {name} is shell-quoted
 VSL_STOP_CMD = os.environ.get("VIZIER_VSL_STOP_CMD", "")     # e.g. "vsl stop"
 VSL_STATE = os.environ.get("VIZIER_VSL_STATE", "")           # a file that exists while a take records (vsl's current.json)
@@ -871,6 +874,53 @@ async def agents(_req):
     return web.json_response({"configured": True, "agents": rows})
 
 
+# ---------- HORUS SCRIPT: the agent's own cue list, read-only (the reader's view of what the agent will do) ----------
+
+def _cells(line):
+    return [c.strip() for c in line.strip().strip("|").split("|")]
+
+
+def parse_cues(text):
+    """A markdown table -> [{beat, id, on, do, wait, fail}]. Columns are found by header name, so both a horus-script.md
+    (id | on | do | wait-for | on-fail) and a runsheet.md (t | Tyler says | ... | horus action | ... | live adjust) read.
+    `beat` is vsl-follow's id for the row: b<row index>."""
+    rows, head = [], None
+    for line in text.splitlines():
+        if not line.lstrip().startswith("|"):
+            continue
+        c = _cells(line)
+        if head is None:
+            head = [h.lower() for h in c]; continue
+        if all(re.fullmatch(r":?-{2,}:?", x) for x in c if x):
+            continue
+        def pick(*names):
+            for i, h in enumerate(head):
+                if i < len(c) and any(n in h for n in names):
+                    return c[i]
+            return ""
+        rows.append({"beat": f"b{len(rows)}", "id": pick("id", "t") or f"b{len(rows)}",
+                     "on": pick("on-phrase", "on phrase", "says", "on"), "do": pick("horus action", "do"),
+                     "wait": pick("wait", "mark"), "fail": pick("on-fail", "adjust", "fail")})
+    return rows
+
+
+async def horus_script(_req):
+    """GET /horus-script: the cue table from the first existing VIZIER_HORUS_CUES file, and `current` (a beat id) from
+    VIZIER_HORUS_STATE. Nothing here writes."""
+    src = next((Path(p).expanduser() for p in HORUS_CUES.split(os.pathsep) if p and Path(p).expanduser().is_file()), None)
+    if not src:
+        return web.json_response({"configured": bool(HORUS_CUES), "cues": [], "current": None, "source": None})
+    cur = at = None
+    if HORUS_STATE:
+        try:
+            st = json.loads(Path(HORUS_STATE).expanduser().read_text())
+            cur, at = st.get("beat"), st.get("at")
+        except (OSError, ValueError):
+            pass
+    return web.json_response({"configured": True, "source": src.name, "cues": parse_cues(src.read_text()),
+                              "current": cur, "at": at})
+
+
 # ---------- misc ----------
 
 async def buildlog(req):
@@ -1025,6 +1075,7 @@ def make_app() -> web.Application:
     r.add_get("/desks", desks)
     r.add_post("/desks/open", desks_open)
     r.add_get("/agents", agents)
+    r.add_get("/horus-script", horus_script)
     r.add_get("/vsl", vsl)
     r.add_post("/vsl", vsl)
     return app

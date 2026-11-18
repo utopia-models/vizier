@@ -136,3 +136,18 @@ def test_agents_summarize_each_liveness_file(tmp_path, monkeypatch):
     assert set(rows) == {"upwork", "jobs"}
     assert rows["upwork"]["health"] == "green" and rows["upwork"]["doing"] == "Upwork: a client reply"
     assert rows["jobs"]["health"] == "unknown", "no liveness block: unknown, never green"
+
+
+def test_horus_script_reads_the_cue_table_and_the_current_beat(tmp_path, monkeypatch):
+    (tmp_path / "rs.md").write_text("| t | Tyler says | on screen | horus action | mark | live adjust |\n|---|---|---|---|---|---|\n"
+                                    "| 0:00 | I'm going | post | scroll | START | |\n| 0:20 | An email | demo | click Send | | click again |\n")
+    (tmp_path / "state.json").write_text(json.dumps({"beat": "b1", "at": "x"}))
+    vz = load(tmp_path, monkeypatch, VIZIER_HORUS_CUES=str(tmp_path / "none.md") + os.pathsep + str(tmp_path / "rs.md"),
+              VIZIER_HORUS_STATE=str(tmp_path / "state.json"))
+
+    async def go():
+        async with TestClient(TestServer(vz.make_app())) as c:
+            return await (await c.get("/horus-script")).json()
+    j = asyncio.run(go())
+    assert j["source"] == "rs.md" and j["current"] == "b1" and len(j["cues"]) == 2
+    assert j["cues"][1] == {"beat": "b1", "id": "0:20", "on": "An email", "do": "click Send", "wait": "", "fail": "click again"}
