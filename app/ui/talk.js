@@ -104,9 +104,9 @@ async function pickMic() {
 // with its old constraints, which on ETH 2026-11-17 05:58Z and 06:01Z failed as OverconstrainedError (the device
 // id it held had gone with a DJI replug) and left Ears with no track at all.
 let reopening = null;
-export function ensureMic(why) {
+export function ensureMic(why, force = false) {
   if (reopening) return reopening;
-  if (!state.room || !state.ears || micLive()) return Promise.resolve(false);
+  if (!state.room || !state.ears || (micLive() && !force)) return Promise.resolve(false);
   reopening = (async () => {
     const lp = state.room.localParticipant;
     const old = state.mic || lp.getTrackPublication(Track.Source.Microphone);
@@ -144,10 +144,36 @@ function watchEnded() {
 // 5 s the acceptance allows); the dot is repainted on every tick so it can never sit green over a dead track.
 // Every 5th tick, a live track on the wrong input (LiveKit restarts an ended track on the OS default, the laptop's own
 // array, measured on ETH 2026-11-17 06:56Z) is moved back to pickMic()'s device, so a replugged DJI is used again.
+// A published track can be live (readyState "live", unmuted) yet carry exact zeros: scout measured 25 min of them on
+// 2026-11-17 and only an app restart cured it. Tap the published track; SILENT_MS of nothing but 0.0 samples with Ears
+// on -> drop the track and getUserMedia again. A real mic, even in a silent room, never reads exactly 0.
+const SILENT_MS = 60000;
+const sil = { track: null, an: null, ac: null, since: 0 };
+function watchSilence() {
+  const mst = state.mic && state.mic.track && state.mic.track.mediaStreamTrack;
+  if (!state.ears || !mst || !micLive()) { sil.track = null; return; }
+  if (sil.track !== mst) {
+    try {
+      sil.ac = sil.ac || new AudioContext();
+      sil.an = sil.ac.createAnalyser();
+      sil.ac.createMediaStreamSource(new MediaStream([mst])).connect(sil.an);
+      sil.track = mst; sil.since = performance.now();
+    } catch (e) { sil.track = null; return; }
+  }
+  const buf = new Float32Array(sil.an.fftSize);
+  sil.an.getFloatTimeDomainData(buf);
+  if (buf.some((v) => v !== 0)) { sil.since = performance.now(); return; }
+  if (performance.now() - sil.since < SILENT_MS) return;
+  sil.since = performance.now();
+  tlog(`ears: published track silent (all zeros) for ${SILENT_MS / 1000} s; re-acquiring the mic`);
+  ensureMic("silent track", true);
+}
+
 let tick = 0, moving = false;
 setInterval(async () => {
   if (!state.room) return;
   if (state.ears && !micLive()) ensureMic("watchdog");
+  else watchSilence();
   paint();
   if (++tick % 5 || moving || !state.ears || !micLive()) return;
   moving = true;
