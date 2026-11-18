@@ -681,9 +681,8 @@ async function changeSetting(d) {
   if (mine === P.seq) loadSettings();   // a newer change is already in flight: its own read corrects the row
 }
 
-// ---------- VSL take: Alt+R (main.rs, native: it POSTs /vsl itself and tells this page), the SETTINGS row, or the
-// agent's "record" (POST /vsl on the server) all drive one switch. The page shows the asked-for state in the same frame
-// (optimistic) and /health (every 1 s) brings the server's truth, so Alt+R and the row can never disagree.
+// ---------- VSL take: the agent's "record" (POST /vsl on the server) drives one switch. The page shows the asked-for state
+// in the same frame (optimistic) and /health (every 1 s) brings the server's truth, so the page and server never disagree.
 const vslS = { on: false, busy: null, error: "", configured: true, local: 0 };
 function vslLabel() {
   if (!vslS.configured) return '<span>not configured on this server</span>';
@@ -784,7 +783,7 @@ function panelChange(d, enter) {
   else if (mode === "desks" && (d > 0 || enter)) openDesk();
 }
 every(2000, () => mode === "settings" ? loadSettings() : mode === "agents" ? loadAgents() : mode === "tscript" ? loadTscript() : mode === "approval" ? loadApproval() : null);
-// HORUS SCRIPT lights the cue vsl-follow arms from his voice: a 2 s poll put the lit row up to 2 s behind it (knowledge#14580)
+// HORUS SCRIPT lights the cue vsl-follow arms from his voice: a 2 s poll put the lit row up to 2 s behind it
 every(400, () => mode === "hscript" ? loadHscript() : null);
 every(15000, () => mode === "desks" ? loadDesks() : null);
 window.vizierPanels = { panel, settingRows, goTab };   // headless checks

@@ -354,7 +354,7 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
     await c.shot(out, "alt-v-back")
     ok("Alt+V hides the window, and Alt+V brings it back", m1 is True and m2 is False, f"minimized {m1} then {m2}")
 
-    # ---- no recording control anywhere (knowledge#15246, ask 453)
+    # ---- no recording control anywhere
     gone = await c.js("!document.getElementById('p-settings').textContent.includes('Recording') && !document.body.innerText.includes('Alt+R')")
     ok("no Recording row and no Alt+R in the UI", gone, "")
     errs = await c.js("(window.__smokeErrors||[]).slice(0,5)")

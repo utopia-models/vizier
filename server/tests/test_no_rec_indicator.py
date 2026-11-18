@@ -13,4 +13,4 @@ def test_no_rec_pill_and_no_recording_mark():
 
 
 def test_no_recording_control():
-    assert 'label: "Recording' not in UI and "Alt+R" not in UI   # knowledge#15246 (ask 453): the button is gone
+    assert 'label: "Recording' not in UI and "Alt+R" not in UI   # the button is gone

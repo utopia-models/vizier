@@ -15,7 +15,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
   the recognizer and the model (pinned by SHA-256); `scripts/follow-bench.mjs` and `scripts/follow-e2e.py` measure it.
 
 ### Changed
-- **HORUS SCRIPT lights the current cue within 0.4 s, not 2 s** (knowledge#14580): the tab polls `/horus-script` every 400 ms while it is open, so the lit row follows vsl-follow's `state.json` instead of trailing it by up to a 2 s poll.
+- **HORUS SCRIPT lights the current cue within 0.4 s, not 2 s**: the tab polls `/horus-script` every 400 ms while it is open, so the lit row follows vsl-follow's `state.json` instead of trailing it by up to a 2 s poll.
 - **No 'changed HH:MM' marks on the SPEAKER SCRIPT and HORUS SCRIPT tabs.** The server sends `changed: null` on every line and cue and the page renders nothing for it. The app embeds `app/ui/index.html`, so the exe needs a rebuild to drop the marks it already shows.
 - **The window is the reader's: drag it by its header, resize it by its edges, minimize it and it stays minimized.** The
   header is a drag region (`data-tauri-drag-region`), the window has a 480x270 floor, and every move and resize is written
@@ -67,7 +67,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
   selection moves, clear of the key legend); before, Down moved the selection below the window and the list stayed put.
 - **Ears publishes with DTX and RED off** (plus `voiceIsolation`, mono, the speech preset; echo cancellation, noise
   suppression and AGC stay on). What the agent decoded from a quiet laptop mic was 536 Hz bursts at -30.7 dBFS RMS.
-- **Alt+R records a VSL take** from any app, and the SETTINGS panel's first row ("Recording") does the same by keyboard.  (removed: knowledge#15246)
+- **Alt+R records a VSL take** from any app, and the SETTINGS panel's first row ("Recording") does the same by keyboard. 
   Both, and an agent's own "record", `POST /vsl` (`{"toggle": true}` or `{"on": bool}`): the server answers at once and
   runs `VIZIER_VSL_START_CMD` / `VIZIER_VSL_STOP_CMD` in the background, one at a time; `VIZIER_VSL_STATE` (a file that
   exists while a take records) is the truth, and `/health` carries it as `vsl`, so the red REC pill and the row always
