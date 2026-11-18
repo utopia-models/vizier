@@ -1,0 +1,17 @@
+[package]
+name = "studiod"
+version = "0.1.0"
+description = "studiod: one local daemon in the recording user's session that owns the OBS connection, the take record and the cue position, and takes fixed idempotent verbs on 127.0.0.1"
+license = "Apache-2.0"
+repository = "https://github.com/utopia-models/vizier"
+edition = "2021"
+
+[dependencies]
+tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }
+sha2 = "0.10"
+base64 = "0.22"
+serde_json = "1"
+
+[profile.release]
+opt-level = "s"
+strip = true
