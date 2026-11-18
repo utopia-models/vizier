@@ -17,12 +17,12 @@ def vz(tmp_path, monkeypatch):
         if k.startswith("VIZIER_"):
             monkeypatch.delenv(k)
     (tmp_path / "secret").write_text(SECRET + "\n")
-    (tmp_path / "tyler-script.md").write_text("# T\n\n## 1 · open\nHello there.\n")
+    (tmp_path / "speaker-script.md").write_text("# T\n\n## 1 · open\nHello there.\n")
     (tmp_path / "horus-script.md").write_text(CUES)
     (tmp_path / "state.json").write_text('{"beat": "b1", "at": 5}')
     monkeypatch.setenv("VIZIER_DATA", str(tmp_path / "data"))
     monkeypatch.setenv("VIZIER_WRITE_SECRET_FILE", str(tmp_path / "secret"))
-    monkeypatch.setenv("VIZIER_SPEAKER_SCRIPT", str(tmp_path / "tyler-script.md"))
+    monkeypatch.setenv("VIZIER_SPEAKER_SCRIPT", str(tmp_path / "speaker-script.md"))
     monkeypatch.setenv("VIZIER_HORUS_CUES", f"{tmp_path/'missing.md'}{os.pathsep}{tmp_path/'horus-script.md'}")
     monkeypatch.setenv("VIZIER_HORUS_STATE", str(tmp_path / "state.json"))
     import vizier
@@ -43,7 +43,7 @@ def test_write_needs_the_secret(vz):
         assert (await c.post("/speaker-script", data="x", headers={"X-Vizier-Write": "nope"})).status == 403
         return (await c.get("/speaker-script")).status
     assert run(v, f) == 200
-    assert "Hello there" in (d / "tyler-script.md").read_text()
+    assert "Hello there" in (d / "speaker-script.md").read_text()
 
 
 def test_write_is_off_without_a_secret_file(vz, monkeypatch):
@@ -83,14 +83,14 @@ def test_horus_write_reaches_the_file_the_tab_reads(vz):
 
 def test_empty_and_bad_bodies_refused_file_untouched(vz):
     v, d = vz
-    before = (d / "tyler-script.md").read_text()
+    before = (d / "speaker-script.md").read_text()
     async def f(c):
         assert (await c.post("/speaker-script", data="  \n", headers=H)).status == 400
         assert (await c.post("/speaker-script", json={"text": 5}, headers=H)).status == 400
         assert (await c.post("/speaker-script", data=b"\xff\xfe", headers=H)).status == 400
         assert (await c.post("/speaker-script", data="x" * (513 * 1024), headers=H)).status == 413
     run(v, f)
-    assert (d / "tyler-script.md").read_text() == before
+    assert (d / "speaker-script.md").read_text() == before
 
 
 def test_log_history_keeps_20_and_undo(vz):
@@ -100,7 +100,7 @@ def test_log_history_keeps_20_and_undo(vz):
             assert (await c.post("/speaker-script", data=f"# v{i}\n", headers=H)).status == 200
         assert (await c.post("/speaker-script/undo", headers=H)).status == 200
     run(v, f)
-    assert (d / "tyler-script.md").read_text() == "# v23\n"
+    assert (d / "speaker-script.md").read_text() == "# v23\n"
     log = [json.loads(l) for l in (d / "data" / "script-writes.jsonl").read_text().splitlines()]
     assert len(log) == 25 and log[0]["who"] == "horus" and log[0]["kind"] == "speaker-script" and log[0]["sha"] and log[0]["at"]
     assert len(list((d / "data" / "script-history" / "speaker-script").glob("*.md"))) == 20
