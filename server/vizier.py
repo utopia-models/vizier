@@ -19,6 +19,7 @@ every window on /feed redraws. The full contract is docs/openapi.yaml; connector
         GET  /settings · POST /settings {"voice"} | {"wake"}   the voice agent's settings (VIZIER_VOICE_URL)
         GET  /desks · POST /desks/open {"id"}   desks to open (VIZIER_DESKS_CMD, VIZIER_DESK_OPEN_CMD)
         GET  /agents      the team's liveness (VIZIER_AGENTS_DIR)
+        GET  /tyler-script  his spoken beats, read-only, no highlight (VIZIER_TYLER_SCRIPT); both tabs mark edited lines
         GET  /horus-script  the agent's cue table + the current cue (VIZIER_HORUS_CUES, VIZIER_HORUS_STATE); read-only
   WS    /feed     ← {"type": "status"|"line"|"interim"|"suggestion"|"delta"|"done"|"cancel"|"script", ..., "t"}
 
@@ -107,6 +108,7 @@ AGENTS_DIR = os.environ.get("VIZIER_AGENTS_DIR", "")    # one <agent>.json per a
 # "record" command: all three POST /vsl). The command runs in the background and the POST answers at once, so the
 # key acts in milliseconds while the take's own start/stop (OBS, the desk, the review) takes what it takes.
 HORUS_CUES = os.environ.get("VIZIER_HORUS_CUES", "")    # cue-list files, first that exists wins (os.pathsep-separated): a markdown table
+TYLER_SCRIPT = os.environ.get("VIZIER_TYLER_SCRIPT", "")  # his script (tyler-script.md): the TYLER SCRIPT tab shows its spoken lines
 HORUS_STATE = os.environ.get("VIZIER_HORUS_STATE", "")  # vsl-follow's state.json: {"beat": "b3", "at": ...}, the current cue
 VSL_START_CMD = os.environ.get("VIZIER_VSL_START_CMD", "")   # e.g. "vsl start {name}"; {name} is shell-quoted
 VSL_STOP_CMD = os.environ.get("VIZIER_VSL_STOP_CMD", "")     # e.g. "vsl stop"
@@ -876,6 +878,55 @@ async def agents(_req):
 
 # ---------- HORUS SCRIPT: the agent's own cue list, read-only (the reader's view of what the agent will do) ----------
 
+_SEEN: dict = {}
+
+
+def track_changes(key, items):
+    """Mark what an edit touched. The first read of `key` is the baseline (nothing marked); after that an item not seen
+    before gets the time it first appeared, so a changed file shows 'changed HH:MM' on exactly the new or edited lines.
+    Returns [epoch or None] per item; the app shows the mark for a few minutes."""
+    now = time.time()
+    seen = _SEEN.get(key)
+    if seen is None:
+        _SEEN[key] = {i: None for i in items}
+        return [None] * len(items)
+    cur = {i: seen[i] if i in seen else now for i in items}
+    _SEEN[key] = cur
+    return [cur[i] for i in items]
+
+
+def spoken_sections(text):
+    """tyler-script.md -> [{title, lines}]: the numbered sections' spoken lines only (no headings of other kinds, no
+    [horus] cue lines, no Do-not-say, no notes)."""
+    out, cur = [], None
+    for line in text.splitlines():
+        if line.startswith("#"):
+            cur = {"title": re.sub(r"^#+\s*", "", line), "lines": []} if re.match(r"##\s*\d", line) else None
+            if cur: out.append(cur)
+            continue
+        l = line.strip()
+        if cur is None or not l or l.startswith(("[horus]", "[scout]", "|", ">", "-", "`")):
+            continue
+        cur["lines"].append(l)
+    return out
+
+
+async def tyler_script(_req):
+    """GET /tyler-script: his spoken lines per section. Read-only; no current line (the page never highlights or scrolls)."""
+    p = Path(TYLER_SCRIPT).expanduser() if TYLER_SCRIPT else None
+    if not p or not p.is_file():
+        return web.json_response({"configured": bool(TYLER_SCRIPT), "sections": [], "source": None})
+    text = p.read_text()
+    secs = spoken_sections(text)
+    flat = [l for s in secs for l in s["lines"]]
+    ch = iter(track_changes("tyler", flat))
+    for s in secs:
+        s["lines"] = [{"text": l, "changed": next(ch)} for l in s["lines"]]
+    m = re.match(r"#\s*(.*)", text)
+    return web.json_response({"configured": True, "source": p.name, "title": m.group(1)[:120] if m else "",
+                              "sections": secs, "now": time.time()})
+
+
 def _cells(line):
     return [c.strip() for c in line.strip().strip("|").split("|")]
 
@@ -917,8 +968,11 @@ async def horus_script(_req):
             cur, at = st.get("beat"), st.get("at")
         except (OSError, ValueError):
             pass
-    return web.json_response({"configured": True, "source": src.name, "cues": parse_cues(src.read_text()),
-                              "current": cur, "at": at})
+    cues = parse_cues(src.read_text())
+    for c, t in zip(cues, track_changes("horus:" + src.name, [json.dumps([c[k] for k in ("id", "on", "do", "wait", "fail")]) for c in cues])):
+        c["changed"] = t
+    return web.json_response({"configured": True, "source": src.name, "cues": cues, "current": cur, "at": at,
+                              "now": time.time()})
 
 
 # ---------- misc ----------
@@ -1076,6 +1130,7 @@ def make_app() -> web.Application:
     r.add_post("/desks/open", desks_open)
     r.add_get("/agents", agents)
     r.add_get("/horus-script", horus_script)
+    r.add_get("/tyler-script", tyler_script)
     r.add_get("/vsl", vsl)
     r.add_post("/vsl", vsl)
     return app
