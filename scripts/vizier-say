@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+"""vizier-say: write Vizier's script tabs, or read everything it shows. Local only.
+
+  vizier-say                      GET /state (one JSON: his script, the cue sheet, the take, the front tab)
+  vizier-say FILE | -             replace the SPEAKER SCRIPT with FILE (or stdin)
+  cat s.md | vizier-say           same, from a pipe
+  vizier-say --horus FILE | -     replace the HORUS SCRIPT (cue sheet) instead
+  vizier-say --undo [--horus]     restore the previous version (last 20 are kept)
+
+Env: VIZIER_URL (default http://127.0.0.1:18787), VIZIER_WRITE_SECRET_FILE (default /etc/vizier/write-secret).
+Needs membership of group fleet-vizier-write to read the secret. Prints the server's JSON; exit 1 on an error."""
+import json, os, sys, urllib.error, urllib.request
+
+URL = os.environ.get("VIZIER_URL", "http://127.0.0.1:18787").rstrip("/")
+SECRET = os.environ.get("VIZIER_WRITE_SECRET_FILE", "/etc/vizier/write-secret")
+
+
+def call(path, data=None):
+    h = {"X-Vizier-Who": os.environ.get("USER") or str(os.getuid())}
+    if data is not None:
+        try:
+            h["X-Vizier-Write"] = open(SECRET).read().strip()
+        except OSError as e:
+            sys.exit(f"vizier-say: cannot read the write secret ({e.strerror}); are you in group fleet-vizier-write?")
+        h["Content-Type"] = "text/markdown; charset=utf-8"
+    req = urllib.request.Request(URL + path, data=data, headers=h, method="POST" if data is not None else "GET")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return r.read().decode()
+    except urllib.error.HTTPError as e:
+        sys.exit(f"vizier-say: {e.code} {e.read().decode()}")
+    except OSError as e:
+        sys.exit(f"vizier-say: cannot reach {URL}: {e}")
+
+
+def main(argv):
+    horus = "--horus" in argv
+    undo = "--undo" in argv
+    args = [a for a in argv if a not in ("--horus", "--undo")]
+    kind = "/horus-script" if horus else "/speaker-script"
+    if undo:
+        print(call(kind + "/undo", b"")); return
+    if not args and sys.stdin.isatty():
+        print(call("/state")); return
+    src = args[0] if args else "-"
+    data = sys.stdin.buffer.read() if src == "-" else open(src, "rb").read()
+    print(call(kind, data))
+
+
+main(sys.argv[1:])

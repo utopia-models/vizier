@@ -6,6 +6,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- **The agent writes the script tabs itself: `POST /speaker-script`, `POST /horus-script`, `GET /state`, and the `vizier-say` CLI.** A POST (JSON `{"text"}` or the raw text) replaces the live file the tab and vsl-follow already read, atomically (temp file + rename), and answers `{ok, bytes, sha, at}`; the open tab shows it on its next 2 s poll. `GET /state` is one JSON: his script (text, sha, mtime), the cue sheet summary with the current cue, the take (name, recording), and the front tab (the app now reports it to `POST /state/front`). Writes need the `X-Vizier-Write` header to match the file named by `VIZIER_WRITE_SECRET_FILE` (mode 0640, group `fleet-vizier-write`; read per request, never logged); without it the server stays read-only. Every write is appended to `$VIZIER_DATA/script-writes.jsonl` (who, when, sha) and the previous text is kept, last 20, with `POST /<tab>/undo` to restore it. An empty text is refused so a bad call cannot blank the tab. `scripts/vizier-say` is the CLI: no args reads `/state`, a file or stdin writes the speaker script, `--horus` the cue sheet, `--undo` restores.
 - **Voice follow: the prompter highlights the word you are saying, from open-source parts**. Vosk runs in
   the window as WebAssembly on the mic; a cadence clock (your measured words per second, paused by a voice-activity
   detector) moves the highlight and the recognized words correct it, placing it on or ahead of your voice. Replayed on a

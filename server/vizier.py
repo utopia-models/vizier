@@ -20,6 +20,7 @@ every window on /feed redraws. The full contract is docs/openapi.yaml; connector
         GET  /desks · POST /desks/open {"id"}   desks to open (VIZIER_DESKS_CMD, VIZIER_DESK_OPEN_CMD)
         GET  /agents      the team's liveness (VIZIER_AGENTS_DIR)
         GET  /speaker-script  his spoken beats, read-only, no highlight (VIZIER_SPEAKER_SCRIPT); both tabs mark edited lines
+        POST /speaker-script, /horus-script  {"text"} | raw text: replace the live file (X-Vizier-Write secret); GET /state: it all in one JSON
         GET  /horus-script  the agent's cue table + the current cue (VIZIER_HORUS_CUES, VIZIER_HORUS_STATE); read-only
   WS    /feed     ← {"type": "status"|"line"|"interim"|"suggestion"|"delta"|"done"|"cancel"|"script", ..., "t"}
 
@@ -33,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import hmac
 import json
 import os
@@ -974,6 +976,166 @@ async def horus_script(_req):
                               "now": time.time()})
 
 
+# ---------- WRITE API: POST /speaker-script, POST /horus-script, GET /state (the agent edits what the tabs show) ----------
+# Local only (the server binds loopback). A write needs the shared secret in `X-Vizier-Write`, read from the file
+# VIZIER_WRITE_SECRET_FILE (mode 0640, group fleet-vizier-write). The file is read on every request, never cached, never
+# logged, never in git. Unset or unreadable = writes are off (403), reads stay open. Each write is atomic (temp + rename in
+# the live file's directory), appended to VIZIER_WRITE_LOG with who/when/sha, and the previous text is kept (last 20).
+WRITE_SECRET_FILE = os.environ.get("VIZIER_WRITE_SECRET_FILE", "")
+WRITE_KEEP = int(os.environ.get("VIZIER_WRITE_KEEP", "20"))
+WRITE_MAX = 512 * 1024
+FRONT = {"tab": None, "at": None}   # the tab the app reports as front (POST /state/front)
+
+
+def write_log_path() -> Path:
+    return Path(os.environ.get("VIZIER_WRITE_LOG") or DATA / "script-writes.jsonl")
+
+
+def write_secret() -> str:
+    try:
+        return Path(WRITE_SECRET_FILE).expanduser().read_text().strip() if WRITE_SECRET_FILE else ""
+    except OSError:
+        return ""
+
+
+def write_allowed(req) -> bool:
+    sec = write_secret()
+    return bool(sec) and hmac.compare_digest(req.headers.get("X-Vizier-Write", "").strip(), sec)
+
+
+def script_target(kind: str) -> Path | None:
+    """The live file a tab reads: the speaker script, or the first existing cue file (else the first one listed)."""
+    if kind == "speaker-script":
+        return Path(SPEAKER_SCRIPT).expanduser() if SPEAKER_SCRIPT else None
+    paths = [Path(p).expanduser() for p in HORUS_CUES.split(os.pathsep) if p]
+    return next((p for p in paths if p.is_file()), paths[0] if paths else None)
+
+
+def sha_of(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()[:12]
+
+
+def history_dir(kind: str) -> Path:
+    return DATA / "script-history" / kind
+
+
+def atomic_write(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        mode = path.stat().st_mode & 0o777
+    except OSError:
+        mode = 0o644
+    tmp.write_text(text)
+    os.chmod(tmp, mode)
+    os.replace(tmp, path)
+
+
+def keep_previous(kind: str, path: Path) -> None:
+    if not path.is_file():
+        return
+    d = history_dir(kind); d.mkdir(parents=True, exist_ok=True)
+    old = path.read_text()
+    (d / f"{time.time_ns()}-{sha_of(old)}.md").write_text(old)
+    for f in sorted(d.glob("*.md"))[:-WRITE_KEEP]:
+        f.unlink(missing_ok=True)
+
+
+async def write_script(req):
+    """POST /speaker-script | /horus-script: JSON {"text": ...} or the raw text. -> {ok, bytes, sha, at}."""
+    kind = req.path.strip("/")
+    if not write_allowed(req):
+        return bad("writes need the X-Vizier-Write secret (group fleet-vizier-write)", 403)
+    target = script_target(kind)
+    if not target:
+        return bad(f"{kind} is not configured on this server", 409)
+    raw = await req.read()
+    if len(raw) > WRITE_MAX:
+        return bad("text over 512 KB", 413)
+    try:
+        text = raw.decode()
+    except UnicodeDecodeError:
+        return bad("body is not UTF-8")
+    if "json" in (req.content_type or "") or text.lstrip().startswith("{"):
+        try:
+            b = json.loads(text)
+        except ValueError:
+            b = None
+        if isinstance(b, dict):
+            text = b.get("text")
+            if not isinstance(text, str):
+                return bad('JSON body needs a string "text"')
+    if not text.strip():
+        return bad("empty text refused (it would blank the tab); send the full script")
+    if not text.endswith("\n"):
+        text += "\n"
+    who = re.sub(r"[^\w.@-]", "", req.headers.get("X-Vizier-Who", "") or "unknown")[:32] or "unknown"
+    keep_previous(kind, target)
+    atomic_write(target, text)
+    rec = {"ok": True, "bytes": len(text.encode()), "sha": sha_of(text), "at": time.time()}
+    try:
+        lp = write_log_path(); lp.parent.mkdir(parents=True, exist_ok=True)
+        with lp.open("a") as f:
+            f.write(json.dumps({**rec, "kind": kind, "who": who, "file": str(target)}) + "\n")
+    except OSError:
+        pass
+    return web.json_response(rec)
+
+
+async def write_undo(req):
+    """POST /speaker-script/undo | /horus-script/undo: restore the previous version (itself kept, so undo toggles)."""
+    kind = req.path.strip("/").removesuffix("/undo")
+    if not write_allowed(req):
+        return bad("writes need the X-Vizier-Write secret (group fleet-vizier-write)", 403)
+    target = script_target(kind)
+    hist = sorted(history_dir(kind).glob("*.md")) if target else []
+    if not hist:
+        return bad("no previous version", 404)
+    text = hist[-1].read_text()
+    hist[-1].unlink(missing_ok=True)
+    keep_previous(kind, target)
+    atomic_write(target, text)
+    return web.json_response({"ok": True, "bytes": len(text.encode()), "sha": sha_of(text), "at": time.time()})
+
+
+def file_view(p: Path | None) -> dict:
+    if not p or not p.is_file():
+        return {"configured": bool(p), "source": None, "text": None, "sha": None, "mtime": None}
+    t = p.read_text()
+    return {"configured": True, "source": p.name, "text": t, "sha": sha_of(t), "mtime": p.stat().st_mtime}
+
+
+async def state(req):
+    """GET /state: everything the agent needs in one read: his script (text, sha, mtime), the cue sheet summary and the
+    current cue, the take, whether it records, and the front tab (when the app reports it)."""
+    sp = file_view(script_target("speaker-script"))
+    if sp["text"] is not None:
+        sp["sections"] = len(spoken_sections(sp["text"]))
+    hv = file_view(script_target("horus-script"))
+    cur = at = None
+    if HORUS_STATE:
+        try:
+            st = json.loads(Path(HORUS_STATE).expanduser().read_text()); cur, at = st.get("beat"), st.get("at")
+        except (OSError, ValueError):
+            pass
+    cues = parse_cues(hv["text"]) if hv["text"] else []
+    horus = {k: hv[k] for k in ("configured", "source", "sha", "mtime")}
+    horus.update(cue_count=len(cues), current_beat=cur, current_at=at, current_cue=next((c for c in cues if c["beat"] == cur), None))
+    v = vsl_view()
+    return web.json_response({
+        "ok": True, "now": time.time(), "speaker_script": sp, "horus_script": horus,
+        "take": {"name": v["name"] or VSL_NAME or current_script(req.app).stem, "recording": v["actual"], "pending": v["pending"],
+                 "prompter_recording": REC.get("take")},
+        "front_tab": FRONT["tab"], "front_tab_at": FRONT["at"], "write_enabled": bool(write_secret())})
+
+
+async def state_front(req):
+    """POST /state/front {"tab"}: the app reports which tab is front (so GET /state can say)."""
+    b = await body(req)
+    FRONT.update(tab=str(b.get("tab", ""))[:24] or None, at=time.time())
+    return web.json_response({"ok": True})
+
+
 # ---------- misc ----------
 
 async def buildlog(req):
@@ -1169,6 +1331,12 @@ def make_app() -> web.Application:
     r.add_get("/agents", agents)
     r.add_get("/horus-script", horus_script)
     r.add_get("/speaker-script", speaker_script)
+    r.add_post("/speaker-script", write_script)
+    r.add_post("/horus-script", write_script)
+    r.add_post("/speaker-script/undo", write_undo)
+    r.add_post("/horus-script/undo", write_undo)
+    r.add_get("/state", state)
+    r.add_post("/state/front", state_front)
     r.add_get("/beacon", beacon)
     r.add_post("/beacon", beacon)
     r.add_get("/vsl", vsl)
