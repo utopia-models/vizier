@@ -143,8 +143,7 @@
   <span class="tab agt" id="tab-agents" title="AGENTS: what each lane agent is doing">AGENTS</span>
   <span class="tab ts" id="tab-tscript" title="TYLER SCRIPT: his spoken beats, read-only; nothing highlights or scrolls by itself">TYLER SCRIPT</span>
   <span class="tab hs" id="tab-hscript" title="HORUS SCRIPT: the cues Horus will run, read-only; the current one is lit">HORUS SCRIPT</span>
-  <span class="tab rec" id="tab-rec" title="SCRIPT: the teleprompter; arrows step through the parts (S)">SCRIPT</span>
-  <span class="tab ctx" id="tab-ctx" title="CONTEXT: what to know for this script">CONTEXT</span>
+  <span id="tab-rec" hidden></span><span id="tab-ctx" hidden></span>   <!-- the teleprompter is gone (Tyler, Architect 8981): inert stubs so old refs stay null-safe -->
   <span class="tab call" id="tab-call" hidden title="CALL: shown automatically while a call is live">CALL</span>
   <span class="grow" data-tauri-drag-region><span id="rec"></span> <span id="title" data-tauri-drag-region>connecting…</span></span>
   <span id="spd"></span>
@@ -156,8 +155,8 @@
 <div id="cfg"><span>server</span><input id="srv" spellcheck="false"><button id="srv-save">save</button></div>
 <audio id="callaudio" autoplay></audio>
 
-<section class="mode" id="m-rec">
-  <div id="keylegend"><b>↑ ↓</b> scroll &nbsp;·&nbsp; <b>← →</b> part &nbsp;·&nbsp; <b>Tab</b> Talk / Settings / Desks / Agents / Script &nbsp;·&nbsp; <b>Alt+E</b> ears &nbsp;·&nbsp; <b>Alt+M</b> mouth &nbsp;·&nbsp; <b>Alt+V</b> show / hide &nbsp;·&nbsp; <b>Alt+R</b> record &nbsp;·&nbsp; <b id="kfollow" style="cursor:pointer" onclick="window.vizierFollow()">Alt+F follow: ON</b></div>
+<section class="mode" id="m-rec" hidden style="display:none !important">
+  <div id="keylegend"><b>↑ ↓</b> scroll &nbsp;·&nbsp; <b>← →</b> part &nbsp;·&nbsp; <b>Tab</b> Talk / Settings / Desks / Agents / Tyler script / Horus script &nbsp;·&nbsp; <b>Alt+E</b> ears &nbsp;·&nbsp; <b>Alt+M</b> mouth &nbsp;·&nbsp; <b>Alt+V</b> show / hide &nbsp;·&nbsp; <b>Alt+R</b> record &nbsp;·&nbsp; <b id="kfollow" style="cursor:pointer" onclick="window.vizierFollow()">Alt+F follow: ON</b></div>
   <nav id="rtabs"><span data-t="script" class="on">SCRIPT</span><span data-t="context" hidden>CONTEXT</span><span data-t="notes" hidden>DO NOT SAY</span></nav>
   <div id="prompt"><div id="text"></div><div id="readline"></div></div>
   <div id="doc"></div>
@@ -202,7 +201,7 @@ const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
 // ---------- mode: derived from /health every second, never stored ----------
 let health = { recording: null, call: null }, pinned = null, mode = null;
 const liveCall = () => !!health.call && !/^(bench-|probe)/.test(health.call);
-function autoMode() { return "rec"; }   // no CALL mode: on a call you Tab to SCRIPT
+function autoMode() { return "tscript"; }   // no CALL mode: on a call you Tab to SCRIPT
 function refreshTabs() {
   $("tab-talk").classList.toggle("on", mode === "talk");
   for (const k of PANELS) $("tab-" + k).classList.toggle("on", mode === k);
@@ -213,8 +212,7 @@ function refreshTabs() {
 const PANELS = ["settings", "desks", "agents", "tscript", "hscript"];   // the deployment's issue 13798: Scout's panels beside TALK
 const MODES = ["rec", "call", "talk", ...PANELS];
 function goTab(n) {   // TALK / SETTINGS / DESKS / AGENTS, and SCRIPT / CONTEXT: the one row at the top
-  pinned = (n === "talk" || PANELS.includes(n)) ? n : "rec"; setMode();
-  if (pinned === "rec") { showTab(n); $("doc").scrollTop = 0; }
+  pinned = (n === "talk" || PANELS.includes(n)) ? n : "tscript"; setMode();
   if (PANELS.includes(n)) panelOpen(n);
   refreshTabs();
 }
@@ -236,7 +234,6 @@ async function pollHealth() {
   try {
     const h = await api("health").then(r => r.json());
     health = h; recording = !!h.recording;
-    if (recording && rtab !== "script") showTab("script");   // a take started: back to the prompter
     if (h.recording) {   // no recording mark here: OBS's red border is the signal (knowledge#14552, "less is more")
       const part = String(h.recording).split("-")[0], i = takes.findIndex(k => letterOf(k) === part);
       if (i >= 0 && i !== t) goTake(i);
@@ -388,7 +385,7 @@ function followLabel() {
   el.textContent = followState === "error" ? "Alt+F follow: no mic" : followState === "loading" ? "Alt+F follow: loading" : "Alt+F follow: ON";
 }
 async function followTick() {
-  const want = followOn && mode === "rec" && rtab === "script" && takes.length && window.Vosk && window.VizierFollow;
+  const want = false;   // no prompter, no voice-follow highlight or scroll
   if (!want) { if (follow && follow.on) follow.stop(); if (nowEl) { nowEl.classList.remove("now"); nowEl = null; } return; }
   if (!follow) follow = new window.VizierFollow.VoiceFollow({ model: "vendor/vosk-model-small-en-us-0.15.tar.gz",
     onMove: paintNow, onState: (st, why) => { followState = st; followLabel(); if (st === "error") console.warn("voice follow:", why); } });
@@ -442,8 +439,7 @@ window.vizierTab = () => {   // Alt+T from any app, or Tab in the page: TALK -> 
   // (the deployment's issue 13798; the user 2026-11-15 3:13 PM, "I can't tab over to script": SCRIPT is in the cycle, and the
   // prompter text is right here in this window). CONTEXT stays a click away; from it Tab goes on to TALK.
   if (mode === "call") return;
-  if (recording) return;   // a take is recording: the prompter stays up
-  const order = ["talk", ...PANELS, "script"], cur = mode === "rec" ? (rtab === "script" ? "script" : "context") : mode;
+  const order = ["talk", ...PANELS], cur = mode;
   goTab(cur === "context" ? "talk" : order[(order.indexOf(cur) + 1) % order.length]);
 };   // the app's global Alt+Down / Alt+Up (main.rs)
 function goTake(i) { t = takes.length ? (i + takes.length) % takes.length : 0; built = ""; curIdx = 0; lastPos = ""; render(); }
