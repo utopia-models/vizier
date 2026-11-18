@@ -20,6 +20,6 @@ def test_a_kept_switch_is_never_the_start_state():
 
 
 def test_start_off_is_read_from_the_config_once_per_launch():
-    body = TALK[TALK.index("async function join(")  # start() is the rejoin gate (#34); join() holds the start state:]
+    body = TALK[TALK.index("async function join("):]   # start() is the rejoin gate (#34); join() holds the start state
     body = body[: body.index("serverBase")]
     assert "cfg.talkStartOff" in body and "started" in body
