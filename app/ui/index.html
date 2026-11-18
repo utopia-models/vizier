@@ -383,12 +383,15 @@ function mark() {   // the current line = the last paragraph whose top is at or 
   if (i !== curIdx) { if (ps[curIdx]) ps[curIdx].classList.remove("cur"); if (ps[i]) ps[i].classList.add("cur"); curIdx = i; reportPos(); }
 }
 let lastPos = "", gotoSeq = -1, snapSeq = -1, followOn = true;
+let followLocal = 0;
 window.vizierFollow = async () => {   // Alt+F (main.rs) or a click on the legend: the agent follows the reader's voice on / off
+  // Optimistic (slow buttons): the legend flips in this frame, the server's answer corrects it.
+  followLocal = Date.now(); paintFollow(!followOn);
   const r = await api("prompter/follow", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ toggle: true }) }).then(x => x.json()).catch(() => null);
-  if (r) paintFollow(r.on);
+  followLocal = 0; if (r) paintFollow(r.on); else paintFollow(!followOn);   // no answer: put the legend back
 };
 function paintFollow(on) { followOn = on; if (on && followState === "error") followState = "off"; const el = document.getElementById("kfollow"); if (el) { el.textContent = on ? "Alt+F follow: ON" : "Alt+F follow: OFF"; el.style.color = on ? "#3ddc84" : "#c0392b"; } }
-every(800, async () => { const r = await api("prompter/follow").then(x => x.json()).catch(() => null); if (r && r.on !== followOn) paintFollow(r.on); });
+every(800, async () => { const r = await api("prompter/follow").then(x => x.json()).catch(() => null); if (r && r.on !== followOn && Date.now() - followLocal > 1500) paintFollow(r.on); });
 // ---------- VOICE FOLLOW (follow.js) ----------
 // The prompter follows the reader's voice word by word: Vosk in this window hears the mic (nothing leaves the machine),
 // a cadence clock keeps the highlight on or just ahead of the voice, the heard words correct it, a pause holds it. One

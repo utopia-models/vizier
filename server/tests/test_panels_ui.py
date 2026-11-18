@@ -32,3 +32,12 @@ def test_every_setting_row_changes_by_keyboard():
     change = HTML[HTML.index("async function changeSetting"):HTML.index("function drawDesks")]
     for k in ("voice", "ears", "wake_on", "wake_call"):
         assert f'"{k}"' in change, f"{k} has no keyboard change"
+
+
+def test_follow_and_ears_mouth_answer_before_the_server_does():
+    """A press shows its result in the same frame; the server's answer only corrects it."""
+    fn = HTML[HTML.index("window.vizierFollow = async"):][:600]
+    assert fn.index("paintFollow(!followOn)") < fn.index('api("prompter/follow"')
+    talk = (Path(__file__).resolve().parents[2] / "app" / "ui" / "talk.js").read_text()
+    t = talk[talk.index("export async function toggle"):][:700]
+    assert t.index("pending[k] = true") < t.index("paint();") < t.index("await applyEars")
