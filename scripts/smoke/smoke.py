@@ -13,8 +13,8 @@ What it does (every step is a PASS/FAIL line, with a screenshot in --out; exit 0
      user's own Vizier keeps running and keeps its keys), and `smoke_key` presses Alt+V / Alt+R / Alt+E / Alt+M through
      the same code the shortcuts run (main.rs hotkey()).
   3. Over the DevTools protocol, with real key and mouse-wheel input (Input.dispatchKeyEvent / dispatchMouseEvent):
-     the page links to the server (and to LiveKit when --talk-url is given); the default view is TYLER SCRIPT; Tab visits
-     TALK, SETTINGS, DESKS, AGENTS, TYLER SCRIPT and HORUS SCRIPT in that order and comes back to TALK; TYLER SCRIPT shows
+     the page links to the server (and to LiveKit when --talk-url is given); the default view is SPEAKER SCRIPT; Tab visits
+     TALK, SETTINGS, DESKS, AGENTS, SPEAKER SCRIPT and HORUS SCRIPT in that order and comes back to TALK; SPEAKER SCRIPT shows
      his spoken lines read-only (no highlight, no scroll by itself) and HORUS SCRIPT lights the current cue from
      vsl-follow's state.json; neither shows 'changed HH:MM' marks; every tab scrolls to its bottom by wheel (and
      the lists by arrow keys, the selected row always fully on screen); every SETTINGS row that can change
@@ -78,7 +78,7 @@ def fixture(d: Path, script: Path):
     (d / "horus-script.md").write_text("\n".join(cues) + "\n")
     (d / "horus-state.json").write_text(json.dumps({"beat": "b2", "at": 1}))
     state = d / "vsl-current.json"
-    return {"VIZIER_TYLER_SCRIPT": str(d / "scripts.md"), "VIZIER_HORUS_CUES": str(d / "horus-script.md"),
+    return {"VIZIER_SPEAKER_SCRIPT": str(d / "scripts.md"), "VIZIER_HORUS_CUES": str(d / "horus-script.md"),
             "VIZIER_HORUS_STATE": str(d / "horus-state.json"), "VIZIER_DATA": str(d / "data"), "VIZIER_SCRIPTS": str(d / "scripts.md"),
             "VIZIER_AGENTS_DIR": str(d / "agents"), "VIZIER_DESKS_CMD": f"cat {shlex.quote(str(d / 'desks.json'))}",
             "VIZIER_DESK_OPEN_CMD": "true",
@@ -210,9 +210,9 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
     ok("the page loaded", await until(lambda: c.js("!!window.vizierPanels && !!window.vizierTalk"), 20))
     ok("the page linked to the server (feed)", await until(lambda: c.js("document.getElementById('dot').classList.contains('on')"), 15))
     got = await until(lambda: c.js("document.querySelectorAll('#p-tscript .row').length > 0"), 15)
-    why = "" if got else await c.js("fetch(SERVER + '/tyler-script').then(r => r.status + ' ' + r.headers.get('access-control-allow-origin')).catch(e => 'fetch error: ' + e)")
+    why = "" if got else await c.js("fetch(SERVER + '/speaker-script').then(r => r.status + ' ' + r.headers.get('access-control-allow-origin')).catch(e => 'fetch error: ' + e)")
     ok("the script reached the page", got, f"{await c.js('document.querySelectorAll(\"#p-tscript .row\").length')} lines; mode {await c.js('mode')}; origin {await c.js('location.origin')} {why}")
-    ok("the default view is TYLER SCRIPT", await c.js("document.body.dataset.mode") == "tscript" and await c.js("document.getElementById('tab-tscript').classList.contains('on')"),
+    ok("the default view is SPEAKER SCRIPT", await c.js("document.body.dataset.mode") == "tscript" and await c.js("document.getElementById('tab-tscript').classList.contains('on')"),
        await c.js("document.body.dataset.mode"))
     if talk:
         ok("the talk link joined LiveKit", await until(lambda: c.js("!!window.vizierTalk.state.room"), 20),
@@ -232,7 +232,7 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
         if AUDIO_ONLY:
             return
 
-    # ---- Tab: TALK -> SETTINGS -> DESKS -> AGENTS -> TYLER SCRIPT -> HORUS SCRIPT -> TALK
+    # ---- Tab: TALK -> SETTINGS -> DESKS -> AGENTS -> SPEAKER SCRIPT -> HORUS SCRIPT -> TALK
     await c.js("window.vizierPanels.goTab('talk')"); await asyncio.sleep(0.25)
     seen = []
     for _ in range(6):
@@ -241,8 +241,8 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
         seen.append(m); await c.shot(out, f"tab-{m}")
     want = ["settings", "desks", "agents", "tscript", "hscript", "talk"]
     labels = await c.js("[...document.querySelectorAll('header .tab:not([hidden])')].map(t=>t.textContent)")
-    ok("Tab visits SETTINGS, DESKS, AGENTS, TYLER SCRIPT, HORUS SCRIPT and back to TALK (no SCRIPT tab)",
-       seen == want and labels == ["TALK", "SETTINGS", "DESKS", "AGENTS", "TYLER SCRIPT", "HORUS SCRIPT"], " > ".join(seen) + f"; tabs {labels}")
+    ok("Tab visits SETTINGS, DESKS, AGENTS, SPEAKER SCRIPT, HORUS SCRIPT and back to TALK (no SCRIPT tab)",
+       seen == want and labels == ["TALK", "SETTINGS", "DESKS", "AGENTS", "SPEAKER SCRIPT", "HORUS SCRIPT"], " > ".join(seen) + f"; tabs {labels}")
 
     # ---- every tab to the bottom: wheel, then keys with the selection on screen
     await c.js("window.vizierPanels.goTab('talk')")
@@ -275,25 +275,25 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
     await until(lambda: c.js("document.querySelectorAll('#p-agents .row').length > 1"), 8)
     await scroll_check(c, out, "#p-agents", "AGENTS")
 
-    # ---- TYLER SCRIPT: his spoken lines, read-only; no highlight, nothing scrolls by itself
+    # ---- SPEAKER SCRIPT: his spoken lines, read-only; no highlight, nothing scrolls by itself
     await c.js("window.vizierPanels.goTab('tscript')"); await asyncio.sleep(0.6)
     await until(lambda: c.js("document.querySelectorAll('#p-tscript .row').length > 1"), 8)
     ts = await c.js("(()=>{const p=document.getElementById('p-tscript'),rs=[...p.querySelectorAll('.row')],r=rs[0]&&rs[0].getBoundingClientRect(),a=p.getBoundingClientRect();"
                     "return {n:rs.length,first:rs[0]&&rs[0].textContent.slice(0,40),on:r&&r.top>=a.top-1&&r.top<a.bottom,sel:p.querySelectorAll('.sel,.cur,.now').length,"
                     "unspoken:rs.filter(x=>/^(#|>|\\[)/.test(x.textContent)).length,top:p.scrollTop,sh:p.scrollHeight,ch:p.clientHeight}})()")
-    ok("TYLER SCRIPT shows his spoken lines inside the window, with no row highlighted and no outline cue or heading line",
+    ok("SPEAKER SCRIPT shows his spoken lines inside the window, with no row highlighted and no outline cue or heading line",
        bool(ts) and ts["n"] > 5 and ts["on"] and ts["sel"] == 0 and ts["unspoken"] == 0 and ts["top"] == 0, str(ts))
-    ok("TYLER SCRIPT is longer than the window (so scrolling is tested)", ts["sh"] > ts["ch"] + 1, f"{ts['sh']} > {ts['ch']}")
+    ok("SPEAKER SCRIPT is longer than the window (so scrolling is tested)", ts["sh"] > ts["ch"] + 1, f"{ts['sh']} > {ts['ch']}")
     for _ in range(4): await c.key("ArrowDown")
     await c.key("Enter"); await asyncio.sleep(0.5)
     ro = await c.js("(()=>{const p=document.getElementById('p-tscript');return {sel:p.querySelectorAll('.sel,.cur,.now').length,mode:document.body.dataset.mode}})()")
     await c.shot(out, "tscript-keys")
-    ok("TYLER SCRIPT is read-only: arrows and Enter highlight nothing and stay on the tab", ro["sel"] == 0 and ro["mode"] == "tscript", str(ro))
-    await c.js("document.getElementById('p-tscript').scrollTop = 0"); await scroll_check(c, out, "#p-tscript", "TYLER SCRIPT")
+    ok("SPEAKER SCRIPT is read-only: arrows and Enter highlight nothing and stay on the tab", ro["sel"] == 0 and ro["mode"] == "tscript", str(ro))
+    await c.js("document.getElementById('p-tscript').scrollTop = 0"); await scroll_check(c, out, "#p-tscript", "SPEAKER SCRIPT")
     # edit one line on the server's copy: it shows up, with no 'changed HH:MM' mark
-    f = Path(FIX["VIZIER_TYLER_SCRIPT"]); f.write_text(f.read_text().replace("Middle line 2.", "Middle line 2, edited by the smoke."))
+    f = Path(FIX["VIZIER_SPEAKER_SCRIPT"]); f.write_text(f.read_text().replace("Middle line 2.", "Middle line 2, edited by the smoke."))
     shown = await until(lambda: c.js("document.getElementById('p-tscript').textContent.includes('edited by the smoke')"), 12)
-    ok("TYLER SCRIPT shows the edited line and no 'changed HH:MM' mark", shown and not await c.js("/changed \\d{1,2}:\\d\\d/.test(document.getElementById('p-tscript').textContent)"))
+    ok("SPEAKER SCRIPT shows the edited line and no 'changed HH:MM' mark", shown and not await c.js("/changed \\d{1,2}:\\d\\d/.test(document.getElementById('p-tscript').textContent)"))
 
     # ---- HORUS SCRIPT: the cue table; the current cue (vsl-follow's state.json) is lit; read-only
     await c.js("window.vizierPanels.goTab('hscript')"); await asyncio.sleep(0.6)
@@ -357,7 +357,7 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
     # ---- Alt+R (dry: the smoke server's VSL commands only touch a file)
     await c.js("window.vizierPanels.goTab('settings')")
     await c.js("window.__TAURI__.core.invoke('smoke_key', {key: 'alt+r'})")
-    # knowledge#14552: no REC pill or mark anywhere (OBS's red border is the signal); the SETTINGS row follows the take
+    # issue 14552: no REC pill or mark anywhere (OBS's red border is the signal); the SETTINGS row follows the take
     row = "document.getElementById('p-settings').textContent"
     on = await until(lambda: c.js(f"{row}.includes('Recording') && !{row}.includes('Not recording')"), 6)
     started = await until(lambda: asyncio.sleep(0, state.exists()), 8)

@@ -1,4 +1,4 @@
-# capture-audit.ps1: is Vizier invisible to screen capture right now? (knowledge#14720, Tyler 2026-11-17: "Vizier is
+# capture-audit.ps1: is Vizier invisible to screen capture right now? (issue 14720, the user 2026-11-17: "Vizier is
 # supposed to be invisible no matter what, only to me"). Run on ETH in the signed-in session (the vizier-pin task runs it
 # every minute; by hand over ssh: powershell -ExecutionPolicy Bypass -File C:\Users\Public\vizier\capture-audit.ps1).
 #

@@ -139,7 +139,7 @@ def test_agents_summarize_each_liveness_file(tmp_path, monkeypatch):
 
 
 def test_horus_script_reads_the_cue_table_and_the_current_beat(tmp_path, monkeypatch):
-    (tmp_path / "rs.md").write_text("| t | Tyler says | on screen | horus action | mark | live adjust |\n|---|---|---|---|---|---|\n"
+    (tmp_path / "rs.md").write_text("| t | Speaker says | on screen | horus action | mark | live adjust |\n|---|---|---|---|---|---|\n"
                                     "| 0:00 | I'm going | post | scroll | START | |\n| 0:20 | An email | demo | click Send | | click again |\n")
     (tmp_path / "state.json").write_text(json.dumps({"beat": "b1", "at": "x"}))
     vz = load(tmp_path, monkeypatch, VIZIER_HORUS_CUES=str(tmp_path / "none.md") + os.pathsep + str(tmp_path / "rs.md"),
@@ -153,16 +153,16 @@ def test_horus_script_reads_the_cue_table_and_the_current_beat(tmp_path, monkeyp
     assert j["cues"][1] == {"beat": "b1", "id": "0:20", "on": "An email", "do": "click Send", "wait": "", "fail": "click again", "changed": None}
 
 
-def test_tyler_script_spoken_lines_and_no_changed_marks(tmp_path, monkeypatch):
+def test_speaker_script_spoken_lines_and_no_changed_marks(tmp_path, monkeypatch):
     f = tmp_path / "ts.md"
     f.write_text("# v9\n\nShape: x\n\n## Do not say\n- no\n\n## 1 · Roadmap\n[horus] cue\nI am going.\nSecond line.\n")
-    vz = load(tmp_path, monkeypatch, VIZIER_TYLER_SCRIPT=str(f))
+    vz = load(tmp_path, monkeypatch, VIZIER_SPEAKER_SCRIPT=str(f))
 
     async def go():
         async with TestClient(TestServer(vz.make_app())) as c:
-            a = await (await c.get("/tyler-script")).json()
+            a = await (await c.get("/speaker-script")).json()
             f.write_text(f.read_text().replace("Second line.", "Second line, edited."))
-            return a, await (await c.get("/tyler-script")).json()
+            return a, await (await c.get("/speaker-script")).json()
     a, b = asyncio.run(go())
     assert [l["text"] for l in a["sections"][0]["lines"]] == ["I am going.", "Second line."]
     assert all(l["changed"] is None for l in a["sections"][0]["lines"])

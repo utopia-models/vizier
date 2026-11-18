@@ -47,7 +47,7 @@ function pill() {
 }
 
 // Is a mic track actually live in the room right now: published, its capture running (readyState "live", not ended by
-// an unplug), enabled and not muted. The Ears dot is green ONLY on this (knowledge#14720: the dot showed green all night
+// an unplug), enabled and not muted. The Ears dot is green ONLY on this (issue 14720: the dot showed green all night
 // while the room saw mic_published=false, because it only ever looked at the switch and the room).
 export function micLive() {
   const pub = state.mic;

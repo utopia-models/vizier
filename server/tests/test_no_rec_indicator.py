@@ -1,4 +1,4 @@
-"""knowledge#14552 (Tyler 2026-11-17: "less is more"): Vizier shows no recording indicator. OBS's red border is the
+"""issue 14552 (the user 2026-11-17: "less is more"): Vizier shows no recording indicator. OBS's red border is the
 signal on the laptop; the SETTINGS "Recording" row (a control, Alt+R's twin) is the only place the take's state is
 written."""
 import re
