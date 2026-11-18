@@ -28,7 +28,7 @@ def test_keeper_leaves_a_parked_window_alone():
     loop = MAIN[MAIN.index("std::thread::spawn(move || loop {"):]
     loop = loop[: loop.index("keep_rendering(&keep);")]   # the keeper no longer re-places the window (#18)
     assert "park::keep(" in loop, "the 2 s keeper restores a minimized window without asking park.rs"
-    assert loop.index("park::keep(") < loop.index(".unminimize()"), "the keeper un-minimizes before consulting the park"
+    assert ".unminimize()" not in loop, "the keeper never un-minimizes: a minimize sticks however it was made (park.rs keep, 2026-11-17)"
     assert loop.index("set_content_protected") < loop.index("park::keep("), "content protection must hold while parked"
 
 
