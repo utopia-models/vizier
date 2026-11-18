@@ -150,4 +150,21 @@ def test_horus_script_reads_the_cue_table_and_the_current_beat(tmp_path, monkeyp
             return await (await c.get("/horus-script")).json()
     j = asyncio.run(go())
     assert j["source"] == "rs.md" and j["current"] == "b1" and len(j["cues"]) == 2
-    assert j["cues"][1] == {"beat": "b1", "id": "0:20", "on": "An email", "do": "click Send", "wait": "", "fail": "click again"}
+    assert j["cues"][1] == {"beat": "b1", "id": "0:20", "on": "An email", "do": "click Send", "wait": "", "fail": "click again", "changed": None}
+
+
+def test_tyler_script_spoken_lines_and_changed_marks(tmp_path, monkeypatch):
+    f = tmp_path / "ts.md"
+    f.write_text("# v9\n\nShape: x\n\n## Do not say\n- no\n\n## 1 · Roadmap\n[horus] cue\nI am going.\nSecond line.\n")
+    vz = load(tmp_path, monkeypatch, VIZIER_TYLER_SCRIPT=str(f))
+
+    async def go():
+        async with TestClient(TestServer(vz.make_app())) as c:
+            a = await (await c.get("/tyler-script")).json()
+            f.write_text(f.read_text().replace("Second line.", "Second line, edited."))
+            return a, await (await c.get("/tyler-script")).json()
+    a, b = asyncio.run(go())
+    assert [l["text"] for l in a["sections"][0]["lines"]] == ["I am going.", "Second line."]
+    assert all(l["changed"] is None for l in a["sections"][0]["lines"])
+    ls = b["sections"][0]["lines"]
+    assert ls[0]["changed"] is None and ls[1]["changed"] and ls[1]["text"] == "Second line, edited."
