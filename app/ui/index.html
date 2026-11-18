@@ -785,7 +785,9 @@ function panelChange(d, enter) {
   if (mode === "settings") { if (!settingRows()[panel.settings.sel].ro) changeSetting(d); }
   else if (mode === "desks" && (d > 0 || enter)) openDesk();
 }
-every(2000, () => mode === "settings" ? loadSettings() : mode === "agents" ? loadAgents() : mode === "hscript" ? loadHscript() : mode === "tscript" ? loadTscript() : mode === "approval" ? loadApproval() : null);
+every(2000, () => mode === "settings" ? loadSettings() : mode === "agents" ? loadAgents() : mode === "tscript" ? loadTscript() : mode === "approval" ? loadApproval() : null);
+// HORUS SCRIPT lights the cue vsl-follow arms from his voice: a 2 s poll put the lit row up to 2 s behind it (knowledge#14580)
+every(400, () => mode === "hscript" ? loadHscript() : null);
 every(15000, () => mode === "desks" ? loadDesks() : null);
 window.vizierPanels = { panel, settingRows, goTab };   // headless checks
 
