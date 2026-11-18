@@ -37,6 +37,8 @@
   /* SETTINGS / DESKS / AGENTS (the deployment's issue 13798): one list each, the selected row marked, arrows drive it */
   .panel { flex:1; min-height:0; overflow-y:auto; padding:14px 28px 46px; scroll-padding:10px 0 50px; }   /* scrollIntoView clears the fixed key legend */
   .panel .row { display:flex; align-items:baseline; gap:18px; padding:10px 14px; border-radius:8px; border:1px solid transparent; font:500 24px/1.3 system-ui; }
+  .panel .row .lm { flex:0 0 74px; color:var(--hi); font-weight:700; }
+  .panel .row.lead .v { color:var(--hi); }
   .panel .row.sel { border-color:var(--hi); background:#14181f; }
   .panel .row .k { flex:0 0 260px; color:var(--dim); font-size:18px; letter-spacing:.04em; }
   .panel .row .v { flex:1; min-width:0; }
@@ -144,6 +146,7 @@
   <span class="tab agt" id="tab-agents" title="AGENTS: what each lane agent is doing">AGENTS</span>
   <span class="tab ts" id="tab-tscript" title="SPEAKER SCRIPT: his spoken beats, read-only; nothing highlights or scrolls by itself">SPEAKER SCRIPT</span>
   <span class="tab hs" id="tab-hscript" title="HORUS SCRIPT: the cues Horus will run, read-only; the current one is lit">HORUS SCRIPT</span>
+  <span class="tab hs" id="tab-qc" title="QC: the QA checklist and the last vsl_qa verdict; read-only">QC</span>
   <span class="tab hs" id="tab-approval" title="APPROVAL: the gate report, the references used and the diff from the last version; read-only">APPROVAL</span>
   <span id="tab-rec" hidden></span><span id="tab-ctx" hidden></span>   <!-- the teleprompter is gone (the user, Architect 8981): inert stubs so old refs stay null-safe -->
   <span class="tab call" id="tab-call" hidden title="CALL: shown automatically while a call is live">CALL</span>
@@ -174,7 +177,9 @@
 <section class="mode" id="m-agents"><div class="panel" id="p-agents"></div>
   <div class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> scroll &nbsp;·&nbsp; the same status shows on Eagle Eye</div></section>
 <section class="mode" id="m-tscript"><div class="panel" id="p-tscript"></div>
-  <div class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> scroll &nbsp;·&nbsp; read-only: no highlight, no auto-scroll</div></section>
+  <div class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> step a line &nbsp;·&nbsp; the arrow marks the line ahead &nbsp;·&nbsp; nothing moves but by your keys</div></section>
+<section class="mode" id="m-qc"><div class="panel" id="p-qc"></div>
+  <div class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> scroll &nbsp;·&nbsp; read-only: the QA checklist and the last vsl_qa verdict</div></section>
 <section class="mode" id="m-approval"><div class="panel" id="p-approval"></div></section>
 <section class="mode" id="m-hscript"><div class="panel" id="p-hscript"></div>
   <div class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> scroll &nbsp;·&nbsp; read-only: Horus's cues, the current one lit as it advances</div></section>
@@ -237,7 +242,7 @@ function refreshTabs() {
   $("tab-ctx").classList.toggle("on", mode === "rec" && rtab === "context");
   $("tab-call").classList.toggle("on", mode === "call"); $("tab-call").hidden = mode !== "call";
 }
-const PANELS = ["settings", "desks", "agents", "tscript", "hscript", "approval"];   // the deployment's issue 13798: Scout's panels beside TALK
+const PANELS = ["settings", "desks", "agents", "tscript", "hscript", "qc", "approval"];   // the deployment's issue 13798: Scout's panels beside TALK
 const MODES = ["rec", "call", "talk", ...PANELS];
 function goTab(n) {   // TALK / SETTINGS / DESKS / AGENTS, and SCRIPT / CONTEXT: the one row at the top
   pinned = (n === "talk" || PANELS.includes(n)) ? n : "tscript"; setMode();
@@ -382,7 +387,7 @@ function mark() {   // the current line = the last paragraph whose top is at or 
   let i = 0; while (i + 1 < ps.length && ps[i + 1].offsetTop <= y) i++;
   if (i !== curIdx) { if (ps[curIdx]) ps[curIdx].classList.remove("cur"); if (ps[i]) ps[i].classList.add("cur"); curIdx = i; reportPos(); }
 }
-let lastPos = "", gotoSeq = -1, snapSeq = -1, followOn = true;
+let lastPos = "", gotoSeq = -1, snapSeq = -1, followOn = false;   // voice-follow is OFF until Alt+F
 let followLocal = 0;
 window.vizierFollow = async () => {   // Alt+F (main.rs) or a click on the legend: the agent follows the reader's voice on / off
   // Optimistic (slow buttons): the legend flips in this frame, the server's answer corrects it.
@@ -628,7 +633,7 @@ async function context() {
 // SETTINGS reads GET /settings (the server forwards to the voice agent) and changes a value with POST /settings; Ears
 // and Mouth are this app's own switches (talk.js), the same as Alt+E / Alt+M. DESKS: Right or Enter asks the server to
 // open the picked desk (POST /desks/open). AGENTS: GET /agents, each lane agent's liveness.
-const panel = { settings: { sel: 0, data: null, err: "", stale: "" }, desks: { sel: 0, data: null, err: "", stale: "" }, agents: { sel: 0, data: null, err: "", stale: "" }, tscript: { sel: 0, data: null, err: "", stale: "" }, hscript: { sel: 0, data: null, err: "", stale: "" }, approval: { sel: 0, data: null, err: "", stale: "" } };
+const panel = { settings: { sel: 0, data: null, err: "", stale: "" }, desks: { sel: 0, data: null, err: "", stale: "" }, agents: { sel: 0, data: null, err: "", stale: "" }, tscript: { sel: 0, data: null, err: "", stale: "" }, hscript: { sel: 0, data: null, err: "", stale: "" }, qc: { sel: 0, data: null, err: "", stale: "" }, approval: { sel: 0, data: null, err: "", stale: "" } };
 const talkState = () => (window.vizierTalk && window.vizierTalk.state) || null;
 const onoff = v => v == null ? "<span>unknown</span>" : `<span class="${v ? "on" : "off"}">${v ? "ON" : "OFF"}</span>`;
 async function getJSON(path) { const r = await api(path); return r.json(); }
@@ -734,12 +739,23 @@ async function loadAgents() { await readPanel("agents", "agents", m => ({ agents
 // HORUS SCRIPT: GET /horus-script, the agent's cue table (id, on-phrase, do, wait-for, on-fail); `current` is the cue
 // vsl-follow last fired. Read-only: no row is selectable and nothing is sent. This window is outside every capture.
 let hsCur = "";
-function drawTscript() {   // plain text: no row is selected or lit, and nothing scrolls by itself
+let tsCur = 0, tsSent = "";
+function reportTs() {   // where his keys left him (POST /prompter/position): a key test and the agent read it back
+  const d = panel.tscript.data, flat = ((d && d.sections) || []).flatMap(x => x.lines), n = flat.length; if (!n) return;
+  const body = JSON.stringify({ part: 1, parts: 1, title: "speaker script", line: tsCur + 1, lines: n, text: (flat[tsCur] || {}).text || "" });
+  if (body === tsSent) return; tsSent = body;
+  api("prompter/position", { method: "POST", headers: { "Content-Type": "application/json" }, body }).catch(() => {});
+}
+// the line he is on, moved ONLY by his keys (Up / Down); nothing else moves it
+const tsLines = d => ((d && d.sections) || []).reduce((n, s) => n + s.lines.length, 0);
+function drawTscript() {   // the current line is lit, the line one ahead carries the lead marker; nothing scrolls by itself
   const d = panel.tscript.data, el = $("p-tscript"), top = el.scrollTop;
+  let i = -1;
   el.innerHTML = staleLine(panel.tscript) + (!d ? `<div class="msg">reading the script…</div>` : d.error ? `<div class="msg err">${esc(d.error)}</div>`
     : !(d.sections || []).length ? `<div class="msg">No script${d.configured ? "" : " (VIZIER_SPEAKER_SCRIPT is not set)"}.</div>`
     : `<div class="msg">${esc(d.title || d.source)}</div>` + d.sections.map(s => `<div class="msg" style="color:var(--hi);margin-top:12px">${esc(s.title)}</div>`
-      + s.lines.map(l => `<div class="row" style="font-size:22px"><span class="v">${esc(l.text)}</span></div>`).join("")).join(""));
+      + s.lines.map(l => { i++; const cur = i === tsCur, lead = i === tsCur + 1;
+        return `<div class="row${cur ? " sel" : ""}${lead ? " lead" : ""}" data-i="${i}" style="font-size:22px"><span class="h lm">${lead ? "▶ NEXT" : ""}</span><span class="v">${esc(l.text)}</span></div>`; }).join("")).join(""));
   el.scrollTop = top;
 }
 async function loadTscript() { await readPanel("tscript", "speaker-script", m => ({ sections: [], error: m })); if (mode === "tscript") drawTscript(); }
@@ -753,6 +769,17 @@ function drawHscript() {
   if (d && d.current && d.current !== hsCur) { hsCur = d.current; selIntoView("p-hscript"); }
 }
 async function loadHscript() { await readPanel("hscript", "horus-script", m => ({ cues: [], error: m })); if (mode === "hscript") drawHscript(); }
+// QC: GET /qc. The QA checklist the pipeline wrote and the last vsl_qa verdict. Read-only; nothing here is sent.
+function drawQc() {
+  const d = panel.qc.data, el = $("p-qc"), top = el.scrollTop, v = d && d.verdict;
+  el.innerHTML = staleLine(panel.qc) + (!d ? `<div class="msg">reading the QC…</div>` : d.error ? `<div class="msg err">${esc(d.error)}</div>`
+    : !d.configured ? `<div class="msg">No QC (VIZIER_QC_FILE and VIZIER_QA_VERDICT are not set).</div>`
+    : `<div class="msg">${v ? "vsl_qa: " + esc(v.verdict || "?") + (v.at ? " · " + esc(ago(String(v.at)) || String(v.at)) : "") + (v.file ? " · " + esc(v.file) : "") : "vsl_qa: no verdict yet"}</div>`
+      + ((v && v.findings) || []).map(f => `<div class="row"><span class="k"><span class="dot bad"></span>finding</span><span class="v">${esc(typeof f === "string" ? f : JSON.stringify(f))}</span></div>`).join("")
+      + (d.checklist.length ? d.checklist.map(c => `<div class="row"><span class="k"><span class="dot ${c.pass === true ? "ok" : c.pass === false ? "bad" : "warn"}"></span>${esc(c.id || "")}</span><span class="v">${esc(c.text || "")}</span></div>`).join("") : `<div class="msg">No checklist.</div>`));
+  el.scrollTop = top;
+}
+async function loadQc() { await readPanel("qc", "qc", m => ({ error: m })); if (mode === "qc") drawQc(); }
 // APPROVAL: GET /approval. The gate report (6a copy, 6b provenance, 6c judge, 6d reference match), the references used, the
 // diff from the last kept version and who approved it. Read-only: approving is POST /approve, never a key here.
 function drawApproval() {
@@ -769,13 +796,14 @@ function drawApproval() {
   el.scrollTop = top;
 }
 async function loadApproval() { await readPanel("approval", "approval", m => ({ error: m })); if (mode === "approval") drawApproval(); }
-function panelOpen(n) { ({ settings: () => { drawSettings(); loadSettings(); }, desks: () => { drawDesks(); loadDesks(); }, agents: () => { drawAgents(); loadAgents(); }, tscript: () => { drawTscript(); loadTscript(); }, hscript: () => { drawHscript(); loadHscript(); }, approval: () => { drawApproval(); loadApproval(); } })[n](); }
+function panelOpen(n) { ({ settings: () => { drawSettings(); loadSettings(); }, desks: () => { drawDesks(); loadDesks(); }, agents: () => { drawAgents(); loadAgents(); }, tscript: () => { drawTscript(); loadTscript(); }, hscript: () => { drawHscript(); loadHscript(); }, qc: () => { drawQc(); loadQc(); }, approval: () => { drawApproval(); loadApproval(); } })[n](); }
 // The selected row is kept on screen every time the selection moves (the user 2026-11-15: arrow-down moved the selection
 // below the window and the list never followed). Only on a move: the 2 s redraw never pulls a list the wheel scrolled.
 function selIntoView(id) { const r = $(id).querySelector(".row.sel"); if (r) r.scrollIntoView({ block: "nearest" }); }
 function panelStep(d) {
   if (mode === "agents") { $("p-agents").scrollTop += d * 80; return; }
-  if (mode === "tscript") { $("p-tscript").scrollTop += d * 80; return; }
+  if (mode === "tscript") { const n = tsLines(panel.tscript.data); if (!n) return; tsCur = Math.max(0, Math.min(n - 1, tsCur + d)); drawTscript(); selIntoView("p-tscript"); reportTs(); return; }
+  if (mode === "qc") { $("p-qc").scrollTop += d * 80; return; }
   if (mode === "approval") { $("p-approval").scrollTop += d * 80; return; }
   if (mode === "hscript") { $("p-hscript").scrollTop += d * 80; return; }
   panel[mode].sel += d; mode === "settings" ? drawSettings() : drawDesks();
@@ -785,7 +813,7 @@ function panelChange(d, enter) {
   if (mode === "settings") { if (!settingRows()[panel.settings.sel].ro) changeSetting(d); }
   else if (mode === "desks" && (d > 0 || enter)) openDesk();
 }
-every(2000, () => mode === "settings" ? loadSettings() : mode === "agents" ? loadAgents() : mode === "tscript" ? loadTscript() : mode === "approval" ? loadApproval() : null);
+every(2000, () => mode === "settings" ? loadSettings() : mode === "agents" ? loadAgents() : mode === "tscript" ? loadTscript() : mode === "approval" ? loadApproval() : mode === "qc" ? loadQc() : null);
 // HORUS SCRIPT lights the cue vsl-follow arms from his voice: a 2 s poll put the lit row up to 2 s behind it
 every(400, () => mode === "hscript" ? loadHscript() : null);
 every(15000, () => mode === "desks" ? loadDesks() : null);

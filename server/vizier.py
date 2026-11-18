@@ -645,7 +645,7 @@ async def talk_transcript(req):
     return web.json_response({"seq": TALK["seq"], "lines": [x for x in TALK["lines"] if x["seq"] > since], "partial": p})
 
 
-FOLLOW = {"on": True}   # POST /prompter/follow {"on": bool} or {"toggle": true}: the agent's speech-follow and screen driving
+FOLLOW = {"on": False}   # OFF by default (ask 821: the reader steps lines with his own keys; voice-follow lags). POST /prompter/follow {"on": bool} or {"toggle": true}: the agent's speech-follow and screen driving
 
 
 async def prompter_follow(req):
@@ -1250,6 +1250,22 @@ async def approval(req):
     return web.json_response(approval_view())
 
 
+# ---------- QC: GET /qc (the QA checklist and the last vsl_qa verdict; read-only, ask 821) ----------
+# VIZIER_QC_FILE: the checklist the pipeline wrote ({"checklist": [{"id", "text", "pass": true|false|null}]}).
+# VIZIER_QA_VERDICT: the last vsl_qa verdict ({"verdict": "PASS"|"FAIL", "at", "file", "findings": [..]}). Either may be absent:
+# the tab then says so rather than showing a stand-in.
+def qc_view() -> dict:
+    qc = read_json(os.environ.get("VIZIER_QC_FILE"))
+    ver = read_json(os.environ.get("VIZIER_QA_VERDICT"))
+    items = [i for i in (qc.get("checklist") if isinstance(qc, dict) else None) or [] if isinstance(i, dict)]
+    return {"ok": True, "configured": bool(os.environ.get("VIZIER_QC_FILE") or os.environ.get("VIZIER_QA_VERDICT")),
+            "checklist": items, "verdict": ver if isinstance(ver, dict) else None, "now": time.time()}
+
+
+async def qc(_req):
+    return web.json_response(qc_view())
+
+
 async def approve(req):
     """POST /approve {"sha"?}: the approver marks the CURRENT script version approved. -> the approval record."""
     if not approve_allowed(req):
@@ -1462,6 +1478,7 @@ def make_app() -> web.Application:
     r.add_post("/talk/selfcheck/run", talk_selfcheck_run)
     r.add_get("/talk/transcript", talk_transcript)
     r.add_post("/talk/transcript", talk_transcript)
+    r.add_get("/qc", qc)
     r.add_get("/prompter/follow", prompter_follow)
     r.add_post("/prompter/follow", prompter_follow)
     r.add_post("/prompter/snap", prompter_snap)
