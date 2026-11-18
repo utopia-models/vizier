@@ -8,7 +8,7 @@ HTML = (Path(__file__).resolve().parents[2] / "app" / "ui" / "index.html").read_
 
 
 def test_four_panels_and_their_tabs_exist():
-    for k in ("talk", "settings", "desks", "agents", "tscript", "hscript", "approval"):
+    for k in ("talk", "settings", "desks", "agents", "tscript", "hscript", "qc", "approval"):
         assert f'id="tab-{k}"' in HTML and f'id="m-{k}"' in HTML, k
 
 
@@ -16,7 +16,7 @@ def test_tab_cycles_the_four_panels():
     fn = HTML[HTML.index("window.vizierTab = () =>"):]
     fn = fn[: fn.index("};")]
     assert 'const order = ["talk", ...PANELS]' in fn   # Tab reaches SCRIPT (#14)
-    assert re.search(r'const PANELS = \["settings", "desks", "agents", "tscript", "hscript", "approval"\]', HTML)
+    assert re.search(r'const PANELS = \["settings", "desks", "agents", "tscript", "hscript", "qc", "approval"\]', HTML)
 
 
 def test_global_arrows_drive_the_panels():
