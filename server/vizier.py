@@ -1018,12 +1018,36 @@ async def cam_wanted() -> bool:
     return v
 
 
+STUDIO: dict = {}   # the last beacon from studiod on the recording machine, and when it came (time.time())
+
+
+async def beacon(req):
+    """POST /beacon: studiod (the recording machine's daemon, the deployment's issue 15077) posts its state every 2 s.
+    GET /beacon reads it back. /health carries it as `studio` with `age_s`, so silence from the recorder shows as age."""
+    if req.method == "POST":
+        try:
+            b = await req.json()
+        except Exception:  # noqa: BLE001
+            return bad("body must be JSON")
+        STUDIO.clear(); STUDIO.update(state=b if isinstance(b, dict) else {}, at=time.time())
+        return web.json_response({"ok": True})
+    return web.json_response(studio_view())
+
+
+def studio_view() -> dict | None:
+    if not STUDIO:
+        return None
+    s = STUDIO["state"]
+    return {"age_s": round(time.time() - STUDIO["at"], 1), "recording": s.get("recording"), "take_id": s.get("take_id"),
+            "name": s.get("name"), "beat": s.get("beat"), "obs_up": (s.get("obs") or {}).get("up")}
+
+
 async def health(req):
     c = S(req.app).call
     return web.json_response({"ok": True, "recording": REC.get("take"), "call": c.id if c else None,
                               "lines": len(c.lines) if c else 0, "feed_clients": len(S(req.app).feed.clients),
                               "script": current_script(req.app).name, "cam_wanted": await cam_wanted(),
-                              "vsl": vsl_view()})
+                              "vsl": vsl_view(), "studio": studio_view()})
 
 
 async def openapi(_):
@@ -1079,12 +1103,27 @@ def main():
     ap.add_argument("--host", default=os.environ.get("VIZIER_HOST", "127.0.0.1"))
     ap.add_argument("--port", type=int, default=int(os.environ.get("VIZIER_PORT", "8786")))
     a = ap.parse_args()
-    web.run_app(make_app(), host=a.host, port=a.port, print=None)
+    # A stop must take about a second, not 30 (the deployment's issue 15077): on 2026-11-17 a restart of the display
+    # server took 29 s and 32 s because aiohttp's graceful shutdown waited on every open /feed WebSocket, whose handler
+    # never ends on its own, and the laptop's tabs showed "failed to fetch" for the whole gap. close_feeds (on_shutdown)
+    # closes them with 1001 Going Away, so the app reconnects to the new process; shutdown_timeout caps whatever is left.
+    web.run_app(make_app(), host=a.host, port=a.port, print=None, shutdown_timeout=1.0)
+
+
+async def close_feeds(app: web.Application):
+    """on_shutdown: close every /feed WebSocket (1001 Going Away) so the graceful stop is not held open by them."""
+    for ws in list(app[STATE].feed.clients):
+        try:
+            await asyncio.wait_for(ws.close(code=1001, message=b"server restarting"), 0.5)
+        except Exception:  # noqa: BLE001
+            pass
+    app[STATE].feed.clients.clear()
 
 
 def make_app() -> web.Application:
     app = web.Application(middlewares=[cors])
     app[STATE] = State(Feed(), None, restored_script())
+    app.on_shutdown.append(close_feeds)
     r = app.router
     r.add_get("/", page)
     r.add_get("/health", health)
@@ -1130,6 +1169,8 @@ def make_app() -> web.Application:
     r.add_get("/agents", agents)
     r.add_get("/horus-script", horus_script)
     r.add_get("/speaker-script", speaker_script)
+    r.add_get("/beacon", beacon)
+    r.add_post("/beacon", beacon)
     r.add_get("/vsl", vsl)
     r.add_post("/vsl", vsl)
     return app

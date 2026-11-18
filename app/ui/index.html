@@ -26,6 +26,7 @@
   header, header b, header .grow, #title { cursor:grab; } header:active { cursor:grabbing; } .tab, header button { cursor:pointer; }
   #dot { width:9px; height:9px; border-radius:50%; background:#c44; display:inline-block; }
   #dot.on { background:#3c3; }
+  #dot.amber { background:#e8b931; }
   .tab { padding:2px 7px; border-radius:5px; border:1px solid transparent; cursor:pointer; letter-spacing:.04em; }
   #hide { display:none; }
   .tab.on { color:#000; background:var(--hi); font-weight:700; }
@@ -191,7 +192,30 @@ let SERVER = "";
 // WebRTC media server (WHIP camera publish + WHEP call audio), e.g. MediaMTX; defaults to the Vizier server's origin.
 const MEDIA = () => (Q.get("media") || CFG.media || SERVER).replace(/\/+$/, "");
 const CAM_PATH = () => CFG.camPath || "cam", CALL_PATH = () => CFG.callPath || "call-out";
-const api = (p, o) => fetch(SERVER + "/" + p, o);
+// Every server call goes through api(), which records the link's health (the deployment's issue 15077): on 2026-11-17 the
+// display server was gone for 29 s mid-take and every tab replaced what it showed with "failed to fetch". Now a failed
+// read keeps the last good one on screen with a dim "server unreachable · last read Ns ago · retrying" line (staleLine),
+// every poller simply tries again on its next tick, and #dot says green (answered in the last 3 s), amber (in the last
+// 15 s) or red, with the age in its tooltip.
+const link = { ok: 0, err: "" };
+const api = (p, o) => fetch(SERVER + "/" + p, o).then(r => { link.ok = Date.now(); link.err = ""; return r; },
+                                                       e => { link.err = e.message || String(e); throw e; });
+function staleLine(P) {
+  if (!P.stale) return "";
+  const s = link.ok ? Math.round((Date.now() - link.ok) / 1000) + " s ago" : "not yet";
+  return `<div class="msg" style="color:var(--dim)">server unreachable (${esc(P.stale)}) · last read ${s} · retrying</div>`;
+}
+// A panel read that fails keeps the panel's last good data (marked stale); only a panel that never read shows the error.
+async function readPanel(name, path, failed) {
+  const P = panel[name];
+  try { P.data = await getJSON(path); P.stale = ""; }
+  catch (e) { if (P.data && !P.data.error && P.data.reachable !== false) P.stale = e.message; else P.data = failed(e.message); }
+}
+setInterval(() => {
+  const age = Date.now() - link.ok, d = $("dot");
+  d.classList.toggle("on", age < 3000); d.classList.toggle("amber", age >= 3000 && age < 15000);
+  d.title = "link to the vizier service: " + (link.ok ? "last answer " + Math.round(age / 1000) + " s ago" : "no answer yet") + (link.err ? " · " + link.err : "");
+}, 500);
 // every(ms, fn): fn again ms after the last run FINISHED, never while it is still waiting on the server. setInterval
 // stacked requests whenever the server answered slower than the interval, and those piled-up polls held the page's
 // connections the keys' own POSTs then queued behind.
@@ -242,7 +266,7 @@ async function pollHealth() {
     autoCam(!!h.cam_wanted);
     if (h.vsl) vslFromServer(h.vsl);
     setMode();
-  } catch { $("dot").classList.remove("on"); }
+  } catch {}   // #dot is painted from link (api) every 500 ms
 }
 
 // ---------- TALK: the raw live transcript of the conversation with the agent ----------
@@ -597,7 +621,7 @@ async function context() {
 // SETTINGS reads GET /settings (the server forwards to the voice agent) and changes a value with POST /settings; Ears
 // and Mouth are this app's own switches (talk.js), the same as Alt+E / Alt+M. DESKS: Right or Enter asks the server to
 // open the picked desk (POST /desks/open). AGENTS: GET /agents, each lane agent's liveness.
-const panel = { settings: { sel: 0, data: null, err: "" }, desks: { sel: 0, data: null, err: "" }, agents: { sel: 0, data: null, err: "" }, tscript: { sel: 0, data: null, err: "" }, hscript: { sel: 0, data: null, err: "" } };
+const panel = { settings: { sel: 0, data: null, err: "", stale: "" }, desks: { sel: 0, data: null, err: "", stale: "" }, agents: { sel: 0, data: null, err: "", stale: "" }, tscript: { sel: 0, data: null, err: "", stale: "" }, hscript: { sel: 0, data: null, err: "", stale: "" } };
 const talkState = () => (window.vizierTalk && window.vizierTalk.state) || null;
 const onoff = v => v == null ? "<span>unknown</span>" : `<span class="${v ? "on" : "off"}">${v ? "ON" : "OFF"}</span>`;
 async function getJSON(path) { const r = await api(path); return r.json(); }
@@ -627,11 +651,11 @@ function drawSettings() {
   if (!d) head = `<div class="msg">reading Scout's settings…</div>`;
   else if (d.configured === false) head = `<div class="msg">The voice agent is not configured on this server (VIZIER_VOICE_URL). Ears and Mouth still work.</div>`;
   else if (d.reachable === false) head = `<div class="msg err">Scout's voice agent is not answering: ${esc(d.error || "")}</div>`;
-  el.innerHTML = head + (P.err ? `<div class="msg err">${esc(P.err)}</div>` : "") + rows.map((r, i) =>
+  el.innerHTML = staleLine(P) + head + (P.err ? `<div class="msg err">${esc(P.err)}</div>` : "") + rows.map((r, i) =>
     `<div class="row${i === P.sel ? " sel" : ""}${r.ro ? " ro" : ""}" data-i="${i}"><span class="k">${r.label}</span><span class="v">${r.v}</span><span class="h">${r.h}</span></div>`).join("");
   el.querySelectorAll(".row").forEach(x => x.onclick = () => { P.sel = +x.dataset.i; panelChange(1, true); selIntoView("p-settings"); });
 }
-async function loadSettings() { try { panel.settings.data = await getJSON("settings"); } catch (e) { panel.settings.data = { reachable: false, error: e.message }; } if (mode === "settings") drawSettings(); }
+async function loadSettings() { await readPanel("settings", "settings", m => ({ reachable: false, error: m })); if (mode === "settings") drawSettings(); }
 async function changeSetting(d) {
   // Local first: the row shows the new value in this frame (optimistic), the server is told in the background, and its
   // answer (or the next 2 s read) corrects the row. The panel never waits on the network to move.
@@ -683,11 +707,11 @@ function drawDesks() {
   P.sel = Math.max(0, Math.min(Math.max(0, list.length - 1), P.sel));
   let head = !d ? `<div class="msg">reading the desks…</div>` : d.configured === false ? `<div class="msg">No desks are configured on this server (VIZIER_DESKS_CMD).</div>`
     : d.error ? `<div class="msg err">${esc(d.error)}</div>` : !list.length ? `<div class="msg">No desks.</div>` : "";
-  el.innerHTML = head + (P.err ? `<div class="msg ${P.ok ? "" : "err"}">${esc(P.err)}</div>` : "") + list.map((x, i) =>
+  el.innerHTML = staleLine(P) + head + (P.err ? `<div class="msg ${P.ok ? "" : "err"}">${esc(P.err)}</div>` : "") + list.map((x, i) =>
     `<div class="row${i === P.sel ? " sel" : ""}" data-i="${i}"><span class="k">${esc(x.agent || "")}</span><span class="v">${esc(x.name || x.id)}${x.detail ? ` <span style="color:var(--dim)">· ${esc(x.detail)}</span>` : ""}</span><span class="h">${i === P.sel ? "→ open in the desk viewer" : ""}</span></div>`).join("");
   el.querySelectorAll(".row").forEach(x => x.onclick = () => { P.sel = +x.dataset.i; panelChange(1, true); });
 }
-async function loadDesks() { try { panel.desks.data = await getJSON("desks"); } catch (e) { panel.desks.data = { error: e.message }; } if (mode === "desks") drawDesks(); }
+async function loadDesks() { await readPanel("desks", "desks", m => ({ error: m })); if (mode === "desks") drawDesks(); }
 async function openDesk() {
   const P = panel.desks, x = ((P.data && P.data.desks) || [])[P.sel]; if (!x) return;
   P.ok = true; P.err = `Opening ${x.name || x.id}…`; drawDesks();
@@ -698,33 +722,33 @@ async function openDesk() {
 function ago(iso) { const t = Date.parse(iso || ""); if (!t) return ""; const m = Math.round((Date.now() - t) / 60000); return m < 1 ? "just now" : m < 120 ? m + " min ago" : Math.round(m / 60) + " h ago"; }
 function drawAgents() {
   const d = panel.agents.data, el = $("p-agents"), list = (d && d.agents) || [];
-  el.innerHTML = !d ? `<div class="msg">reading the team…</div>` : d.configured === false ? `<div class="msg">Agent status is not configured on this server (VIZIER_AGENTS_DIR).</div>`
+  el.innerHTML = staleLine(panel.agents) + (!d ? `<div class="msg">reading the team…</div>` : d.configured === false ? `<div class="msg">Agent status is not configured on this server (VIZIER_AGENTS_DIR).</div>`
     : !list.length ? `<div class="msg">No agent status files.</div>` : list.map(a =>
-    `<div class="row"><span class="k"><span class="dot ${esc(a.health)}"></span>${esc(a.agent)}</span><span class="v">${esc(a.doing || (a.reasons || []).join("; ") || a.health)}</span><span class="h">${esc(ago(a.at))}</span></div>`).join("");
+    `<div class="row"><span class="k"><span class="dot ${esc(a.health)}"></span>${esc(a.agent)}</span><span class="v">${esc(a.doing || (a.reasons || []).join("; ") || a.health)}</span><span class="h">${esc(ago(a.at))}</span></div>`).join(""));
 }
-async function loadAgents() { try { panel.agents.data = await getJSON("agents"); } catch (e) { panel.agents.data = { agents: [], error: e.message }; } if (mode === "agents") drawAgents(); }
+async function loadAgents() { await readPanel("agents", "agents", m => ({ agents: [], error: m })); if (mode === "agents") drawAgents(); }
 // HORUS SCRIPT: GET /horus-script, the agent's cue table (id, on-phrase, do, wait-for, on-fail); `current` is the cue
 // vsl-follow last fired. Read-only: no row is selectable and nothing is sent. This window is outside every capture.
 let hsCur = "";
 function drawTscript() {   // plain text: no row is selected or lit, and nothing scrolls by itself
   const d = panel.tscript.data, el = $("p-tscript"), top = el.scrollTop;
-  el.innerHTML = !d ? `<div class="msg">reading the script…</div>` : d.error ? `<div class="msg err">${esc(d.error)}</div>`
+  el.innerHTML = staleLine(panel.tscript) + (!d ? `<div class="msg">reading the script…</div>` : d.error ? `<div class="msg err">${esc(d.error)}</div>`
     : !(d.sections || []).length ? `<div class="msg">No script${d.configured ? "" : " (VIZIER_SPEAKER_SCRIPT is not set)"}.</div>`
     : `<div class="msg">${esc(d.title || d.source)}</div>` + d.sections.map(s => `<div class="msg" style="color:var(--hi);margin-top:12px">${esc(s.title)}</div>`
-      + s.lines.map(l => `<div class="row" style="font-size:22px"><span class="v">${esc(l.text)}</span></div>`).join("")).join("");
+      + s.lines.map(l => `<div class="row" style="font-size:22px"><span class="v">${esc(l.text)}</span></div>`).join("")).join(""));
   el.scrollTop = top;
 }
-async function loadTscript() { try { panel.tscript.data = await getJSON("speaker-script"); } catch (e) { panel.tscript.data = { sections: [], error: e.message }; } if (mode === "tscript") drawTscript(); }
+async function loadTscript() { await readPanel("tscript", "speaker-script", m => ({ sections: [], error: m })); if (mode === "tscript") drawTscript(); }
 function drawHscript() {
   const d = panel.hscript.data, el = $("p-hscript"), list = (d && d.cues) || [];
   const cell = (k, v) => `<span class="v" style="flex:${k}">${esc(v || "")}</span>`;
-  el.innerHTML = !d ? `<div class="msg">reading the cues…</div>` : d.error ? `<div class="msg err">${esc(d.error)}</div>`
+  el.innerHTML = staleLine(panel.hscript) + (!d ? `<div class="msg">reading the cues…</div>` : d.error ? `<div class="msg err">${esc(d.error)}</div>`
     : !list.length ? `<div class="msg">No cue list${d.configured ? "" : " (VIZIER_HORUS_CUES is not set)"}.</div>`
     : `<div class="msg">${esc(d.source)}</div><div class="row ro" style="font-size:14px"><span class="k" style="flex:0 0 70px">id</span>${["on","do","wait-for","on-fail"].map(h => `<span class="v" style="flex:1">${h}</span>`).join("")}</div>`
-      + list.map(c => `<div class="row${c.beat === d.current ? " sel" : ""}" data-b="${esc(c.beat)}" style="font-size:17px;align-items:flex-start"><span class="k" style="flex:0 0 70px;font-size:15px">${esc(c.id)}</span>${cell(1, c.on)}${cell(1, c.do)}${cell(1, c.wait)}${cell(1, c.fail)}</div>`).join("");
+      + list.map(c => `<div class="row${c.beat === d.current ? " sel" : ""}" data-b="${esc(c.beat)}" style="font-size:17px;align-items:flex-start"><span class="k" style="flex:0 0 70px;font-size:15px">${esc(c.id)}</span>${cell(1, c.on)}${cell(1, c.do)}${cell(1, c.wait)}${cell(1, c.fail)}</div>`).join(""));
   if (d && d.current && d.current !== hsCur) { hsCur = d.current; selIntoView("p-hscript"); }
 }
-async function loadHscript() { try { panel.hscript.data = await getJSON("horus-script"); } catch (e) { panel.hscript.data = { cues: [], error: e.message }; } if (mode === "hscript") drawHscript(); }
+async function loadHscript() { await readPanel("hscript", "horus-script", m => ({ cues: [], error: m })); if (mode === "hscript") drawHscript(); }
 function panelOpen(n) { ({ settings: () => { drawSettings(); loadSettings(); }, desks: () => { drawDesks(); loadDesks(); }, agents: () => { drawAgents(); loadAgents(); }, tscript: () => { drawTscript(); loadTscript(); }, hscript: () => { drawHscript(); loadHscript(); } })[n](); }
 // The selected row is kept on screen every time the selection moves (the user 2026-11-15: arrow-down moved the selection
 // below the window and the list never followed). Only on a move: the 2 s redraw never pulls a list the wheel scrolled.
@@ -745,12 +769,16 @@ every(15000, () => mode === "desks" ? loadDesks() : null);
 window.vizierPanels = { panel, settingRows, goTab };   // headless checks
 
 // ---------- CALL: the feed renderer over WS /feed (frames: docs/openapi.yaml) ----------
-const sugs = {}, seenSeq = new Set(); let ws, seenCall = null, feedUp = null;
+const sugs = {}, seenSeq = new Set(); let ws, seenCall = null, feedUp = null, feedTry = 0;
 const tl = m => { try { window.__TAURI__ && window.__TAURI__.core.invoke("talk_log", { line: new Date().toISOString() + " " + m }).catch(() => {}); } catch {} };   // %PUBLIC%\vizier\talk.log
 function connect() {
   ws = new WebSocket(SERVER.replace(/^http/, "ws") + "/feed");
-  ws.onopen = () => { $("dot").classList.add("on"); if (!feedUp) { feedUp = true; tl("feed linked to " + SERVER); } };
-  ws.onclose = () => { $("dot").classList.remove("on"); if (feedUp !== false) { feedUp = false; tl("feed lost: " + SERVER); } setTimeout(connect, 800); };
+  // The feed coming back is the first sign the server is up again: re-read health and the open panel now instead of
+  // waiting for their next tick, so a restart costs the restart and not one more poll period.
+  ws.onopen = () => { feedTry = 0; link.ok = Date.now(); if (!feedUp) { feedUp = true; tl("feed linked to " + SERVER); pollHealth(); if (PANELS.includes(mode)) panelOpen(mode); } };
+  // Full Jitter (the deployment's issue 15077): 100 ms doubling to a 5 s cap, a random point under it, reset on open. A
+  // restarted server (~2 s) is back on the feed within one or two tries, and a long outage is retried every <=5 s.
+  ws.onclose = () => { if (feedUp !== false) { feedUp = false; tl("feed lost: " + SERVER); } setTimeout(connect, Math.random() * Math.min(5000, 100 * 2 ** Math.min(feedTry++, 10))); };
   ws.onmessage = e => {
     const f = JSON.parse(e.data);
     if (f.type === "status") {

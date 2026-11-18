@@ -56,6 +56,20 @@ jobs:
         if: always()
         run: chown -R "$(stat -c %u:%g "$GITHUB_WORKSPACE/..")" "$GITHUB_WORKSPACE" || true
 
+  studiod:
+    name: studiod (OBS daemon) against a fake obs-websocket
+    runs-on: ${{ fromJSON(vars.VIZIER_RUNNER || '["ubuntu-latest"]') }}
+    container: rust:1-bookworm
+    steps:
+      - uses: actions/checkout@v4
+      - run: apt-get update -qq && apt-get install -y -qq python3-venv >/dev/null
+      - run: cd studiod && cargo build --release --locked
+      - run: python3 -m venv /tmp/v && /tmp/v/bin/pip install -q -r server/requirements-dev.txt
+      - run: cd studiod && STUDIOD=target/release/studiod /tmp/v/bin/python -m pytest -q test_studiod.py
+      - name: hand the workspace back to the runner user
+        if: always()
+        run: chown -R "$(stat -c %u:%g "$GITHUB_WORKSPACE/..")" "$GITHUB_WORKSPACE" || true
+
   windows:
     name: vizier.exe (Windows x64, cross-built)
     runs-on: ${{ fromJSON(vars.VIZIER_RUNNER || '["ubuntu-latest"]') }}
