@@ -83,6 +83,7 @@ LOG = Path(os.environ.get("VIZIER_LOG", DATA / "events.jsonl"))
 TOKEN = os.environ.get("VIZIER_TOKEN", "")
 SCRIPTS = Path(os.environ.get("VIZIER_SCRIPTS", DATA / "scripts.md"))
 POSTED_SCRIPT = DATA / "posted-script.md"     # where POST /script {"markdown"} lands
+POSTED_CONTEXT = DATA / "posted-context.md"   # its CONTEXT tab: carried over from the script it replaces (knowledge#14776)
 # The script the prompter shows survives a restart (the deployment's issue 13257): POST /script records its choice here and
 # make_app() restores it, so a restart never puts VIZIER_SCRIPTS (a deploy-time default, often a past client's
 # script) back on top over what the agent last showed. {"clear": true} records NO_SCRIPT: the honest empty state.
@@ -347,6 +348,13 @@ async def script(req):
         choose_script(req.app, NO_SCRIPT)
     elif isinstance(b.get("markdown"), str) and b["markdown"].strip():
         POSTED_SCRIPT.parent.mkdir(parents=True, exist_ok=True)
+        # A text update must not take the CONTEXT tab away: posted-script.md has no `-context.md` of its own, so the
+        # client saw an empty context and threw the reader off the tab (knowledge#14776). The script it replaces hands
+        # its context over; {"context": "..."} replaces it, {"context": ""} drops it.
+        if isinstance(b.get("context"), str):
+            POSTED_CONTEXT.write_text(b["context"])
+        else:
+            POSTED_CONTEXT.write_text(context_text(current_script(req.app)))
         POSTED_SCRIPT.write_text(b["markdown"])
         choose_script(req.app, POSTED_SCRIPT)
     elif isinstance(b.get("path"), str) and b["path"]:
@@ -419,11 +427,26 @@ async def prompter_scripts(req):
     return web.json_response(parse_takes(src.read_text()))
 
 
+def context_file(src: Path):
+    """The CONTEXT tab's file for a script: its `<name>-context.md` sibling; the posted script's is POSTED_CONTEXT."""
+    if src == POSTED_SCRIPT:
+        return POSTED_CONTEXT
+    return src.with_name(re.sub(r"-script\.md$", "", src.name) + "-context.md") if src.name.endswith("-script.md") else None
+
+
+def context_text(src: Path) -> str:
+    f = context_file(src)
+    try:
+        return f.read_text() if f and f.exists() else ""
+    except OSError:
+        return ""
+
+
 async def prompter_context(req):
     """The prompter's other tabs: CONTEXT is the script's sibling `<name>-context.md`; NOTES are the script's
     blocks that are not numbered parts. Both re-read on every request."""
     src = current_script(req.app)
-    ctx = src.with_name(re.sub(r"-script\.md$", "", src.name) + "-context.md") if src.name.endswith("-script.md") else None
+    ctx = context_file(src)
     notes, title = [], ""
     try:
         raw = src.read_text()
