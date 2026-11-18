@@ -226,7 +226,9 @@ const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
 let health = { recording: null, call: null }, pinned = null, mode = null;
 const liveCall = () => !!health.call && !/^(bench-|probe)/.test(health.call);
 function autoMode() { return "tscript"; }   // no CALL mode: on a call you Tab to SCRIPT
+let frontSent = null;
 function refreshTabs() {
+  if (mode && mode !== frontSent) { frontSent = mode; api("state/front", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tab: mode }) }).catch(() => {}); }
   $("tab-talk").classList.toggle("on", mode === "talk");
   for (const k of PANELS) $("tab-" + k).classList.toggle("on", mode === k);
   $("tab-rec").classList.toggle("on", mode === "rec" && rtab === "script");
