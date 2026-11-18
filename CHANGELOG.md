@@ -67,7 +67,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
   selection moves, clear of the key legend); before, Down moved the selection below the window and the list stayed put.
 - **Ears publishes with DTX and RED off** (plus `voiceIsolation`, mono, the speech preset; echo cancellation, noise
   suppression and AGC stay on). What the agent decoded from a quiet laptop mic was 536 Hz bursts at -30.7 dBFS RMS.
-- **Alt+R records a VSL take** from any app, and the SETTINGS panel's first row ("Recording") does the same by keyboard.
+- **Alt+R records a VSL take** from any app, and the SETTINGS panel's first row ("Recording") does the same by keyboard.  (removed: knowledge#15246)
   Both, and an agent's own "record", `POST /vsl` (`{"toggle": true}` or `{"on": bool}`): the server answers at once and
   runs `VIZIER_VSL_START_CMD` / `VIZIER_VSL_STOP_CMD` in the background, one at a time; `VIZIER_VSL_STATE` (a file that
   exists while a take records) is the truth, and `/health` carries it as `vsl`, so the red REC pill and the row always

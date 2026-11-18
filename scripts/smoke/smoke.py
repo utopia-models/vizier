@@ -317,7 +317,7 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
     await c.js("window.vizierPanels.goTab('settings')"); await asyncio.sleep(0.6)
     rows = await c.js("window.vizierPanels.settingRows().map(r=>({k:r.k,ro:!!r.ro}))")
     for i, r in enumerate(rows):
-        if r["ro"] or r["k"] == "vsl": continue   # vsl: the Alt+R steps below drive the same switch
+        if r["ro"]: continue
         if r["k"] in ("ears", "mouth") and not talk:
             ok(f"SETTINGS {r['k']}: changes (needs the talk link; run with --talk-url)", True, "skipped: no talk link"); continue
         if r["k"] == "voice" and not await c.js("((window.vizierPanels.panel.settings.data||{}).voices||[]).length"):
@@ -354,22 +354,9 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
     await c.shot(out, "alt-v-back")
     ok("Alt+V hides the window, and Alt+V brings it back", m1 is True and m2 is False, f"minimized {m1} then {m2}")
 
-    # ---- Alt+R (dry: the smoke server's VSL commands only touch a file)
-    await c.js("window.vizierPanels.goTab('settings')")
-    await c.js("window.__TAURI__.core.invoke('smoke_key', {key: 'alt+r'})")
-    # issue 14552: no REC pill or mark anywhere (OBS's red border is the signal); the SETTINGS row follows the take
-    row = "document.getElementById('p-settings').textContent"
-    on = await until(lambda: c.js(f"{row}.includes('Recording') && !{row}.includes('Not recording')"), 6)
-    started = await until(lambda: asyncio.sleep(0, state.exists()), 8)
-    await c.shot(out, "alt-r-on")
-    no_mark = await c.js("!document.getElementById('vsl') && !document.body.innerText.includes('● REC')")
-    await c.js("window.__TAURI__.core.invoke('smoke_key', {key: 'alt+r'})")
-    off = await until(lambda: c.js(f"{row}.includes('Not recording')"), 6)
-    stopped = await until(lambda: asyncio.sleep(0, not state.exists()), 8)
-    await c.shot(out, "alt-r-off")
-    ok("Alt+R starts a (dry) take and Alt+R stops it; the SETTINGS row follows, no REC mark is shown",
-       on and started and no_mark and off and stopped,
-       f"row on={on} take started={started} no REC mark={no_mark} row off={off} take stopped={stopped}")
+    # ---- no recording control anywhere (knowledge#15246, ask 453)
+    gone = await c.js("!document.getElementById('p-settings').textContent.includes('Recording') && !document.body.innerText.includes('Alt+R')")
+    ok("no Recording row and no Alt+R in the UI", gone, "")
     errs = await c.js("(window.__smokeErrors||[]).slice(0,5)")
     ok("no uncaught page errors", not errs, str(errs))
 
