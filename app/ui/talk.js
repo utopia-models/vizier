@@ -29,6 +29,7 @@ tlog("talk.js loaded");
 const KEEP = "vizier.talk";   // kept for the record (last session's choice); never read back as the start state
 const state = { ears: true, mouth: true, room: null, mic: null, audio: [], status: "off" };
 let started = false;
+const pending = { ears: false, mouth: false };
 const keep = () => { try { localStorage.setItem(KEEP, JSON.stringify({ ears: state.ears, mouth: state.mouth })); } catch (e) { /* no storage */ } };
 
 function pill() {
@@ -62,7 +63,8 @@ function paint() {
     const dot = el.querySelector(`[data-k="${k}"] b`);
     // Ears: green = a live mic track in the room; grey = switched off; red = no room, or on with no live track.
     const on = k === "ears" ? micLive() : !!state.room;
-    dot.style.color = !state.room ? "#c0392b" : !state[k] ? "#5b6472" : on ? "#3ddc84" : "#c0392b";
+    // pending: a press whose work (opening the mic, publishing) is still running shows amber at once, never the old colour.
+    dot.style.color = !state.room ? "#c0392b" : !state[k] ? "#5b6472" : pending[k] ? "#f0b429" : on ? "#3ddc84" : "#c0392b";
   }
   const live = micLive();
   // On-air indicator (knowledge#14536): a red ON AIR chip exactly while a mic track is live and capturing, a dim MIC OFF
@@ -203,6 +205,7 @@ export async function toggle(k, src = "js") {
   state[k] = !state[k];
   keep();
   note(`${src}:${k}`);
+  pending[k] = true;
   paint();
   try {
     if (k === "ears") await applyEars(); else applyMouth();
@@ -212,6 +215,7 @@ export async function toggle(k, src = "js") {
     tlog(`${k} failed: ${e.message || e}`);
     console.error("talk", e);
   }
+  pending[k] = false;
   paint();
 }
 
