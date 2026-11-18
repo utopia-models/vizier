@@ -40,7 +40,7 @@ function pill() {
   el.style.cssText = "position:fixed;top:6px;right:8px;z-index:2147483647;display:flex;gap:10px;align-items:center;" +
     "padding:3px 10px;border-radius:999px;background:rgba(13,15,18,.86);border:1px solid #2f4560;color:#eef1f5;" +
     "font:600 12px/1.6 system-ui,sans-serif;user-select:none;pointer-events:auto";
-  el.innerHTML = '<span data-k="ears" title="Alt+E">Ears <b>●</b></span><span data-k="mouth" title="Alt+M">Mouth <b>●</b></span>';
+  el.innerHTML = '<span data-k="ears" title="Alt+E">Ears <b>●</b></span><span data-k="mouth" title="Alt+M">Mouth <b>●</b></span><span data-onair title="the mic is capturing only while this is red">MIC OFF</span>';
   el.querySelectorAll("[data-k]").forEach((s) => s.addEventListener("click", () => toggle(s.dataset.k, "click")));
   document.body.appendChild(el);
   return el;
@@ -65,6 +65,13 @@ function paint() {
     dot.style.color = !state.room ? "#c0392b" : !state[k] ? "#5b6472" : on ? "#3ddc84" : "#c0392b";
   }
   const live = micLive();
+  // On-air indicator (knowledge#14536): a red ON AIR chip exactly while a mic track is live and capturing, a dim MIC OFF
+  // otherwise. It reads micLive() (the real track), never the switch, so it cannot show off over an open mic.
+  const air = el.querySelector("[data-onair]");
+  air.textContent = live ? "● ON AIR" : "MIC OFF";
+  air.style.cssText = live ? "color:#fff;background:#c0392b;border-radius:999px;padding:0 8px;font-weight:700"
+    : "color:#5b6472;font-weight:600";
+  el.dataset.onAir = live ? "yes" : "no";
   el.title = state.room ? `${state.room.name} · ${state.status}${state.ears && !live ? " · NO MIC TRACK" : ""}`
     : `not connected · ${state.status}`;
   el.dataset.ears = state.ears ? "on" : "off";
