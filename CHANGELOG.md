@@ -15,6 +15,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
   the recognizer and the model (pinned by SHA-256); `scripts/follow-bench.mjs` and `scripts/follow-e2e.py` measure it.
 
 ### Changed
+- **HORUS SCRIPT lights the current cue within 0.4 s, not 2 s** (knowledge#14580): the tab polls `/horus-script` every 400 ms while it is open, so the lit row follows vsl-follow's `state.json` instead of trailing it by up to a 2 s poll.
 - **No 'changed HH:MM' marks on the SPEAKER SCRIPT and HORUS SCRIPT tabs.** The server sends `changed: null` on every line and cue and the page renders nothing for it. The app embeds `app/ui/index.html`, so the exe needs a rebuild to drop the marks it already shows.
 - **The window is the reader's: drag it by its header, resize it by its edges, minimize it and it stays minimized.** The
   header is a drag region (`data-tauri-drag-region`), the window has a 480x270 floor, and every move and resize is written
