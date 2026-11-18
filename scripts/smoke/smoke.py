@@ -13,9 +13,11 @@ What it does (every step is a PASS/FAIL line, with a screenshot in --out; exit 0
      user's own Vizier keeps running and keeps its keys), and `smoke_key` presses Alt+V / Alt+R / Alt+E / Alt+M through
      the same code the shortcuts run (main.rs hotkey()).
   3. Over the DevTools protocol, with real key and mouse-wheel input (Input.dispatchKeyEvent / dispatchMouseEvent):
-     the page links to the server (and to LiveKit when --talk-url is given); Tab visits TALK, SETTINGS, DESKS, AGENTS and
-     SCRIPT in that order and comes back to TALK; SCRIPT shows the script's text in the window; every tab scrolls to its
-     bottom by wheel and by arrow keys, and the selected row is always fully on screen; every SETTINGS row that can change
+     the page links to the server (and to LiveKit when --talk-url is given); the default view is TYLER SCRIPT; Tab visits
+     TALK, SETTINGS, DESKS, AGENTS, TYLER SCRIPT and HORUS SCRIPT in that order and comes back to TALK; TYLER SCRIPT shows
+     his spoken lines read-only (no highlight, no scroll by itself) and HORUS SCRIPT lights the current cue from
+     vsl-follow's state.json; both mark an edited line 'changed HH:MM'; every tab scrolls to its bottom by wheel (and
+     the lists by arrow keys, the selected row always fully on screen); every SETTINGS row that can change
      changes and changes back; Alt+E and Alt+M flip Ears and Mouth (keys in the page, and the native shortcut when the
      talk link is up); Alt+V hides the window and Alt+V brings it back; Alt+R starts a (dry) take and Alt+R stops it.
   4. Stops the smoke instance and its task, whatever happened.
@@ -28,6 +30,7 @@ import aiohttp
 
 REPO = Path(__file__).resolve().parents[2]
 RESULTS = []
+FIX = {}   # the smoke server's fixture env (file paths the steps edit)
 AUDIO_SECS, ROOM, AUDIO_ONLY = 5, "vizier-smoke", False
 
 
@@ -70,8 +73,13 @@ def fixture(d: Path, script: Path):
     desks = [{"id": f"d{i}", "name": f"Desk {i}", "agent": f"agent{i:02}"} for i in range(25)]
     (d / "desks.json").write_text(json.dumps(desks))
     (d / "scripts.md").write_text(script.read_text())
+    cues = ["| id | on | do | wait-for | on-fail |", "|---|---|---|---|---|"] + \
+           [f"| c{i} | says phrase {i} | show page {i} | mark {i} | skip {i} |" for i in range(30)]
+    (d / "horus-script.md").write_text("\n".join(cues) + "\n")
+    (d / "horus-state.json").write_text(json.dumps({"beat": "b2", "at": 1}))
     state = d / "vsl-current.json"
-    return {"VIZIER_DATA": str(d / "data"), "VIZIER_SCRIPTS": str(d / "scripts.md"),
+    return {"VIZIER_TYLER_SCRIPT": str(d / "scripts.md"), "VIZIER_HORUS_CUES": str(d / "horus-script.md"),
+            "VIZIER_HORUS_STATE": str(d / "horus-state.json"), "VIZIER_DATA": str(d / "data"), "VIZIER_SCRIPTS": str(d / "scripts.md"),
             "VIZIER_AGENTS_DIR": str(d / "agents"), "VIZIER_DESKS_CMD": f"cat {shlex.quote(str(d / 'desks.json'))}",
             "VIZIER_DESK_OPEN_CMD": "true",
             "VIZIER_VSL_START_CMD": f"echo '{{}}' > {shlex.quote(str(state))}",
@@ -186,6 +194,10 @@ async def scroll_check(c, out, sel, name):
     return good
 
 
+async def lit_is(c, want):
+    return await c.js("[...document.querySelectorAll('#p-hscript .row.sel')].map(r=>r.dataset.b)") == want
+
+
 async def sel_visible(c, pid):
     return await c.js(f"(()=>{{const p=document.getElementById('{pid}'),r=p.querySelector('.row.sel');if(!r)return null;"
                       "const a=p.getBoundingClientRect(),b=r.getBoundingClientRect(),"
@@ -197,9 +209,11 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
     await c.call("Page.enable"); await c.call("Runtime.enable"); await c.call("Log.enable")
     ok("the page loaded", await until(lambda: c.js("!!window.vizierPanels && !!window.vizierTalk"), 20))
     ok("the page linked to the server (feed)", await until(lambda: c.js("document.getElementById('dot').classList.contains('on')"), 15))
-    got = await until(lambda: c.js("document.querySelectorAll('#text p').length > 0"), 15)
-    why = "" if got else await c.js("fetch(SERVER + '/prompter/scripts').then(r => r.status + ' ' + r.headers.get('access-control-allow-origin')).catch(e => 'fetch error: ' + e)")
-    ok("the script reached the page", got, f"{await c.js('document.querySelectorAll(\"#text p\").length')} lines; mode {await c.js('mode')}; takes {await c.js('takes.length')}; origin {await c.js('location.origin')} {why}")
+    got = await until(lambda: c.js("document.querySelectorAll('#p-tscript .row').length > 0"), 15)
+    why = "" if got else await c.js("fetch(SERVER + '/tyler-script').then(r => r.status + ' ' + r.headers.get('access-control-allow-origin')).catch(e => 'fetch error: ' + e)")
+    ok("the script reached the page", got, f"{await c.js('document.querySelectorAll(\"#p-tscript .row\").length')} lines; mode {await c.js('mode')}; origin {await c.js('location.origin')} {why}")
+    ok("the default view is TYLER SCRIPT", await c.js("document.body.dataset.mode") == "tscript" and await c.js("document.getElementById('tab-tscript').classList.contains('on')"),
+       await c.js("document.body.dataset.mode"))
     if talk:
         ok("the talk link joined LiveKit", await until(lambda: c.js("!!window.vizierTalk.state.room"), 20),
            str(await c.js("window.vizierTalk.state.status")))
@@ -218,14 +232,17 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
         if AUDIO_ONLY:
             return
 
-    # ---- Tab: TALK -> SETTINGS -> DESKS -> AGENTS -> SCRIPT -> TALK
+    # ---- Tab: TALK -> SETTINGS -> DESKS -> AGENTS -> TYLER SCRIPT -> HORUS SCRIPT -> TALK
+    await c.js("window.vizierPanels.goTab('talk')"); await asyncio.sleep(0.25)
     seen = []
     for _ in range(6):
         await c.key("Tab"); await asyncio.sleep(0.25)
-        m = await c.js("document.body.dataset.mode + (document.body.dataset.mode==='rec' ? ':' + (document.querySelector('#tab-rec.on') ? 'script' : 'other') : '')")
-        seen.append(m); await c.shot(out, f"tab-{m.replace(':', '-')}")
-    want = ["talk", "settings", "desks", "agents", "rec:script", "talk"]
-    ok("Tab visits TALK, SETTINGS, DESKS, AGENTS, SCRIPT and back to TALK", seen == want, " > ".join(seen))
+        m = await c.js("document.body.dataset.mode")
+        seen.append(m); await c.shot(out, f"tab-{m}")
+    want = ["settings", "desks", "agents", "tscript", "hscript", "talk"]
+    labels = await c.js("[...document.querySelectorAll('header .tab:not([hidden])')].map(t=>t.textContent)")
+    ok("Tab visits SETTINGS, DESKS, AGENTS, TYLER SCRIPT, HORUS SCRIPT and back to TALK (no SCRIPT tab)",
+       seen == want and labels == ["TALK", "SETTINGS", "DESKS", "AGENTS", "TYLER SCRIPT", "HORUS SCRIPT"], " > ".join(seen) + f"; tabs {labels}")
 
     # ---- every tab to the bottom: wheel, then keys with the selection on screen
     await c.js("window.vizierPanels.goTab('talk')")
@@ -258,27 +275,45 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
     await until(lambda: c.js("document.querySelectorAll('#p-agents .row').length > 1"), 8)
     await scroll_check(c, out, "#p-agents", "AGENTS")
 
-    await c.js("window.vizierPanels.goTab('script')"); await asyncio.sleep(0.4)
-    vis = await c.js("(()=>{const p=document.querySelector('#text p.cur');if(!p)return null;const r=p.getBoundingClientRect();return {t:p.textContent.slice(0,60),top:r.top,bottom:r.bottom,h:innerHeight,disp:getComputedStyle(document.getElementById('prompt')).display}})()")
-    ok("SCRIPT shows the script's text inside the window", vis and vis["t"] and vis["disp"] != "none" and 0 <= vis["top"] < vis["h"], str(vis))
-    # vizier#15: the outline's heading, coach note, cue and "Coach on part" label never render (not even hidden: the arrows
-    # step over DOM paragraphs); the coach note and BUILD footer are off SCRIPT; at least 4 rows of type fit the default window
-    shown = await c.js("[...document.querySelectorAll('#text p')].map(p=>p.textContent)")
-    unspoken = [l for l in (shown or []) if re.match(r"^(#|>|\[|\(|Coach\b)", l)]
-    ok("SCRIPT shows only the spoken lines (no heading, coach note, cue or label from the outline)", bool(shown) and not unspoken, str(unspoken or shown[:2]))
-    fit = await c.js("(()=>{const b=document.getElementById('text').getBoundingClientRect(),k=document.getElementById('keylegend').getBoundingClientRect();"
-                     "const lh=parseFloat(getComputedStyle(document.querySelector('#text p')).lineHeight);const area=Math.min(b.bottom,k.top)-b.top;"
-                     "return {rows:Math.floor(area/lh),area:Math.round(area),lh,w:innerWidth,h:innerHeight,type:parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--type')),"
-                     "hdr:Math.round(document.querySelector('header').getBoundingClientRect().height),leg:Math.round(k.height),"
-                     "coach:getComputedStyle(document.getElementById('coach')).display,build:getComputedStyle(document.getElementById('build')).display}})()")
-    ok("SCRIPT at the default window and type: at least 4 lines at once, type <= 40 px, one-row header and legend, no coach note, no BUILD",
-       bool(fit) and fit["rows"] >= 4 and fit["type"] <= 40 and fit["hdr"] <= 40 and fit["leg"] <= 30 and fit["coach"] == "none" and fit["build"] == "none", str(fit))
-    n = await c.js("document.querySelectorAll('#text p').length")
-    for _ in range(n + 2): await c.key("ArrowDown")
-    cur = await c.js("(()=>{const ps=[...document.querySelectorAll('#text p')],p=document.querySelector('#text p.cur'),r=p.getBoundingClientRect();return {i:ps.indexOf(p),n:ps.length,top:r.top,h:innerHeight}})()")
-    await c.shot(out, "script-bottom")
-    ok("SCRIPT: arrow-down reaches the last line of the part and it is on screen", cur["i"] == cur["n"] - 1 and 0 <= cur["top"] < cur["h"], str(cur))
-    await c.key("Home"); await scroll_check(c, out, "#text", "SCRIPT")
+    # ---- TYLER SCRIPT: his spoken lines, read-only; no highlight, nothing scrolls by itself
+    await c.js("window.vizierPanels.goTab('tscript')"); await asyncio.sleep(0.6)
+    await until(lambda: c.js("document.querySelectorAll('#p-tscript .row').length > 1"), 8)
+    ts = await c.js("(()=>{const p=document.getElementById('p-tscript'),rs=[...p.querySelectorAll('.row')],r=rs[0]&&rs[0].getBoundingClientRect(),a=p.getBoundingClientRect();"
+                    "return {n:rs.length,first:rs[0]&&rs[0].textContent.slice(0,40),on:r&&r.top>=a.top-1&&r.top<a.bottom,sel:p.querySelectorAll('.sel,.cur,.now').length,"
+                    "unspoken:rs.filter(x=>/^(#|>|\\[)/.test(x.textContent)).length,top:p.scrollTop,sh:p.scrollHeight,ch:p.clientHeight}})()")
+    ok("TYLER SCRIPT shows his spoken lines inside the window, with no row highlighted and no outline cue or heading line",
+       bool(ts) and ts["n"] > 5 and ts["on"] and ts["sel"] == 0 and ts["unspoken"] == 0 and ts["top"] == 0, str(ts))
+    ok("TYLER SCRIPT is longer than the window (so scrolling is tested)", ts["sh"] > ts["ch"] + 1, f"{ts['sh']} > {ts['ch']}")
+    for _ in range(4): await c.key("ArrowDown")
+    await c.key("Enter"); await asyncio.sleep(0.5)
+    ro = await c.js("(()=>{const p=document.getElementById('p-tscript');return {sel:p.querySelectorAll('.sel,.cur,.now').length,mode:document.body.dataset.mode}})()")
+    await c.shot(out, "tscript-keys")
+    ok("TYLER SCRIPT is read-only: arrows and Enter highlight nothing and stay on the tab", ro["sel"] == 0 and ro["mode"] == "tscript", str(ro))
+    await c.js("document.getElementById('p-tscript').scrollTop = 0"); await scroll_check(c, out, "#p-tscript", "TYLER SCRIPT")
+    # 'changed HH:MM': edit one line on the server's copy; the next read marks it (the first read was the baseline)
+    f = Path(FIX["VIZIER_TYLER_SCRIPT"]); f.write_text(f.read_text().replace("Middle line 2.", "Middle line 2, edited by the smoke."))
+    marked = await until(lambda: c.js("/changed \\d{1,2}:\\d\\d/.test(document.getElementById('p-tscript').textContent)"), 12)
+    row = await c.js("[...document.querySelectorAll('#p-tscript .row')].filter(r=>/changed \\d{1,2}:\\d\\d/.test(r.textContent)).map(r=>r.textContent.slice(0,60))")
+    ok("TYLER SCRIPT marks an edited line 'changed HH:MM' (only that line)", marked and len(row) == 1 and "edited by the smoke" in row[0], str(row))
+
+    # ---- HORUS SCRIPT: the cue table; the current cue (vsl-follow's state.json) is lit; read-only
+    await c.js("window.vizierPanels.goTab('hscript')"); await asyncio.sleep(0.6)
+    await until(lambda: c.js("document.querySelectorAll('#p-hscript .row[data-b]').length > 1"), 8)
+    lit = lambda: c.js("[...document.querySelectorAll('#p-hscript .row.sel')].map(r=>r.dataset.b)")
+    ok("HORUS SCRIPT lights the current cue from state.json (b2), and only that one", await until(lambda: lit_is(c, ["b2"]), 8), str(await lit()))
+    sf = Path(FIX["VIZIER_HORUS_STATE"]); sf.write_text(json.dumps({"beat": "b25", "at": 2}))
+    moved = await until(lambda: lit_is(c, ["b25"]), 8)
+    vis = await c.js("(()=>{const p=document.getElementById('p-hscript'),r=p.querySelector('.row.sel').getBoundingClientRect(),a=p.getBoundingClientRect();return {top:r.top,bottom:r.bottom,ptop:a.top,pbottom:a.bottom}})()")
+    await c.shot(out, "hscript-current")
+    ok("HORUS SCRIPT follows the cue when state.json changes (b25 lit and on screen)", moved and vis["top"] >= vis["ptop"] - 1 and vis["bottom"] <= vis["pbottom"] + 1, f"lit {await lit()} {vis}")
+    for _ in range(4): await c.key("ArrowDown")
+    await c.key("Enter"); await asyncio.sleep(0.5)
+    ok("HORUS SCRIPT is read-only: arrows and Enter leave the lit cue where vsl-follow put it", await lit() == ["b25"] and await c.js("document.body.dataset.mode") == "hscript", str(await lit()))
+    await c.js("document.getElementById('p-hscript').scrollTop = 0"); await scroll_check(c, out, "#p-hscript", "HORUS SCRIPT")
+    cf = Path(FIX["VIZIER_HORUS_CUES"]); cf.write_text(cf.read_text().replace("show page 7 ", "show page 7 edited "))
+    marked = await until(lambda: c.js("/changed \\d{1,2}:\\d\\d/.test(document.getElementById('p-hscript').textContent)"), 12)
+    row = await c.js("[...document.querySelectorAll('#p-hscript .row')].filter(r=>/changed \\d{1,2}:\\d\\d/.test(r.textContent)).map(r=>r.dataset.b)")
+    ok("HORUS SCRIPT marks an edited cue 'changed HH:MM' (only that cue)", marked and row == ["b7"], str(row))
 
     # ---- every SETTINGS row that can change: change it, then change it back
     await c.js("window.vizierPanels.goTab('settings')"); await asyncio.sleep(0.6)
@@ -345,7 +380,7 @@ async def run(a):
     out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
     for f in out.glob("*.png"): f.unlink()
     tmp = Path(tempfile.mkdtemp(prefix="vizier-smoke-"))
-    env, state = fixture(tmp, Path(a.script))
+    env, state = fixture(tmp, Path(a.script)); FIX.update(env)
     sport, cport = free_port(), a.cdp_port
     srv = subprocess.Popen([sys.executable, str(REPO / "server" / "vizier.py"), "--host", "127.0.0.1", "--port", str(sport)],
                            env={**os.environ, **env}, stdout=subprocess.DEVNULL, stderr=open(tmp / "server.log", "w"))
