@@ -14,7 +14,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
   the recognizer and the model (pinned by SHA-256); `scripts/follow-bench.mjs` and `scripts/follow-e2e.py` measure it.
 
 ### Changed
-- **No 'changed HH:MM' marks on the TYLER SCRIPT and HORUS SCRIPT tabs.** The server sends `changed: null` on every line and cue and the page renders nothing for it. The app embeds `app/ui/index.html`, so the exe needs a rebuild to drop the marks it already shows.
+- **No 'changed HH:MM' marks on the SPEAKER SCRIPT and HORUS SCRIPT tabs.** The server sends `changed: null` on every line and cue and the page renders nothing for it. The app embeds `app/ui/index.html`, so the exe needs a rebuild to drop the marks it already shows.
 - **The window is the reader's: drag it by its header, resize it by its edges, minimize it and it stays minimized.** The
   header is a drag region (`data-tauri-drag-region`), the window has a 480x270 floor, and every move and resize is written
   to `window.json` beside the exe, which the next launch opens at (a rect that meets no monitor falls back to the bottom-left
@@ -29,7 +29,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
   (about 100 a second) while the room's server was unreachable on 2026-11-17, and the WebView2 renderer crashed, leaving a
   dead bar. Now one join is in flight at a time, one retry is armed at a time, the wait is 5 s doubling to 60 s with up to
   25% jitter, and a successful join resets it (`app/ui/backoff.js`, unit-tested with `node --test app/ui/backoff.test.mjs`).
-- **`POST /prompter/snap` works in every mode** (knowledge#14117). The app wrote `live.png` only while RECORD showed a
+- **`POST /prompter/snap` works in every mode** (issue 14117). The app wrote `live.png` only while RECORD showed a
   script, because the snap check sat inside the RECORD-only goto poll; on any other tab, or with no script, a snap request
   only moved the counter. It now has its own 400 ms poll, so laptop-eye on Ra (which bumps it every 2 s and draws
   `live.png` into its frame of the laptop, the window being excluded from capture) sees what Vizier shows, whatever tab.

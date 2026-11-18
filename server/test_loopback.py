@@ -22,4 +22,5 @@ async def main() -> int:
     print("PASS")
     return 0
 
-sys.exit(asyncio.run(main()))
+if __name__ == "__main__":
+    sys.exit(asyncio.run(main()))

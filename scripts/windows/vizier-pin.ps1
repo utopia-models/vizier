@@ -68,7 +68,7 @@ foreach ($p in (Get-Process -Name vizier -ErrorAction SilentlyContinue)) {
   }
 }
 if (-not $log) { $log = @("vizier.exe not running") }
-# Capture audit every run (knowledge#14720): a screen capture that shows Vizier is a FAIL in this log and in
+# Capture audit every run (issue 14720): a screen capture that shows Vizier is a FAIL in this log and in
 # capture-audit.log beside the app (capture-audit.ps1, next to this file in the repo; deployed as C:\Users\Public\vizier\capture-audit.ps1).
 $audit = 'C:\Users\Public\vizier\capture-audit.ps1'
 if (Test-Path $audit) { $log += ((& powershell -NoProfile -ExecutionPolicy Bypass -File $audit 2>&1 | Select-Object -Last 1) -replace '^\S+ ', '') }

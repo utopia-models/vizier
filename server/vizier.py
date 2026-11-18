@@ -19,7 +19,7 @@ every window on /feed redraws. The full contract is docs/openapi.yaml; connector
         GET  /settings · POST /settings {"voice"} | {"wake"}   the voice agent's settings (VIZIER_VOICE_URL)
         GET  /desks · POST /desks/open {"id"}   desks to open (VIZIER_DESKS_CMD, VIZIER_DESK_OPEN_CMD)
         GET  /agents      the team's liveness (VIZIER_AGENTS_DIR)
-        GET  /tyler-script  his spoken beats, read-only, no highlight (VIZIER_TYLER_SCRIPT); both tabs mark edited lines
+        GET  /speaker-script  his spoken beats, read-only, no highlight (VIZIER_SPEAKER_SCRIPT); both tabs mark edited lines
         GET  /horus-script  the agent's cue table + the current cue (VIZIER_HORUS_CUES, VIZIER_HORUS_STATE); read-only
   WS    /feed     ← {"type": "status"|"line"|"interim"|"suggestion"|"delta"|"done"|"cancel"|"script", ..., "t"}
 
@@ -108,7 +108,7 @@ AGENTS_DIR = os.environ.get("VIZIER_AGENTS_DIR", "")    # one <agent>.json per a
 # "record" command: all three POST /vsl). The command runs in the background and the POST answers at once, so the
 # key acts in milliseconds while the take's own start/stop (OBS, the desk, the review) takes what it takes.
 HORUS_CUES = os.environ.get("VIZIER_HORUS_CUES", "")    # cue-list files, first that exists wins (os.pathsep-separated): a markdown table
-TYLER_SCRIPT = os.environ.get("VIZIER_TYLER_SCRIPT", "")  # his script (tyler-script.md): the TYLER SCRIPT tab shows its spoken lines
+SPEAKER_SCRIPT = os.environ.get("VIZIER_SPEAKER_SCRIPT", "")  # his script (speaker-script.md): the SPEAKER SCRIPT tab shows its spoken lines
 HORUS_STATE = os.environ.get("VIZIER_HORUS_STATE", "")  # vsl-follow's state.json: {"beat": "b3", "at": ...}, the current cue
 VSL_START_CMD = os.environ.get("VIZIER_VSL_START_CMD", "")   # e.g. "vsl start {name}"; {name} is shell-quoted
 VSL_STOP_CMD = os.environ.get("VIZIER_VSL_STOP_CMD", "")     # e.g. "vsl stop"
@@ -896,7 +896,7 @@ def track_changes(key, items):
 
 
 def spoken_sections(text):
-    """tyler-script.md -> [{title, lines}]: the numbered sections' spoken lines only (no headings of other kinds, no
+    """speaker-script.md -> [{title, lines}]: the numbered sections' spoken lines only (no headings of other kinds, no
     [horus] cue lines, no Do-not-say, no notes)."""
     out, cur = [], None
     for line in text.splitlines():
@@ -911,15 +911,15 @@ def spoken_sections(text):
     return out
 
 
-async def tyler_script(_req):
-    """GET /tyler-script: his spoken lines per section. Read-only; no current line (the page never highlights or scrolls)."""
-    p = Path(TYLER_SCRIPT).expanduser() if TYLER_SCRIPT else None
+async def speaker_script(_req):
+    """GET /speaker-script: his spoken lines per section. Read-only; no current line (the page never highlights or scrolls)."""
+    p = Path(SPEAKER_SCRIPT).expanduser() if SPEAKER_SCRIPT else None
     if not p or not p.is_file():
-        return web.json_response({"configured": bool(TYLER_SCRIPT), "sections": [], "source": None})
+        return web.json_response({"configured": bool(SPEAKER_SCRIPT), "sections": [], "source": None})
     text = p.read_text()
     secs = spoken_sections(text)
     flat = [l for s in secs for l in s["lines"]]
-    for s in secs:   # "changed" is always null: Tyler does not want 'changed HH:MM' marks (track_changes is kept, unused)
+    for s in secs:   # "changed" is always null: the user does not want 'changed HH:MM' marks (track_changes is kept, unused)
         s["lines"] = [{"text": l, "changed": None} for l in s["lines"]]
     m = re.match(r"#\s*(.*)", text)
     return web.json_response({"configured": True, "source": p.name, "title": m.group(1)[:120] if m else "",
@@ -932,7 +932,7 @@ def _cells(line):
 
 def parse_cues(text):
     """A markdown table -> [{beat, id, on, do, wait, fail}]. Columns are found by header name, so both a horus-script.md
-    (id | on | do | wait-for | on-fail) and a runsheet.md (t | Tyler says | ... | horus action | ... | live adjust) read.
+    (id | on | do | wait-for | on-fail) and a runsheet.md (t | Speaker says | ... | horus action | ... | live adjust) read.
     `beat` is vsl-follow's id for the row: b<row index>."""
     rows, head = [], None
     for line in text.splitlines():
@@ -1129,7 +1129,7 @@ def make_app() -> web.Application:
     r.add_post("/desks/open", desks_open)
     r.add_get("/agents", agents)
     r.add_get("/horus-script", horus_script)
-    r.add_get("/tyler-script", tyler_script)
+    r.add_get("/speaker-script", speaker_script)
     r.add_get("/vsl", vsl)
     r.add_post("/vsl", vsl)
     return app

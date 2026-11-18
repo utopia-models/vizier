@@ -1,4 +1,4 @@
-"""knowledge#14087 (S6, readable prompter): a CDP read of the live window on SCRIPT finds type of 28 px or less and no
+"""issue 14087 (S6, readable prompter): a CDP read of the live window on SCRIPT finds type of 28 px or less and no
 outline label ("Coach on part", "BUILD") anywhere in the DOM. Hiding them with CSS left them in the DOM (2026-11-16 headless
 read of main: 1 "Coach on part", 3 "BUILD"/"Build" hits on SCRIPT); they are emptied on SCRIPT and refilled on CONTEXT."""
 import re

@@ -8,7 +8,7 @@
 // SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE) through Tauri's content protection, set in tauri.conf.json, again
 // at setup, and checked every 2 s with topmost and shown (never the place or the size, never a minimize).
 // There is no switch to turn it off. On top of the main window's content protection, exclude_all() sets
-// WDA_EXCLUDEFROMCAPTURE on EVERY top-level window this process owns (knowledge#14720, Tyler 2026-11-17: "Vizier is
+// WDA_EXCLUDEFROMCAPTURE on EVERY top-level window this process owns (issue 14720, the user 2026-11-17: "Vizier is
 // supposed to be invisible no matter what, only to me"), on the UI thread, at setup, after every re-show (Alt+V, the
 // keeper's show), on focus and resize, and on the 2 s check, so no window of ours is ever on screen un-excluded.
 //
@@ -101,8 +101,8 @@ fn arg(name: &str) -> Option<String> {
 
 fn main() {
     // DevTools (CDP) on loopback: the smoke test drives its own window on --smoke-port (9339); the live window serves it
-    // on VIZIER_CDP_PORT (9340, "0" = off) so an agent reads what Tyler sees over `ssh -L 9340:127.0.0.1:9340`
-    // (knowledge#14087: "a CDP read of the live window"; S5, Scout sees Vizier). WebView2 binds it to 127.0.0.1 only.
+    // on VIZIER_CDP_PORT (9340, "0" = off) so an agent reads what the user sees over `ssh -L 9340:127.0.0.1:9340`
+    // (issue 14087: "a CDP read of the live window"; S5, Scout sees Vizier). WebView2 binds it to 127.0.0.1 only.
     let port = if smoke() { arg("smoke-port").unwrap_or_else(|| "9339".into()) }
                else { std::env::var("VIZIER_CDP_PORT").unwrap_or_else(|_| "9340".into()) };
     if port != "0" {

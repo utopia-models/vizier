@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """live-read.py: read the RUNNING Vizier window over CDP (DevTools on 127.0.0.1:9340, VIZIER_CDP_PORT) and grade the
-readable-prompter acceptance (knowledge#14087): script type <= 28 px, the window <= 1/3 of the screen, 0 outline labels
+readable-prompter acceptance (issue 14087): script type <= 28 px, the window <= 1/3 of the screen, 0 outline labels
 ("Coach on part", "Build") in the DOM. Read-only: it evaluates one expression and changes nothing on the screen.
 
     python3 scripts/live-read.py --host eth           # ssh -L to the Windows box, then read
