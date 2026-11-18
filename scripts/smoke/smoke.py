@@ -16,7 +16,7 @@ What it does (every step is a PASS/FAIL line, with a screenshot in --out; exit 0
      the page links to the server (and to LiveKit when --talk-url is given); the default view is TYLER SCRIPT; Tab visits
      TALK, SETTINGS, DESKS, AGENTS, TYLER SCRIPT and HORUS SCRIPT in that order and comes back to TALK; TYLER SCRIPT shows
      his spoken lines read-only (no highlight, no scroll by itself) and HORUS SCRIPT lights the current cue from
-     vsl-follow's state.json; both mark an edited line 'changed HH:MM'; every tab scrolls to its bottom by wheel (and
+     vsl-follow's state.json; neither shows 'changed HH:MM' marks; every tab scrolls to its bottom by wheel (and
      the lists by arrow keys, the selected row always fully on screen); every SETTINGS row that can change
      changes and changes back; Alt+E and Alt+M flip Ears and Mouth (keys in the page, and the native shortcut when the
      talk link is up); Alt+V hides the window and Alt+V brings it back; Alt+R starts a (dry) take and Alt+R stops it.
@@ -290,11 +290,10 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
     await c.shot(out, "tscript-keys")
     ok("TYLER SCRIPT is read-only: arrows and Enter highlight nothing and stay on the tab", ro["sel"] == 0 and ro["mode"] == "tscript", str(ro))
     await c.js("document.getElementById('p-tscript').scrollTop = 0"); await scroll_check(c, out, "#p-tscript", "TYLER SCRIPT")
-    # 'changed HH:MM': edit one line on the server's copy; the next read marks it (the first read was the baseline)
+    # edit one line on the server's copy: it shows up, with no 'changed HH:MM' mark
     f = Path(FIX["VIZIER_TYLER_SCRIPT"]); f.write_text(f.read_text().replace("Middle line 2.", "Middle line 2, edited by the smoke."))
-    marked = await until(lambda: c.js("/changed \\d{1,2}:\\d\\d/.test(document.getElementById('p-tscript').textContent)"), 12)
-    row = await c.js("[...document.querySelectorAll('#p-tscript .row')].filter(r=>/changed \\d{1,2}:\\d\\d/.test(r.textContent)).map(r=>r.textContent.slice(0,60))")
-    ok("TYLER SCRIPT marks an edited line 'changed HH:MM' (only that line)", marked and len(row) == 1 and "edited by the smoke" in row[0], str(row))
+    shown = await until(lambda: c.js("document.getElementById('p-tscript').textContent.includes('edited by the smoke')"), 12)
+    ok("TYLER SCRIPT shows the edited line and no 'changed HH:MM' mark", shown and not await c.js("/changed \\d{1,2}:\\d\\d/.test(document.getElementById('p-tscript').textContent)"))
 
     # ---- HORUS SCRIPT: the cue table; the current cue (vsl-follow's state.json) is lit; read-only
     await c.js("window.vizierPanels.goTab('hscript')"); await asyncio.sleep(0.6)
@@ -311,9 +310,8 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
     ok("HORUS SCRIPT is read-only: arrows and Enter leave the lit cue where vsl-follow put it", await lit() == ["b25"] and await c.js("document.body.dataset.mode") == "hscript", str(await lit()))
     await c.js("document.getElementById('p-hscript').scrollTop = 0"); await scroll_check(c, out, "#p-hscript", "HORUS SCRIPT")
     cf = Path(FIX["VIZIER_HORUS_CUES"]); cf.write_text(cf.read_text().replace("show page 7 ", "show page 7 edited "))
-    marked = await until(lambda: c.js("/changed \\d{1,2}:\\d\\d/.test(document.getElementById('p-hscript').textContent)"), 12)
-    row = await c.js("[...document.querySelectorAll('#p-hscript .row')].filter(r=>/changed \\d{1,2}:\\d\\d/.test(r.textContent)).map(r=>r.dataset.b)")
-    ok("HORUS SCRIPT marks an edited cue 'changed HH:MM' (only that cue)", marked and row == ["b7"], str(row))
+    shown = await until(lambda: c.js("document.getElementById('p-hscript').textContent.includes('show page 7 edited')"), 12)
+    ok("HORUS SCRIPT shows the edited cue and no 'changed HH:MM' mark", shown and not await c.js("/changed \\d{1,2}:\\d\\d/.test(document.getElementById('p-hscript').textContent)"))
 
     # ---- every SETTINGS row that can change: change it, then change it back
     await c.js("window.vizierPanels.goTab('settings')"); await asyncio.sleep(0.6)

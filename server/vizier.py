@@ -883,7 +883,7 @@ _SEEN: dict = {}
 
 def track_changes(key, items):
     """Mark what an edit touched. The first read of `key` is the baseline (nothing marked); after that an item not seen
-    before gets the time it first appeared, so a changed file shows 'changed HH:MM' on exactly the new or edited lines.
+    before gets the time it first appeared, so a changed file could mark exactly the new or edited lines. Unused: the panels send changed=null (no marks).
     Returns [epoch or None] per item; the app shows the mark for a few minutes."""
     now = time.time()
     seen = _SEEN.get(key)
@@ -919,9 +919,8 @@ async def tyler_script(_req):
     text = p.read_text()
     secs = spoken_sections(text)
     flat = [l for s in secs for l in s["lines"]]
-    ch = iter(track_changes("tyler", flat))
-    for s in secs:
-        s["lines"] = [{"text": l, "changed": next(ch)} for l in s["lines"]]
+    for s in secs:   # "changed" is always null: Tyler does not want 'changed HH:MM' marks (track_changes is kept, unused)
+        s["lines"] = [{"text": l, "changed": None} for l in s["lines"]]
     m = re.match(r"#\s*(.*)", text)
     return web.json_response({"configured": True, "source": p.name, "title": m.group(1)[:120] if m else "",
                               "sections": secs, "now": time.time()})
@@ -969,8 +968,8 @@ async def horus_script(_req):
         except (OSError, ValueError):
             pass
     cues = parse_cues(src.read_text())
-    for c, t in zip(cues, track_changes("horus:" + src.name, [json.dumps([c[k] for k in ("id", "on", "do", "wait", "fail")]) for c in cues])):
-        c["changed"] = t
+    for c in cues:
+        c["changed"] = None   # no 'changed HH:MM' marks (track_changes is kept, unused)
     return web.json_response({"configured": True, "source": src.name, "cues": cues, "current": cur, "at": at,
                               "now": time.time()})
 

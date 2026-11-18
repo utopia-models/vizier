@@ -14,6 +14,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
   the recognizer and the model (pinned by SHA-256); `scripts/follow-bench.mjs` and `scripts/follow-e2e.py` measure it.
 
 ### Changed
+- **No 'changed HH:MM' marks on the TYLER SCRIPT and HORUS SCRIPT tabs.** The server sends `changed: null` on every line and cue and the page renders nothing for it. The app embeds `app/ui/index.html`, so the exe needs a rebuild to drop the marks it already shows.
 - **The window is the reader's: drag it by its header, resize it by its edges, minimize it and it stays minimized.** The
   header is a drag region (`data-tauri-drag-region`), the window has a 480x270 floor, and every move and resize is written
   to `window.json` beside the exe, which the next launch opens at (a rect that meets no monitor falls back to the bottom-left
