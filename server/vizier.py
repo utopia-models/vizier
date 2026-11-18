@@ -83,7 +83,7 @@ LOG = Path(os.environ.get("VIZIER_LOG", DATA / "events.jsonl"))
 TOKEN = os.environ.get("VIZIER_TOKEN", "")
 SCRIPTS = Path(os.environ.get("VIZIER_SCRIPTS", DATA / "scripts.md"))
 POSTED_SCRIPT = DATA / "posted-script.md"     # where POST /script {"markdown"} lands
-POSTED_CONTEXT = DATA / "posted-context.md"   # its CONTEXT tab: carried over from the script it replaces (knowledge#14776)
+POSTED_CONTEXT = DATA / "posted-context.md"   # its CONTEXT tab: carried over from the script it replaces
 # The script the prompter shows survives a restart (the deployment's issue 13257): POST /script records its choice here and
 # make_app() restores it, so a restart never puts VIZIER_SCRIPTS (a deploy-time default, often a past client's
 # script) back on top over what the agent last showed. {"clear": true} records NO_SCRIPT: the honest empty state.
@@ -349,7 +349,7 @@ async def script(req):
     elif isinstance(b.get("markdown"), str) and b["markdown"].strip():
         POSTED_SCRIPT.parent.mkdir(parents=True, exist_ok=True)
         # A text update must not take the CONTEXT tab away: posted-script.md has no `-context.md` of its own, so the
-        # client saw an empty context and threw the reader off the tab (knowledge#14776). The script it replaces hands
+        # client saw an empty context and threw the reader off the tab. The script it replaces hands
         # its context over; {"context": "..."} replaces it, {"context": ""} drops it.
         if isinstance(b.get("context"), str):
             POSTED_CONTEXT.write_text(b["context"])

@@ -1,4 +1,4 @@
-"""Replay (the deployment's issue 14776, Tyler 2026-11-17): every POST /script threw the reader off the CONTEXT tab.
+"""Replay (a reported regression): every POST /script threw the reader off the CONTEXT tab.
 Cause: the posted script is posted-script.md, which has no `-context.md` sibling, so /prompter/context came back empty
 and the client dropped the hidden tab. A text update must keep the context of the script it replaces."""
 import asyncio
