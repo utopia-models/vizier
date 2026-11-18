@@ -144,6 +144,7 @@
   <span class="tab agt" id="tab-agents" title="AGENTS: what each lane agent is doing">AGENTS</span>
   <span class="tab ts" id="tab-tscript" title="SPEAKER SCRIPT: his spoken beats, read-only; nothing highlights or scrolls by itself">SPEAKER SCRIPT</span>
   <span class="tab hs" id="tab-hscript" title="HORUS SCRIPT: the cues Horus will run, read-only; the current one is lit">HORUS SCRIPT</span>
+  <span class="tab hs" id="tab-approval" title="APPROVAL: the gate report, the references used and the diff from the last version; read-only">APPROVAL</span>
   <span id="tab-rec" hidden></span><span id="tab-ctx" hidden></span>   <!-- the teleprompter is gone (the user, Architect 8981): inert stubs so old refs stay null-safe -->
   <span class="tab call" id="tab-call" hidden title="CALL: shown automatically while a call is live">CALL</span>
   <span class="grow" data-tauri-drag-region><span id="rec"></span> <span id="title" data-tauri-drag-region>connecting…</span></span>
@@ -174,6 +175,7 @@
   <div class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> scroll &nbsp;·&nbsp; the same status shows on Eagle Eye</div></section>
 <section class="mode" id="m-tscript"><div class="panel" id="p-tscript"></div>
   <div class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> scroll &nbsp;·&nbsp; read-only: no highlight, no auto-scroll</div></section>
+<section class="mode" id="m-approval"><div class="panel" id="p-approval"></div></section>
 <section class="mode" id="m-hscript"><div class="panel" id="p-hscript"></div>
   <div class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> scroll &nbsp;·&nbsp; read-only: Horus's cues, the current one lit as it advances</div></section>
 <section class="mode" id="m-call">
@@ -235,7 +237,7 @@ function refreshTabs() {
   $("tab-ctx").classList.toggle("on", mode === "rec" && rtab === "context");
   $("tab-call").classList.toggle("on", mode === "call"); $("tab-call").hidden = mode !== "call";
 }
-const PANELS = ["settings", "desks", "agents", "tscript", "hscript"];   // the deployment's issue 13798: Scout's panels beside TALK
+const PANELS = ["settings", "desks", "agents", "tscript", "hscript", "approval"];   // the deployment's issue 13798: Scout's panels beside TALK
 const MODES = ["rec", "call", "talk", ...PANELS];
 function goTab(n) {   // TALK / SETTINGS / DESKS / AGENTS, and SCRIPT / CONTEXT: the one row at the top
   pinned = (n === "talk" || PANELS.includes(n)) ? n : "tscript"; setMode();
@@ -623,7 +625,7 @@ async function context() {
 // SETTINGS reads GET /settings (the server forwards to the voice agent) and changes a value with POST /settings; Ears
 // and Mouth are this app's own switches (talk.js), the same as Alt+E / Alt+M. DESKS: Right or Enter asks the server to
 // open the picked desk (POST /desks/open). AGENTS: GET /agents, each lane agent's liveness.
-const panel = { settings: { sel: 0, data: null, err: "", stale: "" }, desks: { sel: 0, data: null, err: "", stale: "" }, agents: { sel: 0, data: null, err: "", stale: "" }, tscript: { sel: 0, data: null, err: "", stale: "" }, hscript: { sel: 0, data: null, err: "", stale: "" } };
+const panel = { settings: { sel: 0, data: null, err: "", stale: "" }, desks: { sel: 0, data: null, err: "", stale: "" }, agents: { sel: 0, data: null, err: "", stale: "" }, tscript: { sel: 0, data: null, err: "", stale: "" }, hscript: { sel: 0, data: null, err: "", stale: "" }, approval: { sel: 0, data: null, err: "", stale: "" } };
 const talkState = () => (window.vizierTalk && window.vizierTalk.state) || null;
 const onoff = v => v == null ? "<span>unknown</span>" : `<span class="${v ? "on" : "off"}">${v ? "ON" : "OFF"}</span>`;
 async function getJSON(path) { const r = await api(path); return r.json(); }
@@ -751,13 +753,30 @@ function drawHscript() {
   if (d && d.current && d.current !== hsCur) { hsCur = d.current; selIntoView("p-hscript"); }
 }
 async function loadHscript() { await readPanel("hscript", "horus-script", m => ({ cues: [], error: m })); if (mode === "hscript") drawHscript(); }
-function panelOpen(n) { ({ settings: () => { drawSettings(); loadSettings(); }, desks: () => { drawDesks(); loadDesks(); }, agents: () => { drawAgents(); loadAgents(); }, tscript: () => { drawTscript(); loadTscript(); }, hscript: () => { drawHscript(); loadHscript(); } })[n](); }
+// APPROVAL: GET /approval. The gate report (6a copy, 6b provenance, 6c judge, 6d reference match), the references used, the
+// diff from the last kept version and who approved it. Read-only: approving is POST /approve, never a key here.
+function drawApproval() {
+  const d = panel.approval.data, el = $("p-approval"), top = el.scrollTop;
+  const gate = ([id, g]) => `<div class="row"><span class="k"><span class="dot ${g.pass ? "ok" : g.advisory ? "warn" : "bad"}"></span>${esc(id)}${g.advisory ? " (advisory)" : ""}</span><span class="v">${esc(g.pass ? "pass" : (g.findings || ["fail"])[0])}</span></div>`;
+  el.innerHTML = staleLine(panel.approval) + (!d ? `<div class="msg">reading the approval…</div>` : d.error ? `<div class="msg err">${esc(d.error)}</div>`
+    : !d.configured ? `<div class="msg">No script (VIZIER_SPEAKER_SCRIPT is not set).</div>`
+    : `<div class="msg">${esc(d.source)} · ${esc(d.sha)} · ${d.approval.status === "approved" ? "APPROVED by " + esc(d.approval.approver) + " " + esc(ago(d.approval.at)) : "NOT APPROVED"}</div>`
+      + `<div class="msg" style="color:var(--hi)">${d.ready.ok ? "Ready is allowed" : "Ready is refused"}</div>` + d.ready.refusals.map(r => `<div class="msg err">${esc(r)}</div>`).join("")
+      + `<div class="msg" style="color:var(--hi);margin-top:12px">GATES</div>` + (Object.entries(d.gates).map(gate).join("") || `<div class="msg">No gate report.</div>`)
+      + `<div class="msg" style="color:var(--hi);margin-top:12px">REFERENCES</div>` + ((d.references || []).map(r => `<div class="row"><span class="k">${esc(r.id)}</span><span class="v">${esc(r.title || "")} · ${esc(r.status || "")} · ${esc(r.source || "")}</span></div>`).join("") || `<div class="msg">None.</div>`)
+      + `<div class="msg" style="color:var(--hi);margin-top:12px">DIFF FROM THE LAST VERSION</div>` + (!d.diff.has_previous ? `<div class="msg">No earlier version.</div>` : !d.diff.lines.length ? `<div class="msg">Unchanged.</div>`
+        : d.diff.lines.map(l => `<div class="row" style="font-size:15px"><span class="v" style="color:${l[0] === "+" ? "var(--ok,#6c6)" : l[0] === "-" ? "var(--bad,#e66)" : "inherit"}">${esc(l)}</span></div>`).join("")));
+  el.scrollTop = top;
+}
+async function loadApproval() { await readPanel("approval", "approval", m => ({ error: m })); if (mode === "approval") drawApproval(); }
+function panelOpen(n) { ({ settings: () => { drawSettings(); loadSettings(); }, desks: () => { drawDesks(); loadDesks(); }, agents: () => { drawAgents(); loadAgents(); }, tscript: () => { drawTscript(); loadTscript(); }, hscript: () => { drawHscript(); loadHscript(); }, approval: () => { drawApproval(); loadApproval(); } })[n](); }
 // The selected row is kept on screen every time the selection moves (the user 2026-11-15: arrow-down moved the selection
 // below the window and the list never followed). Only on a move: the 2 s redraw never pulls a list the wheel scrolled.
 function selIntoView(id) { const r = $(id).querySelector(".row.sel"); if (r) r.scrollIntoView({ block: "nearest" }); }
 function panelStep(d) {
   if (mode === "agents") { $("p-agents").scrollTop += d * 80; return; }
   if (mode === "tscript") { $("p-tscript").scrollTop += d * 80; return; }
+  if (mode === "approval") { $("p-approval").scrollTop += d * 80; return; }
   if (mode === "hscript") { $("p-hscript").scrollTop += d * 80; return; }
   panel[mode].sel += d; mode === "settings" ? drawSettings() : drawDesks();
   selIntoView(mode === "settings" ? "p-settings" : "p-desks");
@@ -766,7 +785,7 @@ function panelChange(d, enter) {
   if (mode === "settings") { if (!settingRows()[panel.settings.sel].ro) changeSetting(d); }
   else if (mode === "desks" && (d > 0 || enter)) openDesk();
 }
-every(2000, () => mode === "settings" ? loadSettings() : mode === "agents" ? loadAgents() : mode === "hscript" ? loadHscript() : mode === "tscript" ? loadTscript() : null);
+every(2000, () => mode === "settings" ? loadSettings() : mode === "agents" ? loadAgents() : mode === "hscript" ? loadHscript() : mode === "tscript" ? loadTscript() : mode === "approval" ? loadApproval() : null);
 every(15000, () => mode === "desks" ? loadDesks() : null);
 window.vizierPanels = { panel, settingRows, goTab };   // headless checks
 

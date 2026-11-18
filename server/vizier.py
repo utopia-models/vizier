@@ -1136,6 +1136,128 @@ async def state_front(req):
     return web.json_response({"ok": True})
 
 
+# ---------- APPROVAL: GET /approval, POST /approve (the approver sees the gate evidence; Ready needs gates + approval) ----------
+# GET /approval (read-only): the live speaker script's sha, the gate report the pipeline wrote (VIZIER_GATE_REPORT, JSON:
+# {"sha", "gates": {"<id>": {"pass": bool, "advisory": bool, "findings": [str]}}, "references": [{"id","title","source",
+# "status"}]}), the diff from the previous kept version, the approval record and `ready`: the refusals that stop Ready.
+# POST /approve needs its OWN secret in `X-Vizier-Approve` (file VIZIER_APPROVE_SECRET_FILE, held by the approver only, never
+# the write secret) and `X-Vizier-Who` in VIZIER_APPROVERS (default "architect,agent"). It records who/when/sha in the
+# approval file and appends the same row to VIZIER_APPROVAL_LOG. An approval is bound to the script's sha: any later edit
+# makes the take draft again.
+APPROVE_SECRET_FILE = os.environ.get("VIZIER_APPROVE_SECRET_FILE", "")
+APPROVERS = {a.strip() for a in os.environ.get("VIZIER_APPROVERS", "architect,agent").split(",") if a.strip()}
+
+
+def approval_path() -> Path:
+    return Path(os.environ.get("VIZIER_APPROVAL_FILE") or DATA / "approval.json")
+
+
+def approval_log_path() -> Path:
+    return Path(os.environ.get("VIZIER_APPROVAL_LOG") or DATA / "approvals.jsonl")
+
+
+def approve_secret() -> str:
+    try:
+        return Path(APPROVE_SECRET_FILE).expanduser().read_text().strip() if APPROVE_SECRET_FILE else ""
+    except OSError:
+        return ""
+
+
+def approve_allowed(req) -> bool:
+    sec = approve_secret()
+    return bool(sec) and hmac.compare_digest(req.headers.get("X-Vizier-Approve", "").strip(), sec)
+
+
+def read_json(p: Path | None):
+    try:
+        return json.loads(Path(p).expanduser().read_text()) if p else None
+    except (OSError, ValueError):
+        return None
+
+
+def last_version_diff(text: str) -> dict:
+    """Unified diff from the newest kept previous version to the live text."""
+    hist = sorted(history_dir("speaker-script").glob("*.md"))
+    if not hist:
+        return {"has_previous": False, "lines": []}
+    import difflib
+    old = hist[-1].read_text()
+    lines = list(difflib.unified_diff(old.splitlines(), text.splitlines(), "previous", "current", lineterm="", n=2))
+    return {"has_previous": True, "previous_sha": sha_of(old), "changed": bool(lines), "lines": lines[:400]}
+
+
+def readiness(sha: str | None, report, appr) -> list:
+    """Why Ready is refused: every reason names the failing gate or the missing approval. Empty = Ready allowed."""
+    if not sha:
+        return ["script: no speaker script is set"]
+    rs = []
+    if not isinstance(report, dict) or not isinstance(report.get("gates"), dict) or not report["gates"]:
+        return ["gates: no gate report was written for this script"] + (
+            [] if isinstance(appr, dict) and appr.get("sha") == sha else ["approval: this script version is not approved"])
+    if report.get("sha") != sha:
+        rs.append(f"gates: the report is for {report.get('sha')}, the script is {sha}; re-run the gates")
+    else:
+        for gid, g in sorted(report["gates"].items()):
+            if isinstance(g, dict) and not g.get("advisory") and g.get("pass") is not True:
+                f = (g.get("findings") or [""])[0]
+                rs.append(f"gate {gid} failed" + (f": {str(f)[:120]}" if f else ""))
+    if not (isinstance(appr, dict) and appr.get("status") == "approved" and appr.get("sha") == sha):
+        rs.append("approval: this script version is not approved" + (
+            f" (approved {appr.get('sha')}, script is {sha})" if isinstance(appr, dict) and appr.get("sha") else ""))
+    return rs
+
+
+def approval_view() -> dict:
+    sp = file_view(script_target("speaker-script"))
+    sha = sp["sha"]
+    report = read_json(os.environ.get("VIZIER_GATE_REPORT"))
+    appr = read_json(approval_path())
+    live = isinstance(appr, dict) and appr.get("sha") == sha and appr.get("status") == "approved"
+    gates = (report or {}).get("gates") if isinstance(report, dict) else None
+    return {"ok": True, "configured": bool(sp["configured"]), "sha": sha, "source": sp["source"],
+            "gates": gates or {}, "gates_sha": report.get("sha") if isinstance(report, dict) else None,
+            "gates_at": (report or {}).get("at") if isinstance(report, dict) else None,
+            "references": (report or {}).get("references", []) if isinstance(report, dict) else [],
+            "diff": last_version_diff(sp["text"]) if sp["text"] else {"has_previous": False, "lines": []},
+            "approval": {"status": "approved" if live else "draft", **({k: appr.get(k) for k in ("approver", "at", "sha")} if isinstance(appr, dict) else {})},
+            "ready": {"ok": not (r := readiness(sha, report, appr)), "refusals": r}}
+
+
+async def approval(req):
+    return web.json_response(approval_view())
+
+
+async def approve(req):
+    """POST /approve {"sha"?}: the approver marks the CURRENT script version approved. -> the approval record."""
+    if not approve_allowed(req):
+        return bad("approve needs the X-Vizier-Approve secret (held by the approver only)", 403)
+    who = re.sub(r"[^\w.@-]", "", req.headers.get("X-Vizier-Who", "") or "")[:32]
+    if who not in APPROVERS:
+        return bad(f"approver {who or '(none)'!r} is not allowed; X-Vizier-Who must be one of {sorted(APPROVERS)}", 403)
+    sp = file_view(script_target("speaker-script"))
+    if not sp["sha"]:
+        return bad("no speaker script is set", 409)
+    try:
+        b = await req.json() if req.can_read_body else {}
+    except ValueError:
+        b = {}
+    want = b.get("sha") if isinstance(b, dict) else None
+    if want and want != sp["sha"]:
+        return bad(f"the script changed: you approved {want}, the live script is {sp['sha']}", 409)
+    rec = {"status": "approved", "sha": sp["sha"], "approver": who, "at": time.time()}
+    report = read_json(os.environ.get("VIZIER_GATE_REPORT"))
+    rec["gates_failing"] = [g for g, v in ((report or {}).get("gates") or {}).items()
+                            if isinstance(v, dict) and not v.get("advisory") and v.get("pass") is not True] if isinstance(report, dict) and report.get("sha") == sp["sha"] else ["no current gate report"]
+    atomic_write(approval_path(), json.dumps(rec) + "\n")
+    try:
+        lp = approval_log_path(); lp.parent.mkdir(parents=True, exist_ok=True)
+        with lp.open("a") as f:
+            f.write(json.dumps({**rec, "event": "approve"}) + "\n")
+    except OSError:
+        pass
+    return web.json_response({"ok": True, **rec})
+
+
 # ---------- misc ----------
 
 async def buildlog(req):
@@ -1336,6 +1458,8 @@ def make_app() -> web.Application:
     r.add_post("/speaker-script/undo", write_undo)
     r.add_post("/horus-script/undo", write_undo)
     r.add_get("/state", state)
+    r.add_get("/approval", approval)
+    r.add_post("/approve", approve)
     r.add_post("/state/front", state_front)
     r.add_get("/beacon", beacon)
     r.add_post("/beacon", beacon)
