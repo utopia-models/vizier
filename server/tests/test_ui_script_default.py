@@ -37,4 +37,4 @@ def test_one_top_row_talk_script_context():
 
 
 def test_context_tab_is_live_activity():
-    assert "WHAT SCOUT IS DOING" in HTML and "buildlog?n=30" in HTML
+    assert "WHAT EAGLE IS DOING" in HTML and "buildlog?n=30" in HTML
