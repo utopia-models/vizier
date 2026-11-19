@@ -140,9 +140,9 @@
 <body>
 <header data-tauri-drag-region>
   <span id="dot" title="link to the vizier service"></span><b data-tauri-drag-region title="drag to move Vizier; its edges resize it">Vizier</b>
-  <span class="tab talk" id="tab-talk" title="TALK: a live transcript of your conversation with Scout">TALK</span>
-  <span class="tab set" id="tab-settings" title="SETTINGS: every Scout setting; arrows change them">SETTINGS</span>
-  <span class="tab desk" id="tab-desks" title="DESKS: pick a desk, Scout opens it in the desk viewer">DESKS</span>
+  <span class="tab talk" id="tab-talk" title="TALK: a live transcript of your conversation with Eagle">TALK</span>
+  <span class="tab set" id="tab-settings" title="SETTINGS: every Eagle setting; arrows change them">SETTINGS</span>
+  <span class="tab desk" id="tab-desks" title="DESKS: pick a desk, Eagle opens it in the desk viewer">DESKS</span>
   <span class="tab agt" id="tab-agents" title="AGENTS: what each lane agent is doing">AGENTS</span>
   <span class="tab ts" id="tab-tscript" title="Tyler's Script: his spoken beats, read-only; nothing highlights or scrolls by itself">Tyler's Script</span>
   <span class="tab hs" id="tab-hscript" title="Eagle Script: the cues Eagle will run, read-only; the current one is lit">Eagle Script</span>
@@ -173,7 +173,7 @@
 <section class="mode" id="m-settings"><div class="panel" id="p-settings"></div>
   <div id="keylegend-s" class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> pick a setting &nbsp;·&nbsp; <b>← →</b> change it &nbsp;·&nbsp; <b>Alt+E</b> ears &nbsp;·&nbsp; <b>Alt+M</b> mouth &nbsp;·&nbsp; <b>Alt+V</b> show / hide</div></section>
 <section class="mode" id="m-desks"><div class="panel" id="p-desks"></div>
-  <div class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> pick a desk &nbsp;·&nbsp; <b>→</b> or <b>Enter</b> Scout opens it in the desk viewer</div></section>
+  <div class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> pick a desk &nbsp;·&nbsp; <b>→</b> or <b>Enter</b> Eagle opens it in the desk viewer</div></section>
 <section class="mode" id="m-agents"><div class="panel" id="p-agents"></div>
   <div class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> scroll &nbsp;·&nbsp; the same status shows on Eagle Eye</div></section>
 <section class="mode" id="m-tscript"><div class="panel" id="p-tscript"></div>
@@ -182,7 +182,7 @@
   <div class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> scroll &nbsp;·&nbsp; read-only: the QA checklist and the last vsl_qa verdict</div></section>
 <section class="mode" id="m-approval"><div class="panel" id="p-approval"></div></section>
 <section class="mode" id="m-hscript"><div class="panel" id="p-hscript"></div>
-  <div class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> scroll &nbsp;·&nbsp; read-only: Horus's cues, the current one lit as it advances</div></section>
+  <div class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> scroll &nbsp;·&nbsp; read-only: Eagle's cues, the current one lit as it advances</div></section>
 <section class="mode" id="m-call">
   <div id="callmain"><div id="sugs"></div><div id="interim"></div><div id="lines"></div></div>
 </section>
@@ -282,7 +282,7 @@ async function pollHealth() {
 // GET /talk/transcript?since=<seq> every 500 ms: new final lines (you and the agent) plus the one live partial. The
 // view sticks to the bottom unless you scrolled up to read.
 let talkSeq = 0, talkPart = null;
-const talkWho = ch => ch === "me" ? "YOU" : "SCOUT";
+const talkWho = ch => ch === "me" ? "YOU" : "EAGLE";
 function talkRow(ch, text, partial) {
   const d = document.createElement("p");
   d.className = "ln " + ch + (partial ? " partial" : "");
@@ -301,7 +301,7 @@ async function pollTalk() {
   for (const l of j.lines) { box.appendChild(talkRow(l.ch, l.text)); talkSeq = Math.max(talkSeq, l.seq); }
   if (j.partial) box.appendChild(talkRow(j.partial.ch, j.partial.text, true));
   while (box.querySelectorAll(".ln").length > 200) box.querySelector(".ln").remove();
-  if (!box.querySelector(".ln")) { if (!box.querySelector(".none")) box.insertAdjacentHTML("beforeend", '<div class="none">Say something to scout: it shows here as you speak.</div>'); }
+  if (!box.querySelector(".ln")) { if (!box.querySelector(".none")) box.insertAdjacentHTML("beforeend", '<div class="none">Say something to Eagle: it shows here as you speak.</div>'); }
   else box.querySelectorAll(".none").forEach(x => x.remove());
   if (stick) box.scrollTop = box.scrollHeight;
 }
@@ -368,7 +368,7 @@ function render() {
     built = key;
     // each written word is a span, in the order follow.js's tokenize() numbers them, so the voice can mark one
     const words = l => sayText(l).split(/\s+/).filter(Boolean).map(w => `<span class="w">${esc(w)}</span>`).join(" ");
-    $("text").innerHTML = `<div class="padtop"></div>` + lines.map(l => `<p>${/^\s*\(scout\)/i.test(l) ? `<span class="mark">(Scout)</span> ` : ""}${words(l)}</p>`).join("") + `<div class="pad"></div>`;
+    $("text").innerHTML = `<div class="padtop"></div>` + lines.map(l => `<p>${/^\s*\(scout\)/i.test(l) ? `<span class="mark">(Eagle)</span> ` : ""}${words(l)}</p>`).join("") + `<div class="pad"></div>`;
     nowEl = null; if (follow) follow.lastIdx = -1;   // repaint the voice's word in the new DOM
     curIdx = -1; goLine(Math.min(keep, lines.length - 1));
     // Built while hidden (the takes can arrive before the first /health sets the mode, or SCRIPT is behind CONTEXT): mark()
@@ -604,7 +604,7 @@ function showTab(tb) {
     const top = $("doc").scrollTop;
     const doing = buildLines.slice().reverse().map(l => { const m = l.match(/^(?:\d{4}-\d\d-\d\d[ T])?(\d\d:\d\dZ?):?\s+(.*)$/);
       return `<div class="l">${m ? `<span class="t">${esc(m[1])}</span>${esc(m[2])}` : esc(l)}</div>`; }).join("");
-    $("doc").innerHTML = `<h2>WHAT SCOUT IS DOING</h2><div id="doing">${doing || "<p>Nothing running right now.</p>"}</div>` + md(ctx.context.split("\n").map(l => /^#/.test(l) ? unlabel(l) : l).join("\n"));
+    $("doc").innerHTML = `<h2>WHAT EAGLE IS DOING</h2><div id="doing">${doing || "<p>Nothing running right now.</p>"}</div>` + md(ctx.context.split("\n").map(l => /^#/.test(l) ? unlabel(l) : l).join("\n"));
     $("doc").scrollTop = top;
   }
   refreshTabs();
@@ -642,13 +642,13 @@ async function postJSON(path, b) {
   const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || ("HTTP " + r.status)); return j;
 }
 function settingRows() {
-  const d = panel.settings.data || {}, t = talkState(), w = d.wake || null, word = (w && w.word) ? w.word[0].toUpperCase() + w.word.slice(1) : "Scout";
+  const d = panel.settings.data || {}, t = talkState(), w = d.wake || null, word = (w && w.word) ? w.word[0].toUpperCase() + w.word.slice(1) : "Eagle";
   const cur = (d.voices || []).find(v => v.name === d.voice);
   const link = t && !t.room ? ' <span style="color:var(--dim)">· talk link not connected</span>' : "";
   return [
     { k: "voice", label: "Voice", v: d.voice ? esc(d.voice) + (cur && cur.accent ? ` <span style="color:var(--dim)">· ${esc(cur.accent)}</span>` : "") : "unknown", h: "← → previous / next voice" },
     { k: "ears", label: "Ears (your mic)", v: onoff(t ? t.ears : null) + link, h: "← → or Alt+E" },
-    { k: "mouth", label: "Mouth (Scout's voice)", v: onoff(t ? t.mouth : null) + link, h: "← → or Alt+M" },
+    { k: "mouth", label: "Mouth (Eagle's voice)", v: onoff(t ? t.mouth : null) + link, h: "← → or Alt+M" },
     { k: "wake_on", label: "Silent unless asked", v: onoff(w ? w.on : null), h: "← → on / off" },
     { k: "wake_call", label: "Wake word in a call", v: w ? `say "${esc(word)}" ×${w.call_n}` : "unknown", h: "← → fewer / more" },
     { k: "wake_out", label: "Wake word outside a call", v: `say "${esc(word)}" once, with Ears and Mouth on`, h: "", ro: true },
@@ -659,9 +659,9 @@ function drawSettings() {
   const P = panel.settings, d = P.data, el = $("p-settings"), rows = settingRows();
   P.sel = Math.max(0, Math.min(rows.length - 1, P.sel));
   let head = "";
-  if (!d) head = `<div class="msg">reading Scout's settings…</div>`;
+  if (!d) head = `<div class="msg">reading Eagle's settings…</div>`;
   else if (d.configured === false) head = `<div class="msg">The voice agent is not configured on this server (VIZIER_VOICE_URL). Ears and Mouth still work.</div>`;
-  else if (d.reachable === false) head = `<div class="msg err">Scout's voice agent is not answering: ${esc(d.error || "")}</div>`;
+  else if (d.reachable === false) head = `<div class="msg err">Eagle's voice agent is not answering: ${esc(d.error || "")}</div>`;
   el.innerHTML = staleLine(P) + head + (P.err ? `<div class="msg err">${esc(P.err)}</div>` : "") + rows.map((r, i) =>
     `<div class="row${i === P.sel ? " sel" : ""}${r.ro ? " ro" : ""}" data-i="${i}"><span class="k">${r.label}</span><span class="v">${r.v}</span><span class="h">${r.h}</span></div>`).join("");
   el.querySelectorAll(".row").forEach(x => x.onclick = () => { P.sel = +x.dataset.i; panelChange(1, true); selIntoView("p-settings"); });
