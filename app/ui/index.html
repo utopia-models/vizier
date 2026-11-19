@@ -144,8 +144,8 @@
   <span class="tab set" id="tab-settings" title="SETTINGS: every Scout setting; arrows change them">SETTINGS</span>
   <span class="tab desk" id="tab-desks" title="DESKS: pick a desk, Scout opens it in the desk viewer">DESKS</span>
   <span class="tab agt" id="tab-agents" title="AGENTS: what each lane agent is doing">AGENTS</span>
-  <span class="tab ts" id="tab-tscript" title="SPEAKER SCRIPT: his spoken beats, read-only; nothing highlights or scrolls by itself">SPEAKER SCRIPT</span>
-  <span class="tab hs" id="tab-hscript" title="EAGLE SCRIPT: the cues Eagle will run, read-only; the current one is lit">EAGLE SCRIPT</span>
+  <span class="tab ts" id="tab-tscript" title="Tyler's Script: his spoken beats, read-only; nothing highlights or scrolls by itself">Tyler's Script</span>
+  <span class="tab hs" id="tab-hscript" title="Eagle Script: the cues Eagle will run, read-only; the current one is lit">Eagle Script</span>
   <span class="tab hs" id="tab-qc" title="QC: the QA checklist and the last vsl_qa verdict; read-only">QC</span>
   <span class="tab hs" id="tab-approval" title="APPROVAL: the gate report, the references used and the diff from the last version; read-only">APPROVAL</span>
   <span id="tab-rec" hidden></span><span id="tab-ctx" hidden></span>   <!-- the teleprompter is gone (the user, Architect 8981): inert stubs so old refs stay null-safe -->
@@ -161,7 +161,7 @@
 <audio id="callaudio" autoplay></audio>
 
 <section class="mode" id="m-rec" hidden style="display:none !important">
-  <div id="keylegend"><b>↑ ↓</b> scroll &nbsp;·&nbsp; <b>← →</b> part &nbsp;·&nbsp; <b>Tab</b> Talk / Settings / Desks / Agents / Speaker script / Eagle script &nbsp;·&nbsp; <b>Alt+E</b> ears &nbsp;·&nbsp; <b>Alt+M</b> mouth &nbsp;·&nbsp; <b>Alt+V</b> show / hide &nbsp;·&nbsp; <b id="kfollow" style="cursor:pointer" onclick="window.vizierFollow()">Alt+F follow: ON</b></div>
+  <div id="keylegend"><b>↑ ↓</b> scroll &nbsp;·&nbsp; <b>← →</b> part &nbsp;·&nbsp; <b>Tab</b> Talk / Settings / Desks / Agents / Tyler's script / Eagle script &nbsp;·&nbsp; <b>Alt+E</b> ears &nbsp;·&nbsp; <b>Alt+M</b> mouth &nbsp;·&nbsp; <b>Alt+V</b> show / hide &nbsp;·&nbsp; <b id="kfollow" style="cursor:pointer" onclick="window.vizierFollow()">Alt+F follow: ON</b></div>
   <nav id="rtabs"><span data-t="script" class="on">SCRIPT</span><span data-t="context" hidden>CONTEXT</span><span data-t="notes" hidden>DO NOT SAY</span></nav>
   <div id="prompt"><div id="text"></div><div id="readline"></div></div>
   <div id="doc"></div>
@@ -736,7 +736,7 @@ function drawAgents() {
     `<div class="row"><span class="k"><span class="dot ${esc(a.health)}"></span>${esc(a.agent)}</span><span class="v">${esc(a.doing || (a.reasons || []).join("; ") || a.health)}</span><span class="h">${esc(ago(a.at))}</span></div>`).join(""));
 }
 async function loadAgents() { await readPanel("agents", "agents", m => ({ agents: [], error: m })); if (mode === "agents") drawAgents(); }
-// EAGLE SCRIPT: GET /horus-script, the agent's cue table (id, on-phrase, do, wait-for, on-fail); `current` is the cue
+// Eagle Script: GET /horus-script, the agent's cue table (id, on-phrase, do, wait-for, on-fail); `current` is the cue
 // vsl-follow last fired. Read-only: no row is selectable and nothing is sent. This window is outside every capture.
 let hsCur = "";
 let tsCur = 0, tsSent = "";
@@ -814,7 +814,7 @@ function panelChange(d, enter) {
   else if (mode === "desks" && (d > 0 || enter)) openDesk();
 }
 every(2000, () => mode === "settings" ? loadSettings() : mode === "agents" ? loadAgents() : mode === "tscript" ? loadTscript() : mode === "approval" ? loadApproval() : mode === "qc" ? loadQc() : null);
-// EAGLE SCRIPT lights the cue vsl-follow arms from his voice: a 2 s poll put the lit row up to 2 s behind it
+// Eagle Script lights the cue vsl-follow arms from his voice: a 2 s poll put the lit row up to 2 s behind it
 every(400, () => mode === "hscript" ? loadHscript() : null);
 every(15000, () => mode === "desks" ? loadDesks() : null);
 window.vizierPanels = { panel, settingRows, goTab };   // headless checks
