@@ -67,13 +67,14 @@ def test_qc_tab_is_wired_into_the_page():
     assert 'id="tab-qc"' in HTML and 'id="m-qc"' in HTML and 'readPanel("qc", "qc"' in HTML
 
 
-def test_lead_marker_is_one_line_ahead_and_only_keys_move_the_cursor():
+def test_current_line_is_lit_no_next_marker_and_only_keys_and_clicks_move_the_cursor():
     fn = HTML[HTML.index("function drawTscript()"):HTML.index("async function loadTscript()")]
-    assert "i === tsCur + 1" in fn and "▶ NEXT" in fn   # the lead marker sits one line ahead of the current line
+    assert "i === tsCur" in fn and "tsCur + 1" not in fn and "NEXT" not in fn and "lead" not in fn   # the bar lights the CURRENT line only
     step = HTML[HTML.index("function panelStep(d)"):][:700]
     assert 'mode === "tscript"' in step and "tsCur = Math.max(0, Math.min(n - 1, tsCur + d))" in step
     # nothing else assigns the cursor (no voice, no timer)
-    assert len(re.findall(r"\btsCur\s*=[^=]", HTML)) == 2   # the declaration and the keyed step
+    # the declaration, the clamp when the script shrinks, the keyed step, and a click on a row
+    assert len(re.findall(r"\btsCur\s*=[^=]", HTML)) == 4
 
 
 def test_his_global_keys_are_registered():

@@ -38,7 +38,6 @@
   .panel { flex:1; min-height:0; overflow-y:auto; padding:14px 28px 46px; scroll-padding:10px 0 50px; }   /* scrollIntoView clears the fixed key legend */
   .panel .row { display:flex; align-items:baseline; gap:18px; padding:10px 14px; border-radius:8px; border:1px solid transparent; font:500 24px/1.3 system-ui; }
   .panel .row .lm { flex:0 0 74px; color:var(--hi); font-weight:700; }
-  .panel .row.lead .v { color:var(--hi); }
   .panel .row.sel { border-color:var(--hi); background:#14181f; }
   .panel .row .k { flex:0 0 260px; color:var(--dim); font-size:18px; letter-spacing:.04em; }
   .panel .row .v { flex:1; min-width:0; }
@@ -739,26 +738,29 @@ async function loadAgents() { await readPanel("agents", "agents", m => ({ agents
 // Eagle Script: GET /horus-script, the agent's cue table (id, on-phrase, do, wait-for, on-fail); `current` is the cue
 // vsl-follow last fired. Read-only: no row is selectable and nothing is sent. This window is outside every capture.
 let hsCur = "";
-let tsCur = 0, tsSent = "";
-function reportTs() {   // where his keys left him (POST /prompter/position): a key test and the agent read it back
+let tsCur = 0, tsSent = "", tsSentAt = 0;
+function reportTs() {   // where his keys left him (POST /prompter/position -> GET /state, GET /events): Eagle follows from it
   const d = panel.tscript.data, flat = ((d && d.sections) || []).flatMap(x => x.lines), n = flat.length; if (!n) return;
-  const body = JSON.stringify({ part: 1, parts: 1, title: "speaker script", line: tsCur + 1, lines: n, text: (flat[tsCur] || {}).text || "" });
-  if (body === tsSent) return; tsSent = body;
+  if (tsCur > n - 1) tsCur = n - 1;   // the script got shorter under the cursor
+  const body = JSON.stringify({ part: 1, parts: 1, title: d.title || d.source || "speaker script", line: tsCur + 1, lines: n, text: (flat[tsCur] || {}).text || "" });
+  // unchanged: re-sent at most every 5 s, so a restarted server learns the cursor (it does not count as a move)
+  if (body === tsSent && Date.now() - tsSentAt < 5000) return; tsSent = body; tsSentAt = Date.now();
   api("prompter/position", { method: "POST", headers: { "Content-Type": "application/json" }, body }).catch(() => {});
 }
 // the line he is on, moved ONLY by his keys (Up / Down); nothing else moves it
 const tsLines = d => ((d && d.sections) || []).reduce((n, s) => n + s.lines.length, 0);
-function drawTscript() {   // the current line is lit, the line one ahead carries the lead marker; nothing scrolls by itself
+function drawTscript() {   // the CURRENT line (the one he is reading) is lit; no next-line marker; nothing scrolls by itself
   const d = panel.tscript.data, el = $("p-tscript"), top = el.scrollTop;
   let i = -1;
   el.innerHTML = staleLine(panel.tscript) + (!d ? `<div class="msg">reading the script…</div>` : d.error ? `<div class="msg err">${esc(d.error)}</div>`
     : !(d.sections || []).length ? `<div class="msg">No script${d.configured ? "" : " (VIZIER_SPEAKER_SCRIPT is not set)"}.</div>`
     : `<div class="msg">${esc(d.title || d.source)}</div>` + d.sections.map(s => `<div class="msg" style="color:var(--hi);margin-top:12px">${esc(s.title)}</div>`
-      + s.lines.map(l => { i++; const cur = i === tsCur, lead = i === tsCur + 1;
-        return `<div class="row${cur ? " sel" : ""}${lead ? " lead" : ""}" data-i="${i}" style="font-size:22px"><span class="h lm">${lead ? "▶ NEXT" : ""}</span><span class="v">${esc(l.text)}</span></div>`; }).join("")).join(""));
+      + s.lines.map(l => { i++; const cur = i === tsCur;
+        return `<div class="row${cur ? " sel" : ""}" data-i="${i}" style="font-size:22px"><span class="h lm">${cur ? "▶" : ""}</span><span class="v">${esc(l.text)}</span></div>`; }).join("")).join(""));
+  el.querySelectorAll(".row[data-i]").forEach(x => x.onclick = () => { tsCur = +x.dataset.i; drawTscript(); reportTs(); });   // a click moves the line too
   el.scrollTop = top;
 }
-async function loadTscript() { await readPanel("tscript", "speaker-script", m => ({ sections: [], error: m })); if (mode === "tscript") drawTscript(); }
+async function loadTscript() { await readPanel("tscript", "speaker-script", m => ({ sections: [], error: m })); if (mode === "tscript") { drawTscript(); reportTs(); } }
 function drawHscript() {
   const d = panel.hscript.data, el = $("p-hscript"), list = (d && d.cues) || [];
   const cell = (k, v) => `<span class="v" style="flex:${k}">${esc(v || "")}</span>`;

@@ -1,6 +1,6 @@
 [package]
 name = "vizier"
-version = "0.2.0"
+version = "0.3.0"
 description = "Vizier desktop app: an always-on-top call overlay and teleprompter any agent can drive over HTTP or MCP"
 license = "Apache-2.0"
 repository = "https://github.com/utopia-models/vizier"
