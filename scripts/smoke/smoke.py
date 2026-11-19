@@ -14,8 +14,8 @@ What it does (every step is a PASS/FAIL line, with a screenshot in --out; exit 0
      the same code the shortcuts run (main.rs hotkey()).
   3. Over the DevTools protocol, with real key and mouse-wheel input (Input.dispatchKeyEvent / dispatchMouseEvent):
      the page links to the server (and to LiveKit when --talk-url is given); the default view is SPEAKER SCRIPT; Tab visits
-     TALK, SETTINGS, DESKS, AGENTS, SPEAKER SCRIPT and HORUS SCRIPT in that order and comes back to TALK; SPEAKER SCRIPT shows
-     his spoken lines read-only (no highlight, no scroll by itself) and HORUS SCRIPT lights the current cue from
+     TALK, SETTINGS, DESKS, AGENTS, SPEAKER SCRIPT and EAGLE SCRIPT in that order and comes back to TALK; SPEAKER SCRIPT shows
+     his spoken lines read-only (no highlight, no scroll by itself) and EAGLE SCRIPT lights the current cue from
      vsl-follow's state.json; neither shows 'changed HH:MM' marks; every tab scrolls to its bottom by wheel (and
      the lists by arrow keys, the selected row always fully on screen); every SETTINGS row that can change
      changes and changes back; Alt+E and Alt+M flip Ears and Mouth (keys in the page, and the native shortcut when the
@@ -232,7 +232,7 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
         if AUDIO_ONLY:
             return
 
-    # ---- Tab: TALK -> SETTINGS -> DESKS -> AGENTS -> SPEAKER SCRIPT -> HORUS SCRIPT -> TALK
+    # ---- Tab: TALK -> SETTINGS -> DESKS -> AGENTS -> SPEAKER SCRIPT -> EAGLE SCRIPT -> TALK
     await c.js("window.vizierPanels.goTab('talk')"); await asyncio.sleep(0.25)
     seen = []
     for _ in range(6):
@@ -241,8 +241,8 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
         seen.append(m); await c.shot(out, f"tab-{m}")
     want = ["settings", "desks", "agents", "tscript", "hscript", "talk"]
     labels = await c.js("[...document.querySelectorAll('header .tab:not([hidden])')].map(t=>t.textContent)")
-    ok("Tab visits SETTINGS, DESKS, AGENTS, SPEAKER SCRIPT, HORUS SCRIPT and back to TALK (no SCRIPT tab)",
-       seen == want and labels == ["TALK", "SETTINGS", "DESKS", "AGENTS", "SPEAKER SCRIPT", "HORUS SCRIPT"], " > ".join(seen) + f"; tabs {labels}")
+    ok("Tab visits SETTINGS, DESKS, AGENTS, SPEAKER SCRIPT, EAGLE SCRIPT and back to TALK (no SCRIPT tab)",
+       seen == want and labels == ["TALK", "SETTINGS", "DESKS", "AGENTS", "SPEAKER SCRIPT", "EAGLE SCRIPT"], " > ".join(seen) + f"; tabs {labels}")
 
     # ---- every tab to the bottom: wheel, then keys with the selection on screen
     await c.js("window.vizierPanels.goTab('talk')")
@@ -295,23 +295,23 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
     shown = await until(lambda: c.js("document.getElementById('p-tscript').textContent.includes('edited by the smoke')"), 12)
     ok("SPEAKER SCRIPT shows the edited line and no 'changed HH:MM' mark", shown and not await c.js("/changed \\d{1,2}:\\d\\d/.test(document.getElementById('p-tscript').textContent)"))
 
-    # ---- HORUS SCRIPT: the cue table; the current cue (vsl-follow's state.json) is lit; read-only
+    # ---- EAGLE SCRIPT: the cue table; the current cue (vsl-follow's state.json) is lit; read-only
     await c.js("window.vizierPanels.goTab('hscript')"); await asyncio.sleep(0.6)
     await until(lambda: c.js("document.querySelectorAll('#p-hscript .row[data-b]').length > 1"), 8)
     lit = lambda: c.js("[...document.querySelectorAll('#p-hscript .row.sel')].map(r=>r.dataset.b)")
-    ok("HORUS SCRIPT lights the current cue from state.json (b2), and only that one", await until(lambda: lit_is(c, ["b2"]), 8), str(await lit()))
+    ok("EAGLE SCRIPT lights the current cue from state.json (b2), and only that one", await until(lambda: lit_is(c, ["b2"]), 8), str(await lit()))
     sf = Path(FIX["VIZIER_HORUS_STATE"]); sf.write_text(json.dumps({"beat": "b25", "at": 2}))
     moved = await until(lambda: lit_is(c, ["b25"]), 8)
     vis = await c.js("(()=>{const p=document.getElementById('p-hscript'),r=p.querySelector('.row.sel').getBoundingClientRect(),a=p.getBoundingClientRect();return {top:r.top,bottom:r.bottom,ptop:a.top,pbottom:a.bottom}})()")
     await c.shot(out, "hscript-current")
-    ok("HORUS SCRIPT follows the cue when state.json changes (b25 lit and on screen)", moved and vis["top"] >= vis["ptop"] - 1 and vis["bottom"] <= vis["pbottom"] + 1, f"lit {await lit()} {vis}")
+    ok("EAGLE SCRIPT follows the cue when state.json changes (b25 lit and on screen)", moved and vis["top"] >= vis["ptop"] - 1 and vis["bottom"] <= vis["pbottom"] + 1, f"lit {await lit()} {vis}")
     for _ in range(4): await c.key("ArrowDown")
     await c.key("Enter"); await asyncio.sleep(0.5)
-    ok("HORUS SCRIPT is read-only: arrows and Enter leave the lit cue where vsl-follow put it", await lit() == ["b25"] and await c.js("document.body.dataset.mode") == "hscript", str(await lit()))
-    await c.js("document.getElementById('p-hscript').scrollTop = 0"); await scroll_check(c, out, "#p-hscript", "HORUS SCRIPT")
+    ok("EAGLE SCRIPT is read-only: arrows and Enter leave the lit cue where vsl-follow put it", await lit() == ["b25"] and await c.js("document.body.dataset.mode") == "hscript", str(await lit()))
+    await c.js("document.getElementById('p-hscript').scrollTop = 0"); await scroll_check(c, out, "#p-hscript", "EAGLE SCRIPT")
     cf = Path(FIX["VIZIER_HORUS_CUES"]); cf.write_text(cf.read_text().replace("show page 7 ", "show page 7 edited "))
     shown = await until(lambda: c.js("document.getElementById('p-hscript').textContent.includes('show page 7 edited')"), 12)
-    ok("HORUS SCRIPT shows the edited cue and no 'changed HH:MM' mark", shown and not await c.js("/changed \\d{1,2}:\\d\\d/.test(document.getElementById('p-hscript').textContent)"))
+    ok("EAGLE SCRIPT shows the edited cue and no 'changed HH:MM' mark", shown and not await c.js("/changed \\d{1,2}:\\d\\d/.test(document.getElementById('p-hscript').textContent)"))
 
     # ---- every SETTINGS row that can change: change it, then change it back
     await c.js("window.vizierPanels.goTab('settings')"); await asyncio.sleep(0.6)

@@ -31,7 +31,7 @@ def test_one_top_row_talk_script_context():
     """the user 2026-11-14: one top bar, no second SCRIPT row, no Do not say; CALL appears only while a call is live.
     Superseded in part by his cards of 2026-11-15 2:09 PM (the deployment's issue 13798): the row also carries SETTINGS / DESKS /
     AGENTS and Tab cycles TALK / SETTINGS / DESKS / AGENTS (test_panels_ui.py); SCRIPT and CONTEXT stay in the row."""
-    for i, label in (("tab-talk", "TALK"), ("tab-tscript", "SPEAKER SCRIPT"), ("tab-hscript", "HORUS SCRIPT")):
+    for i, label in (("tab-talk", "TALK"), ("tab-tscript", "SPEAKER SCRIPT"), ("tab-hscript", "EAGLE SCRIPT")):
         assert re.search(rf'id="{i}"[^>]*>{label}</span>', HTML), f"top bar lost {label}"
     assert re.search(r"#rtabs \{ display:none !important; \}", HTML), "the second tab row must stay hidden"
 
