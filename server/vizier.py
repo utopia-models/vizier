@@ -21,6 +21,8 @@ every window on /feed redraws. The full contract is docs/openapi.yaml; connector
         GET  /agents      the team's liveness (VIZIER_AGENTS_DIR)
         GET  /speaker-script  his spoken beats, read-only, no highlight (VIZIER_SPEAKER_SCRIPT); both tabs mark edited lines
         POST /speaker-script, /horus-script  {"text"} | raw text: replace the live file (X-Vizier-Write secret); GET /state: it all in one JSON
+        GET  /state also carries the reading cursor: seq, updated_at, current_line_index (0-based), current_line_text, total_lines, script_id, script_name, part, parts
+        GET  /events (SSE, one `cursor` event per move) · GET /cursor?since=<seq>&timeout=<s> (long-poll) · $VIZIER_DATA/cursor.jsonl (one row per move)
         GET  /horus-script  the agent's cue table + the current cue (VIZIER_HORUS_CUES, VIZIER_HORUS_STATE); read-only
   WS    /feed     ← {"type": "status"|"line"|"interim"|"suggestion"|"delta"|"done"|"cancel"|"script", ..., "t"}
 
@@ -476,6 +478,41 @@ async def prompter_note(req):
     return web.json_response({**NOTE, "recording": REC.get("take")})
 
 
+# The reading cursor: where the reader is in the script, kept server-side so an agent can read it (GET /state, GET /cursor)
+# and WATCH it change (GET /events SSE, GET /cursor?since=<seq>&timeout=<s> long-poll, tail -f $VIZIER_DATA/cursor.jsonl).
+# The app posts it on every move (arrow, page, click, part change, restart); an unchanged post does not bump seq.
+CURSOR: dict = {"seq": 0, "updated_at": None, "current_line_index": None, "current_line_text": "", "total_lines": 0,
+                "script_id": None, "script_name": "", "part": 0, "parts": 0}
+CURSOR_SUBS: set = set()   # one asyncio.Queue per open /events stream
+CURSOR_KEYS = ("current_line_index", "current_line_text", "total_lines", "script_id", "script_name", "part", "parts")
+
+
+def cursor_log_path() -> Path:
+    return Path(os.environ.get("VIZIER_CURSOR_LOG") or DATA / "cursor.jsonl")
+
+
+def cursor_set(b: dict) -> bool:
+    """Apply one position post; on a change bump seq, append the JSONL row and push it to every /events stream."""
+    line = int(b.get("line", 0) or 0)
+    sp = file_view(script_target("speaker-script"))
+    new = {"current_line_index": line - 1 if line >= 1 else None, "current_line_text": str(b.get("text", ""))[:400],
+           "total_lines": int(b.get("lines", 0) or 0), "script_id": sha_of(sp["text"])[:12] if sp.get("text") else None,
+           "script_name": str(b.get("title", ""))[:120], "part": int(b.get("part", 0) or 0), "parts": int(b.get("parts", 0) or 0)}
+    if all(CURSOR[k] == new[k] for k in CURSOR_KEYS):
+        return False
+    CURSOR.update(new, seq=CURSOR["seq"] + 1, updated_at=time.time())
+    row = dict(CURSOR)
+    for q in list(CURSOR_SUBS):
+        q.put_nowait(row)
+    try:
+        DATA.mkdir(parents=True, exist_ok=True)
+        with open(cursor_log_path(), "a") as f:
+            f.write(json.dumps(row) + "\n")
+    except OSError:
+        pass
+    return True
+
+
 async def prompter_position(req):
     """POST {"part","parts","title","line","lines","text"} from the app on every move; GET returns it with its age, so
     whoever drives the screen follows the reader (an agent can know where the reader is in the script)."""
@@ -483,8 +520,48 @@ async def prompter_position(req):
         b = await body(req)
         POS.update(part=int(b.get("part", 0) or 0), parts=int(b.get("parts", 0) or 0), title=str(b.get("title", ""))[:120],
                    line=int(b.get("line", 0) or 0), lines=int(b.get("lines", 0) or 0), text=str(b.get("text", ""))[:400], t=time.time())
-        return web.json_response({"ok": True})
+        cursor_set(b)
+        return web.json_response({"ok": True, "seq": CURSOR["seq"]})
     return web.json_response({**POS, "age_s": round(time.time() - POS["t"], 1) if POS["t"] else None})
+
+
+async def cursor_get(req):
+    """GET /cursor: the cursor now. ?since=<seq>&timeout=<s> waits (default 30 s, max 120) until seq > since, then answers;
+    on timeout it answers the unchanged cursor with "changed": false."""
+    since = req.query.get("since")
+    if since is None or CURSOR["seq"] > int(since):
+        return web.json_response({"ok": True, "changed": True, **CURSOR})
+    q: asyncio.Queue = asyncio.Queue()
+    CURSOR_SUBS.add(q)
+    try:
+        row = await asyncio.wait_for(q.get(), min(120.0, float(req.query.get("timeout", 30))))
+        return web.json_response({"ok": True, "changed": True, **row})
+    except asyncio.TimeoutError:
+        return web.json_response({"ok": True, "changed": False, **CURSOR})
+    finally:
+        CURSOR_SUBS.discard(q)
+
+
+async def cursor_events(req):
+    """GET /events: Server-Sent Events. First `event: cursor` is the cursor now (id = seq), then one per change, pushed
+    from the position post itself. A `: keepalive` comment every 15 s."""
+    resp = web.StreamResponse(headers={"Content-Type": "text/event-stream", "Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    await resp.prepare(req)
+    q: asyncio.Queue = asyncio.Queue()
+    CURSOR_SUBS.add(q)
+    try:
+        await resp.write(f"id: {CURSOR['seq']}\nevent: cursor\ndata: {json.dumps(CURSOR)}\n\n".encode())
+        while True:
+            try:
+                row = await asyncio.wait_for(q.get(), 15)
+                await resp.write(f"id: {row['seq']}\nevent: cursor\ndata: {json.dumps(row)}\n\n".encode())
+            except asyncio.TimeoutError:
+                await resp.write(b": keepalive\n\n")
+    except (ConnectionResetError, asyncio.CancelledError):
+        pass
+    finally:
+        CURSOR_SUBS.discard(q)
+    return resp
 
 
 async def talk_log(req):
@@ -1149,6 +1226,7 @@ async def state(req):
         "ok": True, "now": time.time(), "speaker_script": sp, "horus_script": horus,
         "take": {"name": v["name"] or VSL_NAME or current_script(req.app).stem, "recording": v["actual"], "pending": v["pending"],
                  "prompter_recording": REC.get("take")},
+        **{k: CURSOR[k] for k in ("seq", "updated_at") + CURSOR_KEYS},
         "front_tab": FRONT["tab"], "front_tab_at": FRONT["at"], "write_enabled": bool(write_secret())})
 
 
@@ -1498,6 +1576,8 @@ def make_app() -> web.Application:
     r.add_post("/speaker-script/undo", write_undo)
     r.add_post("/horus-script/undo", write_undo)
     r.add_get("/state", state)
+    r.add_get("/cursor", cursor_get)
+    r.add_get("/events", cursor_events)
     r.add_get("/approval", approval)
     r.add_post("/approve", approve)
     r.add_post("/state/front", state_front)
