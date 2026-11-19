@@ -4,7 +4,7 @@
   vizier-say                      GET /state (one JSON: his script, the cue sheet, the take, the front tab)
   vizier-say FILE | -             replace the SPEAKER SCRIPT with FILE (or stdin)
   cat s.md | vizier-say           same, from a pipe
-  vizier-say --horus FILE | -     replace the HORUS SCRIPT (cue sheet) instead
+  vizier-say --horus FILE | -     replace the EAGLE SCRIPT (cue sheet) instead
   vizier-say --undo [--horus]     restore the previous version (last 20 are kept)
 
 Env: VIZIER_URL (default http://127.0.0.1:18787), VIZIER_WRITE_SECRET_FILE (default /etc/vizier/write-secret).

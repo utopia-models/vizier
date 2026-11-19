@@ -901,7 +901,7 @@ async def agents(_req):
     return web.json_response({"configured": True, "agents": rows})
 
 
-# ---------- HORUS SCRIPT: the agent's own cue list, read-only (the reader's view of what the agent will do) ----------
+# ---------- EAGLE SCRIPT: the agent's own cue list, read-only (the reader's view of what the agent will do) ----------
 
 _SEEN: dict = {}
 
