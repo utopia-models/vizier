@@ -1,6 +1,6 @@
 # keys-sendinput.ps1: prove his OWN keys reach Vizier while OBS is full screen, with synthetic SendInput
 # keys (the same path a real keyboard takes through the global shortcuts). Run on ETH, with OBS in front and full screen,
-# Vizier on the SPEAKER SCRIPT tab and a script loaded:
+# Vizier on the Tyler's Script tab and a script loaded:
 #   powershell -File keys-sendinput.ps1 [-Server http://127.0.0.1:8765]
 # Steps, each one a PASS/FAIL line, exit 1 on any FAIL:
 #   1. the foreground window covers its whole monitor (OBS full screen);

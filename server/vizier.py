@@ -111,7 +111,7 @@ AGENTS_DIR = os.environ.get("VIZIER_AGENTS_DIR", "")    # one <agent>.json per a
 # "record" command: all three POST /vsl). The command runs in the background and the POST answers at once, so the
 # key acts in milliseconds while the take's own start/stop (OBS, the desk, the review) takes what it takes.
 HORUS_CUES = os.environ.get("VIZIER_HORUS_CUES", "")    # cue-list files, first that exists wins (os.pathsep-separated): a markdown table
-SPEAKER_SCRIPT = os.environ.get("VIZIER_SPEAKER_SCRIPT", "")  # his script (speaker-script.md): the SPEAKER SCRIPT tab shows its spoken lines
+SPEAKER_SCRIPT = os.environ.get("VIZIER_SPEAKER_SCRIPT", "")  # his script (speaker-script.md): the Tyler's Script tab shows its spoken lines
 HORUS_STATE = os.environ.get("VIZIER_HORUS_STATE", "")  # vsl-follow's state.json: {"beat": "b3", "at": ...}, the current cue
 VSL_START_CMD = os.environ.get("VIZIER_VSL_START_CMD", "")   # e.g. "vsl start {name}"; {name} is shell-quoted
 VSL_STOP_CMD = os.environ.get("VIZIER_VSL_STOP_CMD", "")     # e.g. "vsl stop"
@@ -901,7 +901,7 @@ async def agents(_req):
     return web.json_response({"configured": True, "agents": rows})
 
 
-# ---------- EAGLE SCRIPT: the agent's own cue list, read-only (the reader's view of what the agent will do) ----------
+# ---------- Eagle Script: the agent's own cue list, read-only (the reader's view of what the agent will do) ----------
 
 _SEEN: dict = {}
 
