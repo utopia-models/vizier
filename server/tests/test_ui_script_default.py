@@ -9,7 +9,7 @@ HTML = (Path(__file__).resolve().parents[2] / "app" / "ui" / "index.html").read_
 def test_default_mode_is_the_script_view():
     m = re.search(r"function autoMode\(\) \{ return (.*?); \}", HTML)
     assert m, "autoMode() missing"
-    assert m.group(1).strip() == '"tscript"', "the default is Tyler's Script, read-only; no prompter (no CALL mode, TALK only when picked)"
+    assert m.group(1).strip() == '"tscript"', "the default is Speaker Script, read-only; no prompter (no CALL mode, TALK only when picked)"
 
 
 def test_script_and_context_tabs_exist():
@@ -31,7 +31,7 @@ def test_one_top_row_talk_script_context():
     """the user 2026-11-14: one top bar, no second SCRIPT row, no Do not say; CALL appears only while a call is live.
     Superseded in part by his cards of 2026-11-15 2:09 PM (the deployment's issue 13798): the row also carries SETTINGS / DESKS /
     AGENTS and Tab cycles TALK / SETTINGS / DESKS / AGENTS (test_panels_ui.py); SCRIPT and CONTEXT stay in the row."""
-    for i, label in (("tab-talk", "TALK"), ("tab-tscript", "Tyler's Script"), ("tab-hscript", "Eagle Script")):
+    for i, label in (("tab-talk", "TALK"), ("tab-tscript", "Speaker Script"), ("tab-hscript", "Eagle Script")):
         assert re.search(rf'id="{i}"[^>]*>{label}</span>', HTML), f"top bar lost {label}"
     assert re.search(r"#rtabs \{ display:none !important; \}", HTML), "the second tab row must stay hidden"
 
