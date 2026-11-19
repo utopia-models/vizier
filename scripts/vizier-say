@@ -2,7 +2,7 @@
 """vizier-say: write Vizier's script tabs, or read everything it shows. Local only.
 
   vizier-say                      GET /state (one JSON: his script, the cue sheet, the take, the front tab)
-  vizier-say FILE | -             replace the Tyler's Script with FILE (or stdin)
+  vizier-say FILE | -             replace the Speaker Script with FILE (or stdin)
   cat s.md | vizier-say           same, from a pipe
   vizier-say --horus FILE | -     replace the Eagle Script (cue sheet) instead
   vizier-say --undo [--horus]     restore the previous version (last 20 are kept)
