@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+"""vizier-oneshot: run one named Vizier script exactly once, print the outcome, exit. No resident process.
+
+  vizier-oneshot speaker FILE|- [--run-id ID]   replace the Speaker Script tab with FILE (via vizier-say)
+  vizier-oneshot eagle   FILE|- [--run-id ID]   replace the Eagle Script tab with FILE (via vizier-say --horus)
+
+Two entry points, one runner. Outcome JSON goes to stdout and one line to the run log.
+A run id that already has a log line is REFUSED (exit 3) without re-running; default id is a fresh UUID.
+Exit: 0 ran ok · 1 the script failed · 2 usage · 3 run id already used.
+Env: VIZIER_RUN_LOG (default ~/.local/state/vizier/oneshot.jsonl), VIZIER_SAY (default: vizier-say beside this file)."""
+import fcntl, json, os, subprocess, sys, tempfile, time, uuid
+
+HERE = os.path.dirname(os.path.realpath(__file__))
+SAY = os.environ.get("VIZIER_SAY", os.path.join(HERE, "vizier-say"))
+LOG = os.environ.get("VIZIER_RUN_LOG", os.path.expanduser("~/.local/state/vizier/oneshot.jsonl"))
+SCRIPTS = {"speaker": [], "eagle": ["--horus"]}
+
+
+def main(argv):
+    args = list(argv)
+    rid = None
+    if "--run-id" in args:
+        i = args.index("--run-id")
+        if i + 1 >= len(args):
+            sys.exit("usage: vizier-oneshot speaker|eagle FILE|- [--run-id ID]")
+        rid = args[i + 1]
+        del args[i:i + 2]
+    if len(args) != 2 or args[0] not in SCRIPTS:
+        print(__doc__.split("\n\n")[0], file=sys.stderr)
+        return 2
+    name, src = args
+    rid = rid or uuid.uuid4().hex
+    os.makedirs(os.path.dirname(LOG), exist_ok=True)
+    with open(LOG, "a+") as lg:
+        fcntl.flock(lg, fcntl.LOCK_EX)  # claim the id and record it before running, so a race cannot run twice
+        lg.seek(0)
+        for line in lg:
+            try:
+                if json.loads(line).get("run_id") == rid:
+                    print(json.dumps({"run_id": rid, "script": name, "status": "refused", "reason": "run id already used"}))
+                    return 3
+            except ValueError:
+                pass
+        t0 = time.time()
+        tmp = None
+        if src == "-":
+            tmp = tempfile.NamedTemporaryFile("w", suffix=".md", delete=False)
+            tmp.write(sys.stdin.read()); tmp.close()
+            src = tmp.name
+        try:
+            p = subprocess.run([sys.executable, SAY, *SCRIPTS[name], src], capture_output=True, text=True, timeout=60)
+            rc, out = p.returncode, (p.stdout or p.stderr).strip()
+        except (OSError, subprocess.TimeoutExpired) as e:
+            rc, out = 1, str(e)
+        finally:
+            if tmp:
+                os.unlink(tmp.name)
+        res = {"run_id": rid, "script": name, "status": "ok" if rc == 0 else "failed", "rc": rc,
+               "seconds": round(time.time() - t0, 2), "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "output": out[:2000]}
+        lg.write(json.dumps(res) + "\n"); lg.flush()
+    print(json.dumps(res))
+    return 0 if rc == 0 else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
