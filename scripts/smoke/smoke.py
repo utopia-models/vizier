@@ -235,14 +235,14 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
     # ---- Tab: TALK -> SETTINGS -> DESKS -> AGENTS -> Speaker Script -> Eagle Script -> TALK
     await c.js("window.vizierPanels.goTab('talk')"); await asyncio.sleep(0.25)
     seen = []
-    for _ in range(6):
+    for _ in range(8):
         await c.key("Tab"); await asyncio.sleep(0.25)
         m = await c.js("document.body.dataset.mode")
         seen.append(m); await c.shot(out, f"tab-{m}")
-    want = ["settings", "desks", "agents", "tscript", "hscript", "talk"]
+    want = ["settings", "desks", "agents", "tscript", "hscript", "qc", "approval", "talk"]
     labels = await c.js("[...document.querySelectorAll('header .tab:not([hidden])')].map(t=>t.textContent)")
-    ok("Tab visits SETTINGS, DESKS, AGENTS, Speaker Script, Eagle Script and back to TALK (no SCRIPT tab)",
-       seen == want and labels == ["TALK", "SETTINGS", "DESKS", "AGENTS", "Speaker Script", "Eagle Script"], " > ".join(seen) + f"; tabs {labels}")
+    ok("Tab visits SETTINGS, DESKS, AGENTS, Speaker Script, Eagle Script, QC, APPROVAL and back to TALK (no SCRIPT tab)",
+       seen == want and labels == ["TALK", "SETTINGS", "DESKS", "AGENTS", "Speaker Script", "Eagle Script", "QC", "APPROVAL"], " > ".join(seen) + f"; tabs {labels}")
 
     # ---- every tab to the bottom: wheel, then keys with the selection on screen
     await c.js("window.vizierPanels.goTab('talk')")
@@ -275,20 +275,20 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
     await until(lambda: c.js("document.querySelectorAll('#p-agents .row').length > 1"), 8)
     await scroll_check(c, out, "#p-agents", "AGENTS")
 
-    # ---- Speaker Script: his spoken lines, read-only; no highlight, nothing scrolls by itself
+    # ---- Speaker Script: his spoken lines, read-only; arrows step the marked line
     await c.js("window.vizierPanels.goTab('tscript')"); await asyncio.sleep(0.6)
     await until(lambda: c.js("document.querySelectorAll('#p-tscript .row').length > 1"), 8)
     ts = await c.js("(()=>{const p=document.getElementById('p-tscript'),rs=[...p.querySelectorAll('.row')],r=rs[0]&&rs[0].getBoundingClientRect(),a=p.getBoundingClientRect();"
                     "return {n:rs.length,first:rs[0]&&rs[0].textContent.slice(0,40),on:r&&r.top>=a.top-1&&r.top<a.bottom,sel:p.querySelectorAll('.sel,.cur,.now').length,"
                     "unspoken:rs.filter(x=>/^(#|>|\\[)/.test(x.textContent)).length,top:p.scrollTop,sh:p.scrollHeight,ch:p.clientHeight}})()")
-    ok("Speaker Script shows his spoken lines inside the window, with no row highlighted and no outline cue or heading line",
-       bool(ts) and ts["n"] > 5 and ts["on"] and ts["sel"] == 0 and ts["unspoken"] == 0 and ts["top"] == 0, str(ts))
+    ok("Speaker Script shows his spoken lines inside the window, with one row marked (the line being read) and no outline cue or heading line",
+       bool(ts) and ts["n"] > 5 and ts["on"] and ts["sel"] == 1 and ts["unspoken"] == 0 and ts["top"] == 0, str(ts))
     ok("Speaker Script is longer than the window (so scrolling is tested)", ts["sh"] > ts["ch"] + 1, f"{ts['sh']} > {ts['ch']}")
     for _ in range(4): await c.key("ArrowDown")
     await c.key("Enter"); await asyncio.sleep(0.5)
     ro = await c.js("(()=>{const p=document.getElementById('p-tscript');return {sel:p.querySelectorAll('.sel,.cur,.now').length,mode:document.body.dataset.mode}})()")
     await c.shot(out, "tscript-keys")
-    ok("Speaker Script is read-only: arrows and Enter highlight nothing and stay on the tab", ro["sel"] == 0 and ro["mode"] == "tscript", str(ro))
+    ok("Speaker Script: arrows and Enter step the marked line and stay on the tab", ro["sel"] >= 1 and ro["mode"] == "tscript", str(ro))
     await c.js("document.getElementById('p-tscript').scrollTop = 0"); await scroll_check(c, out, "#p-tscript", "Speaker Script")
     # edit one line on the server's copy: it shows up, with no 'changed HH:MM' mark
     f = Path(FIX["VIZIER_SPEAKER_SCRIPT"]); f.write_text(f.read_text().replace("Middle line 2.", "Middle line 2, edited by the smoke."))
