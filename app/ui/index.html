@@ -19,7 +19,7 @@
          overflow:hidden; display:flex; flex-direction:column; user-select:none; }
   /* one row at the default (quarter-screen) width: 6 px gaps, 7 px tab padding, no 'hidden' badge (the gear's tooltip says it);
      padding-right keeps the Ears/Mouth pill (fixed, top right, ~130 px) clear. Before, the HUD wrapped to three lines (vizier#15). */
-  header { flex:0 0 auto; display:flex; align-items:center; gap:6px; padding:6px 10px; padding-right:150px; border-bottom:1px solid var(--line);
+  header { flex:0 0 auto; display:flex; flex-wrap:wrap; align-items:center; gap:4px 6px; padding:6px 10px; padding-right:150px; border-bottom:1px solid var(--line);
            font:500 14px system-ui; color:var(--dim); background:#07090c; }
   header b { color:var(--fg); font-weight:600; }
   /* the header is the grab bar (data-tauri-drag-region, main.rs remembers where it lands); the tabs and buttons keep their clicks */
@@ -27,7 +27,7 @@
   #dot { width:9px; height:9px; border-radius:50%; background:#c44; display:inline-block; }
   #dot.on { background:#3c3; }
   #dot.amber { background:#e8b931; }
-  .tab { padding:2px 7px; border-radius:5px; border:1px solid transparent; cursor:pointer; letter-spacing:.04em; }
+  .tab { white-space:nowrap; padding:2px 7px; border-radius:5px; border:1px solid transparent; cursor:pointer; letter-spacing:.04em; }
   #hide { display:none; }
   .tab.on { color:#000; background:var(--hi); font-weight:700; }
   .tab.call.on { background:var(--accent); }
