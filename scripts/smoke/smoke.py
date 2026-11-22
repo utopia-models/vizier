@@ -235,14 +235,14 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
     # ---- Tab: TALK -> SETTINGS -> DESKS -> AGENTS -> Speaker Script -> Eagle Script -> TALK
     await c.js("window.vizierPanels.goTab('talk')"); await asyncio.sleep(0.25)
     seen = []
-    for _ in range(6):
+    for _ in range(4):
         await c.key("Tab"); await asyncio.sleep(0.25)
         m = await c.js("document.body.dataset.mode")
         seen.append(m); await c.shot(out, f"tab-{m}")
-    want = ["settings", "tscript", "hscript", "qc", "approval", "talk"]   # DESKS and AGENTS are gone; the diagram and app are Chrome tabs, not Vizier tabs
+    want = ["settings", "tscript", "hscript", "talk"]   # DESKS and AGENTS are gone; the diagram and app are Chrome tabs, not Vizier tabs
     labels = await c.js("[...document.querySelectorAll('header .tab:not([hidden])')].map(t=>t.textContent)")
-    ok("Tab visits SETTINGS, Speaker Script, Eagle Script, QC, APPROVAL and back to TALK (no SCRIPT tab)",
-       seen == want and labels == ["TALK", "SETTINGS", "Speaker Script", "Eagle Script", "QC", "APPROVAL"], " > ".join(seen) + f"; tabs {labels}")
+    ok("Tab visits SETTINGS, Speaker Script, Eagle Script and back to TALK (no QC / APPROVAL / SCRIPT tab)",
+       seen == want and labels == ["TALK", "SETTINGS", "Speaker Script", "Eagle Script"], " > ".join(seen) + f"; tabs {labels}")
 
     # ---- every tab to the bottom: wheel, then keys with the selection on screen
     await c.js("window.vizierPanels.goTab('talk')")
@@ -280,6 +280,12 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
     ok("Speaker Script shows his spoken lines inside the window, with one row marked (the line being read) and no outline cue or heading line",
        bool(ts) and ts["n"] > 5 and ts["on"] and ts["sel"] == 1 and ts["unspoken"] == 0 and ts["top"] == 0, str(ts))
     ok("Speaker Script is longer than the window (so scrolling is tested)", ts["sh"] > ts["ch"] + 1, f"{ts['sh']} > {ts['ch']}")
+    ok("Speaker Script: no title row inside the script (the first row is the first section tag line; the title lives only in #jobhdr)",
+       await c.js("(()=>{const p=document.getElementById('p-tscript');const f=[...p.children].find(x=>!x.classList.contains('stale'));return !!f&&f.classList.contains('msg')&&/^\\s*\\[/.test(f.textContent)})()"), "first child of #p-tscript")
+    for _ in range(4): await c.key("ArrowDown")
+    await c.js("window.vizierTop()"); await asyncio.sleep(0.3)
+    top = await c.js("(()=>{const p=document.getElementById('p-tscript');return {cur:[...p.querySelectorAll('.row')].findIndex(x=>x.classList.contains('cur')),top:p.scrollTop,mode:document.body.dataset.mode}})()")
+    ok("Alt+T (vizierTop) lights line 0 of the Speaker Script, scrolls to the top and stays on the tab", top["cur"] == 0 and top["top"] == 0 and top["mode"] == "tscript", str(top))
     for _ in range(4): await c.key("ArrowDown")
     await c.key("Enter"); await asyncio.sleep(0.5)
     ro = await c.js("(()=>{const p=document.getElementById('p-tscript');return {sel:p.querySelectorAll('.sel,.cur,.now').length,mode:document.body.dataset.mode}})()")

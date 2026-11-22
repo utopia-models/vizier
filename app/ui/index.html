@@ -435,6 +435,10 @@ window.vizierStep = d => {
   if (rtab === "script") step(d); else $("doc").scrollTop += d * 140;   // CONTEXT / DO NOT SAY scroll by hand
 };
 window.vizierPart = d => { if (PANELS.includes(mode)) return panelChange(d); if (mode === "rec" && takes.length) { goTake(t + d); if (recording) record(); } };   // global Left / Right (main.rs)
+window.vizierTop = () => {   // Alt+T from any app: line 0 of the CURRENT script, lit, panel scrolled to the top (Tab / S switch tabs)
+  if (mode === "tscript") { tsCur = 0; drawTscript(); $("p-tscript").scrollTop = 0; reportTs(); }
+  else if (mode === "hscript") { const el = $("p-hscript"), c = ((panel.hscript.data || {}).cues || [])[0]; if (c) { panel.hscript.data.current = c.beat; hsCur = c.beat; } drawHscript(); el.scrollTop = 0; }
+};
 window.vizierTab = () => {   // Alt+T from any app, or Tab in the page: TALK -> SETTINGS -> DESKS -> AGENTS -> SCRIPT -> TALK
   // (the deployment's issue 13798; the user 2026-11-15 3:13 PM, "I can't tab over to script": SCRIPT is in the cycle, and the
   // prompter text is right here in this window). CONTEXT stays a click away; from it Tab goes on to TALK.
@@ -729,7 +733,7 @@ function drawTscript() {   // the CURRENT line (the one he is reading) is lit; n
   let i = -1;
   el.innerHTML = staleLine(panel.tscript) + (!d ? `<div class="msg">reading the script…</div>` : d.error ? `<div class="msg err">${esc(d.error)}</div>`
     : !(d.sections || []).length ? `<div class="msg">No script${d.configured ? "" : " (VIZIER_SPEAKER_SCRIPT is not set)"}.</div>`
-    : `<div class="msg">${esc(d.title || d.source)}</div>` + d.sections.map(s => { const r = roleOf(s.title); return `<div class="msg ${r.msg}" style="${r.msg ? "" : "color:var(--hi);"}margin-top:12px">${esc(s.title.replace(/^\d+\s*·\s*/, ""))}</div>`
+    : d.sections.map(s => { const r = roleOf(s.title); return `<div class="msg ${r.msg}" style="${r.msg ? "" : "color:var(--hi);"}margin-top:12px">${esc(s.title.replace(/^\d+\s*·\s*/, ""))}</div>`
       + s.lines.map(l => { i++; const cur = i === tsCur;
         return `<div class="row${cur ? " sel cur" : i < tsCur ? " done" : i === tsCur + 1 ? " next" : " later"} ${r.row}" data-i="${i}" style="${r.row ? "" : "font-size:22px"}"><span class="h lm">${cur ? "▶" : ""}</span><span class="v">${esc(l.text)}</span></div>`; }).join(""); }).join(""));
   el.querySelectorAll(".row[data-i]").forEach(x => x.onclick = () => { tsCur = +x.dataset.i; drawTscript(); reportTs(); });   // a click moves the line too
