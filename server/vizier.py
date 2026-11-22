@@ -119,6 +119,11 @@ VSL_START_CMD = os.environ.get("VIZIER_VSL_START_CMD", "")   # e.g. "vsl start {
 VSL_STOP_CMD = os.environ.get("VIZIER_VSL_STOP_CMD", "")     # e.g. "vsl stop"
 VSL_STATE = os.environ.get("VIZIER_VSL_STATE", "")           # a file that exists while a take records (vsl's current.json)
 VSL_NAME = os.environ.get("VIZIER_VSL_NAME", "")             # the take's name; empty = the prompter script's name
+# The hand-off (the user 2026-11-22): his Down key into the first line of an [AI voice] section starts the voice agent and
+# swaps his face card for the gold orb. The app POSTs /handoff once per take; this server runs HANDOFF_CMD in the
+# background (the deployment's own starter: voice agent + orb). When the voice agent has said the last line it POSTs
+# /handoff {"done": true} and the take stops by itself (contract control.auto_stop), through the same switch as POST /vsl.
+HANDOFF_CMD = os.environ.get("VIZIER_HANDOFF_CMD", "")       # e.g. "stage.sh do handoff --section {section}"; {section}, {line} shell-quoted
 CHANNELS = ("me", "them")
 
 
@@ -842,6 +847,59 @@ async def vsl(req):
     return web.json_response(vsl_view())
 
 
+# ---------- the hand-off: Down into [AI voice] starts the voice agent; its last line stops the take ----------
+HANDOFF: dict = {"key": None, "at": None, "section": "", "line": 0, "busy": False, "rc": None, "error": "", "done_at": None}
+
+
+def handoff_view() -> dict:
+    return {"configured": bool(HANDOFF_CMD), **{k: HANDOFF[k] for k in ("at", "section", "line", "busy", "rc", "error", "done_at")},
+            "fired": HANDOFF["at"] is not None}
+
+
+async def _handoff_run(cmd: str) -> None:
+    HANDOFF["busy"] = True
+    t0 = time.time()
+    try:
+        p = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+        out, _ = await p.communicate()
+        tail = out.decode(errors="replace").strip().splitlines()[-1:] or [""]
+        HANDOFF.update(rc=p.returncode, error="" if p.returncode == 0 else f"exit {p.returncode}: {tail[0][:200]}")
+        log_event({"t": time.time(), "ev": "handoff_run", "rc": p.returncode, "s": round(time.time() - t0, 1), "out": tail[0][:300]})
+    except OSError as e:
+        HANDOFF.update(rc=-1, error=str(e)[:200])
+    finally:
+        HANDOFF["busy"] = False
+
+
+async def handoff(req):
+    """GET /handoff: {configured, fired, at, section, line, busy, rc, error, done_at}.
+    POST /handoff {"section", "line", "take"?}: the reader's Down key reached an [AI voice] section. Runs VIZIER_HANDOFF_CMD
+    once per take (key = the take's name + since, or "take" when given); a second POST for the same take answers
+    "already": true and runs nothing, so Up/Down across the boundary never starts a second voice agent.
+    POST /handoff {"done": true}: the voice agent said its last line; stops the take (POST /vsl {"on": false})."""
+    if req.method == "GET":
+        return web.json_response(handoff_view())
+    b = await body(req)
+    if b.get("done"):
+        HANDOFF["done_at"] = time.time()
+        log_event({"t": time.time(), "ev": "handoff_done", "src": str(b.get("src") or "")[:40]})
+        stopping = bool(VSL_START_CMD and VSL_STOP_CMD) and vsl_view()["on"]
+        if stopping:
+            VSL.update(want=False, error="")
+            asyncio.get_running_loop().create_task(_vsl_sync())
+        return web.json_response({**handoff_view(), "stopping": stopping})
+    key = str(b.get("take") or f"{VSL['name']}@{VSL['since']}")
+    section, line = str(b.get("section", ""))[:120], int(b.get("line", 0) or 0)
+    if HANDOFF["key"] == key and HANDOFF["at"] is not None:
+        return web.json_response({**handoff_view(), "already": True})
+    HANDOFF.update(key=key, at=time.time(), section=section, line=line, rc=None, error="", done_at=None)
+    log_event({"t": time.time(), "ev": "handoff", "section": section, "line": line, "take": key[:80]})
+    if HANDOFF_CMD:
+        cmd = HANDOFF_CMD.replace("{section}", shlex.quote(section)).replace("{line}", str(line))
+        asyncio.get_running_loop().create_task(_handoff_run(cmd))
+    return web.json_response({**handoff_view(), "already": False})
+
+
 # ---------- the agent's settings, desks and team (the deployment's issue 13798) ----------
 # The app's SETTINGS panel reads GET /settings and changes a value with POST /settings {"voice": "next"|"prev"|<name>}
 # or {"wake": {"on"?: bool, "call_n"?: int}}; this server forwards to the voice agent (VIZIER_VOICE_URL). Ears and Voice
@@ -1217,7 +1275,7 @@ async def state(req):
         "take": {"name": v["name"] or VSL_NAME or current_script(req.app).stem, "recording": v["actual"], "pending": v["pending"],
                  "prompter_recording": REC.get("take")},
         **{k: CURSOR[k] for k in ("seq", "updated_at") + CURSOR_KEYS},
-        "front_tab": FRONT["tab"], "front_tab_at": FRONT["at"], "write_enabled": bool(write_secret())})
+        "handoff": handoff_view(), "front_tab": FRONT["tab"], "front_tab_at": FRONT["at"], "write_enabled": bool(write_secret())})
 
 
 async def state_front(req):
@@ -1573,6 +1631,8 @@ def make_app() -> web.Application:
     r.add_post("/beacon", beacon)
     r.add_get("/vsl", vsl)
     r.add_post("/vsl", vsl)
+    r.add_get("/handoff", handoff)
+    r.add_post("/handoff", handoff)
     return app
 
 

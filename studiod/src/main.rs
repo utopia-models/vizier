@@ -13,6 +13,8 @@
 //!   GET  /status                 the state (also /health)
 //!   POST /cmd {"id":"...","verb":"rec start","name":"my-take"}
 //!        verbs: "rec start [name]" · "rec stop" · "rec toggle" · "status" · "cue next" · "cue back" · "cue goto <beat>"
+//!               · "face orb" · "face cam"  (the hand-off: hide the face card source, show the orb source, or back;
+//!                 in the current program scene; `--face-source` / `--orb-source`, default "Face" / "Orb")
 //!        `id` makes a verb idempotent: the same id within 10 min returns the first answer and changes nothing.
 //! State file: written on every change, write-then-rename (`--state`, default %PUBLIC%\vizier\studio-state.json).
 //! Beacon: `--beacon http://host:port/path` POSTs the state every 2 s (plain http; a dead target only logs once).
@@ -29,17 +31,19 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-const ALLOWED: &[&str] = &["GetVersion", "GetRecordStatus", "GetStreamStatus", "StartRecord", "StopRecord"];
+// Scene-item visibility (the face -> orb hand-off) is allowed too: it changes what is recorded, never starts a stream.
+const ALLOWED: &[&str] = &["GetVersion", "GetRecordStatus", "GetStreamStatus", "StartRecord", "StopRecord",
+                           "GetCurrentProgramScene", "GetSceneItemId", "SetSceneItemEnabled"];
 const OUTPUTS: u64 = 1 << 6; // EventSubscription.Outputs: RecordStateChanged, StreamStateChanged
 const RECONNECT_CAP_MS: u64 = 2000;
 
-struct Cfg { port: u16, obs: String, obs_config: String, state: String, beacon: Option<String>, log: Option<String> }
+struct Cfg { port: u16, obs: String, obs_config: String, state: String, beacon: Option<String>, log: Option<String>, face_source: String, orb_source: String }
 
 #[derive(Default)]
 struct State {
     obs_up: bool, obs_error: String, obs_version: String,
     recording: bool, output_path: String, take_id: u64, name: String, started_at: f64,
-    beat: i64, beat_name: String,
+    beat: i64, beat_name: String, face: String,
     rec_events: u64, last_rec_state: String, last_rec_event_at: Option<Instant>,
     last_cmd: Value, link_ok: Option<Instant>,
 }
@@ -87,7 +91,7 @@ fn state_json(sh: &Shared, st: &State) -> Value {
         "ok": true, "obs": {"up": st.obs_up, "error": st.obs_error, "version": st.obs_version},
         "recording": st.recording, "output_path": st.output_path, "take_id": st.take_id, "name": st.name,
         "started_at": if st.started_at > 0.0 { json!(st.started_at) } else { Value::Null },
-        "beat": st.beat, "beat_name": st.beat_name, "rec_state": st.last_rec_state,
+        "beat": st.beat, "beat_name": st.beat_name, "face": st.face, "rec_state": st.last_rec_state,
         "uptime_s": sh.t0.elapsed().as_secs(), "last_cmd": st.last_cmd, "t": now_s(),
     })
 }
@@ -310,7 +314,32 @@ fn verb(sh: &Shared, b: &Value) -> (u16, Value) {
             save_state(sh, &st);
             (200, json!({"ok": true, "state": state_json(sh, &st)}))
         }
-        _ => (400, json!({"ok": false, "error": format!("unknown verb {v:?}: rec start [name] | rec stop | rec toggle | status | cue next|back|goto <beat>")})),
+        ("face", which @ ("orb" | "cam")) => {
+            // the hand-off (Down into [AI voice]): face card off + orb on, in the scene being recorded; "cam" reverses it
+            let scene = match obs(sh, "GetCurrentProgramScene", json!({})) {
+                Ok(r) => r["currentProgramSceneName"].as_str().or(r["sceneName"].as_str()).unwrap_or("").to_string(),
+                Err(e) => return (503, json!({"ok": false, "error": e})),
+            };
+            let orb = which == "orb";
+            let mut set = Vec::new();
+            let mut errs = Vec::new();
+            for (src, on) in [(sh.cfg.face_source.clone(), !orb), (sh.cfg.orb_source.clone(), orb)] {
+                let id = match obs(sh, "GetSceneItemId", json!({"sceneName": scene, "sourceName": src})) {
+                    Ok(r) => r["sceneItemId"].as_i64(),
+                    Err(e) => { errs.push(format!("{src}: {e}")); continue; }
+                };
+                let Some(id) = id else { errs.push(format!("{src}: not in scene {scene:?}")); continue };
+                match obs(sh, "SetSceneItemEnabled", json!({"sceneName": scene, "sceneItemId": id, "sceneItemEnabled": on})) {
+                    Ok(_) => set.push(json!({"source": src, "enabled": on})),
+                    Err(e) => errs.push(format!("{src}: {e}")),
+                }
+            }
+            let mut st = sh.st.lock().unwrap();
+            if errs.is_empty() { st.face = which.into(); save_state(sh, &st); }
+            log(sh, &format!("face {which} in {scene:?}: set {} errors {:?}", set.len(), errs));
+            (if errs.is_empty() { 200 } else { 502 }, json!({"ok": errs.is_empty(), "scene": scene, "set": set, "errors": errs, "state": state_json(sh, &st)}))
+        }
+        _ => (400, json!({"ok": false, "error": format!("unknown verb {v:?}: rec start [name] | rec stop | rec toggle | status | cue next|back|goto <beat> | face orb|cam")})),
     }
 }
 
@@ -392,6 +421,8 @@ fn args() -> Cfg {
         state: get("--state").unwrap_or_else(|| format!("{public}{sep}studio-state.json")),
         beacon: get("--beacon"),
         log: get("--log"),
+        face_source: get("--face-source").unwrap_or_else(|| "Face".into()),
+        orb_source: get("--orb-source").unwrap_or_else(|| "Orb".into()),
     }
 }
 
