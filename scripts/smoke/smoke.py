@@ -280,8 +280,8 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
     ok("Speaker Script shows his spoken lines inside the window, with one row marked (the line being read) and no outline cue or heading line",
        bool(ts) and ts["n"] > 5 and ts["on"] and ts["sel"] == 1 and ts["unspoken"] == 0 and ts["top"] == 0, str(ts))
     ok("Speaker Script is longer than the window (so scrolling is tested)", ts["sh"] > ts["ch"] + 1, f"{ts['sh']} > {ts['ch']}")
-    ok("Speaker Script: no title row inside the script (the first row is the first section tag line; the title lives only in #jobhdr)",
-       await c.js("(()=>{const p=document.getElementById('p-tscript');const f=[...p.children].find(x=>!x.classList.contains('stale'));return !!f&&f.classList.contains('msg')&&/^\\s*\\[/.test(f.textContent)})()"), "first child of #p-tscript")
+    ok("Speaker Script: no title row inside the script (the first row is a section heading, never the script title; the title lives only in #jobhdr)",
+       await c.js("(()=>{const p=document.getElementById('p-tscript'),d=window.vizierPanels.panel.tscript.data,f=[...p.children].find(x=>!x.classList.contains('stale'));const t=((d&&(d.title||d.source))||'').trim();return !!f&&!!t&&f.textContent.trim()!==t&&!p.textContent.includes(t)})()"), "first child of #p-tscript")
     for _ in range(4): await c.key("ArrowDown")
     await c.js("window.vizierTop()"); await asyncio.sleep(0.3)
     top = await c.js("(()=>{const p=document.getElementById('p-tscript');return {cur:[...p.querySelectorAll('.row')].findIndex(x=>x.classList.contains('cur')),top:p.scrollTop,mode:document.body.dataset.mode}})()")
