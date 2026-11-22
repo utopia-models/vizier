@@ -565,7 +565,7 @@ async def cursor_events(req):
 
 
 async def talk_log(req):
-    """POST {"src","ears","mouth"}: the app says who flipped Ears/Mouth (hotkey, click, key, restore on start): an audit
+    """POST {"src","ears","mouth"}: the app says who flipped Ears/Voice (hotkey, click, key, restore on start): an audit
     line in DATA/talk-switch.log, so a switch that changed 'by itself' can be traced."""
     b = await body(req)
     with open(DATA / "talk-switch.log", "a") as f:
@@ -854,7 +854,7 @@ async def vsl(req):
 
 # ---------- the agent's settings, desks and team (the deployment's issue 13798) ----------
 # The app's SETTINGS panel reads GET /settings and changes a value with POST /settings {"voice": "next"|"prev"|<name>}
-# or {"wake": {"on"?: bool, "call_n"?: int}}; this server forwards to the voice agent (VIZIER_VOICE_URL). Ears and Mouth
+# or {"wake": {"on"?: bool, "call_n"?: int}}; this server forwards to the voice agent (VIZIER_VOICE_URL). Ears and Voice
 # are the app's own LiveKit attributes (talk.js), so the panel flips them there, not here. DESKS lists VIZIER_DESKS_CMD's
 # output and POST /desks/open {"id"} runs VIZIER_DESK_OPEN_CMD for a listed id only. AGENTS summarizes every JSON
 # file in VIZIER_AGENTS_DIR: {agent, health, at, reasons, doing} from its `liveness` block (or the top level).
@@ -1024,9 +1024,7 @@ async def speaker_script(_req):
     for s in secs:   # "changed" is always null: the user does not want 'changed HH:MM' marks (track_changes is kept, unused)
         s["lines"] = [{"text": l, "changed": None} for l in s["lines"]]
     m = re.match(r"#\s*(.*)", text)
-    previews = [{"label": x[0].strip(), "url": x[1].strip()} for x in
-                (l.split("|", 1) for l in re.findall(r"^>\s*preview:\s*(.+)$", text, re.M)) if len(x) == 2 and x[1].strip().startswith("http")]
-    return web.json_response({"configured": True, "source": p.name, "title": m.group(1)[:160] if m else "", "previews": previews,
+    return web.json_response({"configured": True, "source": p.name, "title": m.group(1)[:160] if m else "",
                               "sections": secs, "now": time.time()})
 
 

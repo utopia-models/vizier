@@ -6,8 +6,8 @@
 #   1. the foreground window covers its whole monitor (OBS full screen);
 #   2. Down x2 moves the speaker-script line by +2 (read back from GET /prompter/position, which the tab reports on each step);
 #   3. Up x1 moves it by -1;
-#   4. Alt+E twice and Alt+M twice each add talk.log lines (ears / mouth toggled and toggled back).
-# Down / Up are Vizier's global shortcuts (Alt+K releases them); Alt+E / Alt+M are the ears / mouth shortcuts.
+#   4. Alt+E twice and Alt+M twice each add talk.log lines (ears / voice toggled and toggled back).
+# Down / Up are Vizier's global shortcuts (Alt+K releases them); Alt+E / Alt+M are the ears / voice shortcuts.
 param([string]$Server = "http://127.0.0.1:8765")
 Add-Type @"
 using System; using System.Runtime.InteropServices;

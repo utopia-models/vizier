@@ -8,15 +8,15 @@ HTML = (Path(__file__).resolve().parents[2] / "app" / "ui" / "index.html").read_
 
 
 def test_four_panels_and_their_tabs_exist():
-    for k in ("talk", "settings", "tscript", "hscript", "pv0", "pv1", "qc", "approval"):
+    for k in ("talk", "settings", "tscript", "hscript", "qc", "approval"):
         assert f'id="tab-{k}"' in HTML and f'id="m-{k}"' in HTML, k
 
 
 def test_tab_cycles_the_four_panels():
     fn = HTML[HTML.index("window.vizierTab = () =>"):]
     fn = fn[: fn.index("};")]
-    assert '["talk", ...PANELS]' in fn   # Tab reaches SCRIPT (#14); hidden preview tabs are skipped
-    assert re.search(r'const PANELS = \["settings", "tscript", "hscript", "pv0", "pv1", "qc", "approval"\]', HTML)
+    assert '["talk", ...PANELS]' in fn   # Tab reaches SCRIPT (#14)
+    assert re.search(r'const PANELS = \["settings", "tscript", "hscript", "qc", "approval"\]', HTML)
 
 
 def test_no_desks_or_agents_panel_and_every_tab_has_the_job_header():
@@ -50,3 +50,13 @@ def test_follow_and_ears_mouth_answer_before_the_server_does():
     talk = (Path(__file__).resolve().parents[2] / "app" / "ui" / "talk.js").read_text()
     t = talk[talk.index("export async function toggle"):][:700]
     assert t.index("pending[k] = true") < t.index("paint();") < t.index("await applyEars")
+
+
+def test_vizier_has_no_diagram_or_app_tab_and_no_user_visible_mouth():
+    """Tyler 2026-11-22: the architecture diagram and the working app are plain Chrome tabs the take driver opens, not Vizier
+    tabs; and the word on screen is Voice, never Mouth."""
+    low = HTML.lower()
+    assert "pvframe" not in low and "tab-pv" not in low and "<iframe" not in low and "preview" not in low
+    assert "Mouth" not in HTML and "mouth</b>" not in HTML
+    talk = (Path(__file__).resolve().parents[2] / "app" / "ui" / "talk.js").read_text()
+    assert ">Voice <b>" in talk and "Mouth" not in talk.replace("applyMouth", "")

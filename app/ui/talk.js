@@ -1,5 +1,5 @@
-// Talk to an agent through a LiveKit room: Ears (your mic into the room) and Mouth (the agent's voice out of it),
-// each a toggle. In the desktop app Alt+E toggles Ears and Alt+M toggles Mouth from anywhere (main.rs registers them
+// Talk to an agent through a LiveKit room: Ears (your mic into the room) and Voice (the agent's voice out of it),
+// each a toggle. In the desktop app Alt+E toggles Ears and Alt+M toggles Voice from anywhere (main.rs registers them
 // as global shortcuts); in a plain browser the same keys work while this page has focus.
 //
 // Config (the app's `config` command, i.e. config.json / vizier.json beside the exe, or ?talkUrl=&talkToken=):
@@ -7,7 +7,7 @@
 //   talkToken  a join token for the agent's room (publish + subscribe + update own attributes)
 // Nothing here transcribes or stores audio: an agent process in the same room does that and answers in its own voice.
 // The switches are this participant's attributes, ears=on|off and mouth=on|off, so the agent side reads them with any
-// LiveKit SDK. Ears off also mutes the mic track; Mouth off also unsubscribes from the agent's audio here.
+// LiveKit SDK. Ears off also mutes the mic track; Voice off also unsubscribes from the agent's audio here.
 // livekit-client 2.15.7 ships inside the app (ui/livekit-client.esm.js, the package's own self-contained ESM build): the
 // CDN import it replaced meant no join at all, and no trace of why, whenever that fetch did not load (the user 2026-11-15:
 // Vizier never tried to join room scout). Every join step is written to %PUBLIC%\\vizier\\talk.log (tlog), headless-readable.
@@ -21,7 +21,7 @@ export function tlog(msg) {
 }
 tlog("talk.js loaded");
 
-// Ears and Mouth are ON at every start (the deployment's issue 13786, the user 2026-11-15: "I need Scout on demand at all times"; the
+// Ears and Voice are ON at every start (the deployment's issue 13786, the user 2026-11-15: "I need Scout on demand at all times"; the
 // agent's voice must be heard on the laptop every time). A switch kept off from an earlier session silenced the agent
 // on the next launch with nothing on screen saying why (fresh WebView profile: both off, so nothing was ever heard).
 // When the agent speaks is the room's job (its ears process answers only a line that names it), not a stale switch.
@@ -41,7 +41,7 @@ function pill() {
   el.style.cssText = "position:fixed;top:6px;right:8px;z-index:2147483647;display:flex;gap:10px;align-items:center;" +
     "padding:3px 10px;border-radius:999px;background:rgba(13,15,18,.86);border:1px solid #2f4560;color:#eef1f5;" +
     "font:600 12px/1.6 system-ui,sans-serif;user-select:none;pointer-events:auto";
-  el.innerHTML = '<span data-k="ears" title="Alt+E">Ears <b>●</b></span><span data-k="mouth" title="Alt+M">Mouth <b>●</b></span><span data-onair title="the mic is capturing only while this is red">MIC OFF</span>';
+  el.innerHTML = '<span data-k="ears" title="Alt+E">Ears <b>●</b></span><span data-k="mouth" title="Alt+M">Voice <b>●</b></span><span data-onair title="the mic is capturing only while this is red">MIC OFF</span>';
   el.querySelectorAll("[data-k]").forEach((s) => s.addEventListener("click", () => toggle(s.dataset.k, "click")));
   document.body.appendChild(el);
   return el;
@@ -211,8 +211,8 @@ async function applyEars() {
 }
 
 function applyMouth() {
-  // Mouth off = the agent's audio is not even received here (unsubscribed), not just a muted element: LiveKit unmutes
-  // attached elements on its own (measured: turning Ears on unmuted the agent while Mouth was off)
+  // Voice off = the agent's audio is not even received here (unsubscribed), not just a muted element: LiveKit unmutes
+  // attached elements on its own (measured: turning Ears on unmuted the agent while Voice was off)
   if (!state.room) return;
   for (const p of state.room.remoteParticipants.values())
     for (const pub of p.trackPublications.values())
@@ -269,7 +269,7 @@ async function join(cfg) {
   serverBase = (cfg.server || "").replace(/\/$/, "");
   const { url, token } = await creds(cfg);
   if (!url || !token) { tlog(`not configured: talkUrl ${url ? "set" : "missing"}, talkToken ${token ? "set" : "missing"}`); return; }
-  tlog(`joining ${url} (ears ${state.ears ? "on" : "off"}, mouth ${state.mouth ? "on" : "off"})`);
+  tlog(`joining ${url} (ears ${state.ears ? "on" : "off"}, voice ${state.mouth ? "on" : "off"})`);
   pill(); paint();
   const room = new Room({ adaptiveStream: false, dynacast: false });
   room.on(RoomEvent.TrackSubscribed, (track) => {

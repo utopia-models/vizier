@@ -18,7 +18,7 @@
   body { margin:0; background:var(--bg); color:var(--fg); font:20px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif;
          overflow:hidden; display:flex; flex-direction:column; user-select:none; }
   /* one row at the default (quarter-screen) width: 6 px gaps, 7 px tab padding, no 'hidden' badge (the gear's tooltip says it);
-     padding-right keeps the Ears/Mouth pill (fixed, top right, ~130 px) clear. Before, the HUD wrapped to three lines (vizier#15). */
+     padding-right keeps the Ears/Voice pill (fixed, top right, ~130 px) clear. Before, the HUD wrapped to three lines (vizier#15). */
   header { flex:0 0 auto; display:flex; flex-wrap:wrap; align-items:center; gap:4px 6px; padding:6px 10px; padding-right:270px; border-bottom:1px solid var(--line);
            font:500 14px system-ui; color:var(--dim); background:#07090c; }
   header b { color:var(--fg); font-weight:600; }
@@ -37,8 +37,6 @@
   /* SETTINGS / DESKS / AGENTS (the deployment's issue 13798): one list each, the selected row marked, arrows drive it */
   #jobhdr { flex:0 0 auto; padding:6px 14px; background:#101a14; color:#cfeccf; border-bottom:1px solid #2c4a35; font:700 17px system-ui; letter-spacing:.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   #jobhdr:empty { display:none; }
-  .pvframe { flex:1; min-height:0; width:100%; border:0; background:#fff; }
-  .tab.pv.on { background:var(--accent); color:#000; font-weight:700; }
   .row.you .v { font-size:34px; font-weight:800; color:#fff; line-height:1.3; }
   .row.ai .v { font-size:17px; font-weight:400; color:#6f7785; }
   .row.hand .v { font-size:24px; font-weight:800; color:#ffb347; }
@@ -153,7 +151,6 @@
   <span class="tab set" id="tab-settings" title="SETTINGS: every Eagle setting; arrows change them">SETTINGS</span>
   <span class="tab ts" id="tab-tscript" title="Speaker Script: his spoken beats, read-only; nothing highlights or scrolls by itself">Speaker Script</span>
   <span class="tab hs" id="tab-hscript" title="Eagle Script: the cues Eagle will run, read-only; the current one is lit">Eagle Script</span>
-  <span class="tab pv" id="tab-pv0" hidden></span><span class="tab pv" id="tab-pv1" hidden></span>
   <span class="tab hs" id="tab-qc" title="QC: the QA checklist and the last vsl_qa verdict; read-only">QC</span>
   <span class="tab hs" id="tab-approval" title="APPROVAL: the gate report, the references used and the diff from the last version; read-only">APPROVAL</span>
   <span id="tab-rec" hidden></span><span id="tab-ctx" hidden></span>   <!-- the teleprompter is gone (the user, Architect 8981): inert stubs so old refs stay null-safe -->
@@ -170,7 +167,7 @@
 <audio id="callaudio" autoplay></audio>
 
 <section class="mode" id="m-rec" hidden style="display:none !important">
-  <div id="keylegend"><b>↑ ↓</b> scroll &nbsp;·&nbsp; <b>← →</b> part &nbsp;·&nbsp; <b>Tab</b> Talk / Settings / Speaker script / Eagle script / the pages shown &nbsp;·&nbsp; <b>Alt+E</b> ears &nbsp;·&nbsp; <b>Alt+M</b> mouth &nbsp;·&nbsp; <b>Alt+V</b> show / hide &nbsp;·&nbsp; <b id="kfollow" style="cursor:pointer" onclick="window.vizierFollow()">Alt+F follow: ON</b></div>
+  <div id="keylegend"><b>↑ ↓</b> scroll &nbsp;·&nbsp; <b>← →</b> part &nbsp;·&nbsp; <b>Tab</b> Talk / Settings / Speaker script / Eagle script &nbsp;·&nbsp; <b>Alt+E</b> ears &nbsp;·&nbsp; <b>Alt+M</b> voice &nbsp;·&nbsp; <b>Alt+V</b> show / hide &nbsp;·&nbsp; <b id="kfollow" style="cursor:pointer" onclick="window.vizierFollow()">Alt+F follow: ON</b></div>
   <nav id="rtabs"><span data-t="script" class="on">SCRIPT</span><span data-t="context" hidden>CONTEXT</span><span data-t="notes" hidden>DO NOT SAY</span></nav>
   <div id="prompt"><div id="text"></div><div id="readline"></div></div>
   <div id="doc"></div>
@@ -180,11 +177,9 @@
   <div id="talkmain"><div class="sp"></div></div>
 </section>
 <section class="mode" id="m-settings"><div class="panel" id="p-settings"></div>
-  <div id="keylegend-s" class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> pick a setting &nbsp;·&nbsp; <b>← →</b> change it &nbsp;·&nbsp; <b>Alt+E</b> ears &nbsp;·&nbsp; <b>Alt+M</b> mouth &nbsp;·&nbsp; <b>Alt+V</b> show / hide</div></section>
+  <div id="keylegend-s" class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> pick a setting &nbsp;·&nbsp; <b>← →</b> change it &nbsp;·&nbsp; <b>Alt+E</b> ears &nbsp;·&nbsp; <b>Alt+M</b> voice &nbsp;·&nbsp; <b>Alt+V</b> show / hide</div></section>
 <section class="mode" id="m-tscript"><div class="panel" id="p-tscript"></div>
   <div class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> step a line &nbsp;·&nbsp; the arrow marks the line ahead &nbsp;·&nbsp; nothing moves but by your keys</div></section>
-<section class="mode" id="m-pv0"><iframe class="pvframe" id="f-pv0" title="preview"></iframe></section>
-<section class="mode" id="m-pv1"><iframe class="pvframe" id="f-pv1" title="preview"></iframe></section>
 <section class="mode" id="m-qc"><div class="panel" id="p-qc"></div>
   <div class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> scroll &nbsp;·&nbsp; read-only: the QA checklist and the last vsl_qa verdict</div></section>
 <section class="mode" id="m-approval"><div class="panel" id="p-approval"></div></section>
@@ -249,7 +244,7 @@ function refreshTabs() {
   $("tab-ctx").classList.toggle("on", mode === "rec" && rtab === "context");
   $("tab-call").classList.toggle("on", mode === "call"); $("tab-call").hidden = mode !== "call";
 }
-const PANELS = ["settings", "tscript", "hscript", "pv0", "pv1", "qc", "approval"];   // the deployment's issue 13798: Scout's panels beside TALK
+const PANELS = ["settings", "tscript", "hscript", "qc", "approval"];   // the deployment's issue 13798: Scout's panels beside TALK
 const MODES = ["rec", "call", "talk", ...PANELS];
 function goTab(n) {   // TALK / SETTINGS / DESKS / AGENTS, and SCRIPT / CONTEXT: the one row at the top
   pinned = (n === "talk" || PANELS.includes(n)) ? n : "tscript"; setMode();
@@ -482,7 +477,7 @@ window.vizierTab = () => {   // Alt+T from any app, or Tab in the page: TALK -> 
   // (the deployment's issue 13798; the user 2026-11-15 3:13 PM, "I can't tab over to script": SCRIPT is in the cycle, and the
   // prompter text is right here in this window). CONTEXT stays a click away; from it Tab goes on to TALK.
   if (mode === "call") return;
-  const order = ["talk", ...PANELS].filter(k => !$("tab-" + k).hidden), cur = mode;
+  const order = ["talk", ...PANELS], cur = mode;
   goTab(cur === "context" ? "talk" : order[(order.indexOf(cur) + 1) % order.length]);
 };   // the app's global Alt+Down / Alt+Up (main.rs)
 function goTake(i) { t = takes.length ? (i + takes.length) % takes.length : 0; built = ""; curIdx = 0; lastPos = ""; render(); }
@@ -638,7 +633,7 @@ async function context() {
 // Every setting of the agent behind this window is here and changes by keyboard alone: Up/Down pick a row, Left/Right
 // change it (the app's global arrows reach the panel even when another window has focus; Alt+K releases them).
 // SETTINGS reads GET /settings (the server forwards to the voice agent) and changes a value with POST /settings; Ears
-// and Mouth are this app's own switches (talk.js), the same as Alt+E / Alt+M. DESKS: Right or Enter asks the server to
+// and Voice are this app's own switches (talk.js), the same as Alt+E / Alt+M. DESKS: Right or Enter asks the server to
 // open the picked desk (POST /desks/open). AGENTS: GET /agents, each lane agent's liveness.
 const panel = { settings: { sel: 0, data: null, err: "", stale: "" }, desks: { sel: 0, data: null, err: "", stale: "" }, agents: { sel: 0, data: null, err: "", stale: "" }, tscript: { sel: 0, data: null, err: "", stale: "" }, hscript: { sel: 0, data: null, err: "", stale: "" }, qc: { sel: 0, data: null, err: "", stale: "" }, approval: { sel: 0, data: null, err: "", stale: "" } };
 const talkState = () => (window.vizierTalk && window.vizierTalk.state) || null;
@@ -653,12 +648,12 @@ function settingRows() {
   const cur = (d.voices || []).find(v => v.name === d.voice);
   const link = t && !t.room ? ' <span style="color:var(--dim)">· talk link not connected</span>' : "";
   return [
-    { k: "voice", label: "Voice", v: d.voice ? esc(d.voice) + (cur && cur.accent ? ` <span style="color:var(--dim)">· ${esc(cur.accent)}</span>` : "") : "unknown", h: "← → previous / next voice" },
+    { k: "voice", label: "Voice choice", v: d.voice ? esc(d.voice) + (cur && cur.accent ? ` <span style="color:var(--dim)">· ${esc(cur.accent)}</span>` : "") : "unknown", h: "← → previous / next voice" },
     { k: "ears", label: "Ears (your mic)", v: onoff(t ? t.ears : null) + link, h: "← → or Alt+E" },
-    { k: "mouth", label: "Mouth (Eagle's voice)", v: onoff(t ? t.mouth : null) + link, h: "← → or Alt+M" },
+    { k: "mouth", label: "Voice (Eagle speaks)", v: onoff(t ? t.mouth : null) + link, h: "← → or Alt+M" },
     { k: "wake_on", label: "Silent unless asked", v: onoff(w ? w.on : null), h: "← → on / off" },
     { k: "wake_call", label: "Wake word in a call", v: w ? `say "${esc(word)}" ×${w.call_n}` : "unknown", h: "← → fewer / more" },
-    { k: "wake_out", label: "Wake word outside a call", v: `say "${esc(word)}" once, with Ears and Mouth on`, h: "", ro: true },
+    { k: "wake_out", label: "Wake word outside a call", v: `say "${esc(word)}" once, with Ears and Voice on`, h: "", ro: true },
     { k: "call", label: "A call is live", v: d.call_live == null ? "unknown" : (d.call_live ? "yes" : "no"), h: "", ro: true },
   ];
 }
@@ -667,7 +662,7 @@ function drawSettings() {
   P.sel = Math.max(0, Math.min(rows.length - 1, P.sel));
   let head = "";
   if (!d) head = `<div class="msg">reading Eagle's settings…</div>`;
-  else if (d.configured === false) head = `<div class="msg">The voice agent is not configured on this server (VIZIER_VOICE_URL). Ears and Mouth still work.</div>`;
+  else if (d.configured === false) head = `<div class="msg">The voice agent is not configured on this server (VIZIER_VOICE_URL). Ears and Voice still work.</div>`;
   else if (d.reachable === false) head = `<div class="msg err">Eagle's voice agent is not answering: ${esc(d.error || "")}</div>`;
   el.innerHTML = staleLine(P) + head + (P.err ? `<div class="msg err">${esc(P.err)}</div>` : "") + rows.map((r, i) =>
     `<div class="row${i === P.sel ? " sel" : ""}${r.ro ? " ro" : ""}" data-i="${i}"><span class="k">${r.label}</span><span class="v">${r.v}</span><span class="h">${r.h}</span></div>`).join("");
@@ -685,7 +680,7 @@ async function changeSetting(d) {
     send = { voice: d > 0 ? "next" : "prev" };
   } else if (r.k === "ears" || r.k === "mouth") {
     if (window.vizierTalk && talkState().room) window.vizierTalk.toggle(r.k, "settings").then(drawSettings);
-    else P.err = "Ears and Mouth need the talk link (not connected)";
+    else P.err = "Ears and Voice need the talk link (not connected)";
   } else if (r.k === "wake_on" && w) { w.on = !w.on; send = { wake: { on: w.on } }; }
   else if (r.k === "wake_call" && w) { w.call_n = Math.max(1, Math.min(w.call_max || 5, w.call_n + d)); send = { wake: { call_n: w.call_n } }; }
   P.seq = (P.seq || 0) + 1;
@@ -762,14 +757,10 @@ const tsLines = d => ((d && d.sections) || []).reduce((n, s) => n + s.lines.leng
 function roleOf(title) {
   return /YOU SAY:/i.test(title) ? { msg: "ysay", row: "you" } : /AI VOICE SAYS/i.test(title) ? { msg: "aisay", row: "ai" } : /^\d*\s*·?\s*HANDOFF:/i.test(title) ? { msg: "handsay", row: "hand" } : { msg: "", row: "" };
 }
-// The header every tab carries, and the preview tabs (the pages the voice agent will show), from GET /speaker-script.
-let previews = [];
-function showPreview(i) { const f = $("f-pv" + i), u = (previews[i] || {}).url; if (f && u && f.dataset.u !== u) { f.dataset.u = u; f.src = u; } }
+// The header every tab carries, from GET /speaker-script. The diagram and the working app are plain Chrome tabs the take driver opens, never Vizier tabs.
 async function loadHdr() {
   let d; try { d = await getJSON("speaker-script"); } catch { return; }
   $("jobhdr").textContent = d.title || "";
-  previews = (d.previews || []).slice(0, 2);
-  for (let i = 0; i < 2; i++) { const t = $("tab-pv" + i), p = previews[i]; t.hidden = !p; if (p) t.textContent = p.label.toUpperCase(); if (!p && mode === "pv" + i) goTab("tscript"); if (mode === "pv" + i) showPreview(i); }
 }
 function drawTscript() {   // the CURRENT line (the one he is reading) is lit; no next-line marker; nothing scrolls by itself
   const d = panel.tscript.data, el = $("p-tscript"), top = el.scrollTop;
@@ -820,7 +811,7 @@ function drawApproval() {
   el.scrollTop = top;
 }
 async function loadApproval() { await readPanel("approval", "approval", m => ({ error: m })); if (mode === "approval") drawApproval(); }
-function panelOpen(n) { ({ pv0: () => showPreview(0), pv1: () => showPreview(1), settings: () => { drawSettings(); loadSettings(); }, tscript: () => { drawTscript(); loadTscript(); }, hscript: () => { drawHscript(); loadHscript(); }, qc: () => { drawQc(); loadQc(); }, approval: () => { drawApproval(); loadApproval(); } })[n](); }
+function panelOpen(n) { ({ settings: () => { drawSettings(); loadSettings(); }, tscript: () => { drawTscript(); loadTscript(); }, hscript: () => { drawHscript(); loadHscript(); }, qc: () => { drawQc(); loadQc(); }, approval: () => { drawApproval(); loadApproval(); } })[n](); }
 // The selected row is kept on screen every time the selection moves (the user 2026-11-15: arrow-down moved the selection
 // below the window and the list never followed). Only on a move: the 2 s redraw never pulls a list the wheel scrolled.
 function selIntoView(id) { const r = $(id).querySelector(".row.sel"); if (r) r.scrollIntoView({ block: "nearest" }); }

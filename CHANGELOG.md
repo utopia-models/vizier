@@ -139,7 +139,7 @@ First public release. The repository starts a fresh history at this version.
 - `examples/` (curl, a minimal agent loop) and `docs/architecture.md`.
 - A window that connects mid-call receives the call's last 8 lines; the app and the browser view dedupe by `seq`.
 - Desktop app: talk to an agent in a LiveKit room. **Alt+E** toggles Ears (your mic into the room), **Alt+M** toggles
-  Mouth (the agent's replies); both persist across restarts, publish as participant attributes, and every switch is
+  Voice (the agent's replies); both persist across restarts, publish as participant attributes, and every switch is
   logged through `POST /talk/log`. The agent's audio is muted while you speak (barge-in).
 - Prompter: global keys (Alt+↓/↑ from any app; plain Tab, ↑, ↓, ←, → global, released and retaken with Alt+K),
   Alt+T next tab, a key legend, cue styling for `[show]` lines, 32 px type.

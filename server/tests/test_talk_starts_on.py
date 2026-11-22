@@ -1,5 +1,5 @@
-"""Replay test (the deployment's issue 13786, 2026-11-15): scout's mouth was silent on the laptop. talk.js started Ears and Mouth from
-localStorage, so a fresh WebView profile (a new build swapped in) or an Alt+M from an earlier session came up with Mouth off:
+"""Replay test (the deployment's issue 13786, 2026-11-15): scout's voice was silent on the laptop. talk.js started Ears and Voice from
+localStorage, so a fresh WebView profile (a new build swapped in) or an Alt+M from an earlier session came up with Voice off:
 the laptop sent mouth=off and unsubscribed from the agent's audio, and nothing on screen said why. the user: "I need Scout on
 demand at all times". Both start ON at every launch; the agent's ears process decides when it speaks (it answers only a
 line that names it), and vizier.json "talkStartOff" is the one opt-out."""
