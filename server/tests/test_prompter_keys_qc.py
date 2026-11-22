@@ -69,7 +69,7 @@ def test_qc_tab_is_wired_into_the_page():
 
 def test_current_line_is_lit_no_next_marker_and_only_keys_and_clicks_move_the_cursor():
     fn = HTML[HTML.index("function drawTscript()"):HTML.index("async function loadTscript()")]
-    assert "i === tsCur" in fn and "tsCur + 1" not in fn and "NEXT" not in fn and "lead" not in fn   # the bar lights the CURRENT line only
+    assert "i === tsCur" in fn and "NEXT" not in fn and "lead" not in fn   # the CURRENT line is lit; the next one is only dimmed (no NEXT marker)
     step = HTML[HTML.index("function panelStep(d)"):][:700]
     assert 'mode === "tscript"' in step and "tsCur = Math.max(0, Math.min(n - 1, tsCur + d))" in step
     # nothing else assigns the cursor (no voice, no timer)
