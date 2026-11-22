@@ -383,7 +383,8 @@ async def run(a):
                        f"Get-CimInstance Win32_Process -Filter \"name='vizier.exe'\" | Where-Object {{ $_.CommandLine -match '--smoke' }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force }}; 'ready'")
         if "ready" not in r.stdout: return ok("the Windows box is reachable", False, r.stderr.strip()[:200])
         (tmp / "smoke.json").write_text(json.dumps(cfg))
-        for src, dst in ((a.exe, "vizier.exe"), (tmp / "smoke.json", "smoke.json")):
+        (tmp / "window.json").write_text('{"x":60,"y":40,"w":900,"h":760}')   # a reader-sized window: the slot (or a rect an earlier run left) is too small to test scrolling in
+        for src, dst in ((a.exe, "vizier.exe"), (tmp / "smoke.json", "smoke.json"), (tmp / "window.json", "window.json")):
             cp = subprocess.run(["scp", "-q", "-o", "BatchMode=yes", str(src), f"{a.host}:C:/Users/Public/vizier/smoke/{dst}"], capture_output=True, text=True)
             if cp.returncode: return ok(f"copy {dst} to the box", False, cp.stderr.strip()[:200])
         user = a.user or ps(a.host, "(Get-ScheduledTask vizier-app).Principal.UserId").stdout.strip()
