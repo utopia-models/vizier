@@ -8,15 +8,24 @@ HTML = (Path(__file__).resolve().parents[2] / "app" / "ui" / "index.html").read_
 
 
 def test_four_panels_and_their_tabs_exist():
-    for k in ("talk", "settings", "desks", "agents", "tscript", "hscript", "qc", "approval"):
+    for k in ("talk", "settings", "tscript", "hscript", "pv0", "pv1", "qc", "approval"):
         assert f'id="tab-{k}"' in HTML and f'id="m-{k}"' in HTML, k
 
 
 def test_tab_cycles_the_four_panels():
     fn = HTML[HTML.index("window.vizierTab = () =>"):]
     fn = fn[: fn.index("};")]
-    assert 'const order = ["talk", ...PANELS]' in fn   # Tab reaches SCRIPT (#14)
-    assert re.search(r'const PANELS = \["settings", "desks", "agents", "tscript", "hscript", "qc", "approval"\]', HTML)
+    assert '["talk", ...PANELS]' in fn   # Tab reaches SCRIPT (#14); hidden preview tabs are skipped
+    assert re.search(r'const PANELS = \["settings", "tscript", "hscript", "pv0", "pv1", "qc", "approval"\]', HTML)
+
+
+def test_no_desks_or_agents_panel_and_every_tab_has_the_job_header():
+    """Tyler 2026-11-22: DESKS and AGENTS are gone for now; the job header sits above every tab; the pages the voice agent
+    shows get a tab each; the speaker script styles by who says it."""
+    for k in ("desks", "agents"):
+        assert f'id="tab-{k}"' not in HTML and f'id="m-{k}"' not in HTML, k
+    assert HTML.index('id="jobhdr"') < HTML.index('id="m-talk"') and "async function loadHdr" in HTML
+    assert 'roleOf(s.title)' in HTML and "YOU SAY:" in HTML and "AI VOICE SAYS" in HTML and "HANDOFF:" in HTML
 
 
 def test_global_arrows_drive_the_panels():
