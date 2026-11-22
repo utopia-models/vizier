@@ -235,14 +235,14 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
     # ---- Tab: TALK -> SETTINGS -> DESKS -> AGENTS -> Speaker Script -> Eagle Script -> TALK
     await c.js("window.vizierPanels.goTab('talk')"); await asyncio.sleep(0.25)
     seen = []
-    for _ in range(6):
+    for _ in range(4):
         await c.key("Tab"); await asyncio.sleep(0.25)
         m = await c.js("document.body.dataset.mode")
         seen.append(m); await c.shot(out, f"tab-{m}")
-    want = ["settings", "tscript", "hscript", "qc", "approval", "talk"]   # DESKS and AGENTS are gone; the diagram and app are Chrome tabs, not Vizier tabs
+    want = ["settings", "tscript", "hscript", "talk"]   # DESKS and AGENTS are gone; the diagram and app are Chrome tabs, not Vizier tabs
     labels = await c.js("[...document.querySelectorAll('header .tab:not([hidden])')].map(t=>t.textContent)")
-    ok("Tab visits SETTINGS, Speaker Script, Eagle Script, QC, APPROVAL and back to TALK (no SCRIPT tab)",
-       seen == want and labels == ["TALK", "SETTINGS", "Speaker Script", "Eagle Script", "QC", "APPROVAL"], " > ".join(seen) + f"; tabs {labels}")
+    ok("Tab visits SETTINGS, Speaker Script, Eagle Script and back to TALK (no QC / APPROVAL / SCRIPT tab)",
+       seen == want and labels == ["TALK", "SETTINGS", "Speaker Script", "Eagle Script"], " > ".join(seen) + f"; tabs {labels}")
 
     # ---- every tab to the bottom: wheel, then keys with the selection on screen
     await c.js("window.vizierPanels.goTab('talk')")
@@ -280,6 +280,12 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
     ok("Speaker Script shows his spoken lines inside the window, with one row marked (the line being read) and no outline cue or heading line",
        bool(ts) and ts["n"] > 5 and ts["on"] and ts["sel"] == 1 and ts["unspoken"] == 0 and ts["top"] == 0, str(ts))
     ok("Speaker Script is longer than the window (so scrolling is tested)", ts["sh"] > ts["ch"] + 1, f"{ts['sh']} > {ts['ch']}")
+    ok("Speaker Script: no title row inside the script (the first row is a section heading, never the script title; the title lives only in #jobhdr)",
+       await c.js("(()=>{const p=document.getElementById('p-tscript'),d=window.vizierPanels.panel.tscript.data,f=[...p.children].find(x=>!x.classList.contains('stale'));const t=((d&&(d.title||d.source))||'').trim();return !!f&&!!t&&f.textContent.trim()!==t&&!p.textContent.includes(t)})()"), "first child of #p-tscript")
+    for _ in range(4): await c.key("ArrowDown")
+    await c.js("window.vizierTop()"); await asyncio.sleep(0.3)
+    top = await c.js("(()=>{const p=document.getElementById('p-tscript');return {cur:[...p.querySelectorAll('.row')].findIndex(x=>x.classList.contains('cur')),top:p.scrollTop,mode:document.body.dataset.mode}})()")
+    ok("Alt+T (vizierTop) lights line 0 of the Speaker Script, scrolls to the top and stays on the tab", top["cur"] == 0 and top["top"] == 0 and top["mode"] == "tscript", str(top))
     for _ in range(4): await c.key("ArrowDown")
     await c.key("Enter"); await asyncio.sleep(0.5)
     ro = await c.js("(()=>{const p=document.getElementById('p-tscript');return {sel:p.querySelectorAll('.sel,.cur,.now').length,mode:document.body.dataset.mode}})()")
@@ -377,7 +383,8 @@ async def run(a):
                        f"Get-CimInstance Win32_Process -Filter \"name='vizier.exe'\" | Where-Object {{ $_.CommandLine -match '--smoke' }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force }}; 'ready'")
         if "ready" not in r.stdout: return ok("the Windows box is reachable", False, r.stderr.strip()[:200])
         (tmp / "smoke.json").write_text(json.dumps(cfg))
-        for src, dst in ((a.exe, "vizier.exe"), (tmp / "smoke.json", "smoke.json")):
+        (tmp / "window.json").write_text('{"x":60,"y":40,"w":900,"h":760}')   # a reader-sized window: the slot (or a rect an earlier run left) is too small to test scrolling in
+        for src, dst in ((a.exe, "vizier.exe"), (tmp / "smoke.json", "smoke.json"), (tmp / "window.json", "window.json")):
             cp = subprocess.run(["scp", "-q", "-o", "BatchMode=yes", str(src), f"{a.host}:C:/Users/Public/vizier/smoke/{dst}"], capture_output=True, text=True)
             if cp.returncode: return ok(f"copy {dst} to the box", False, cp.stderr.strip()[:200])
         user = a.user or ps(a.host, "(Get-ScheduledTask vizier-app).Principal.UserId").stdout.strip()

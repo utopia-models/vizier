@@ -195,7 +195,7 @@ fn talk_shortcuts() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     // Prompter lines from any app (a remote-desktop client in front swallows plain arrows): Alt+Down next line, Alt+Up previous.
     let down = Shortcut::new(Some(Modifiers::ALT), Code::ArrowDown);
     let up = Shortcut::new(Some(Modifiers::ALT), Code::ArrowUp);
-    let tab = Shortcut::new(Some(Modifiers::ALT), Code::KeyT);   // Alt+T: next tab (SCRIPT / CONTEXT / DO NOT SAY)
+    let tab = Shortcut::new(Some(Modifiers::ALT), Code::KeyT);   // Alt+T: top of the current script (line 0 lit, scrolled to top); Tab / S switch tabs
     // Plain Tab / Up / Down, global (the reader never has to click the Vizier window to give it focus). They steal
     // those keys from every app on this machine, which is the point on a presenting laptop (the reader talks; an agent drives).
     // Alt+K releases them (and takes them again): the escape if the laptop is ever used for typing.
@@ -208,13 +208,13 @@ fn talk_shortcuts() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     let vizier = Shortcut::new(Some(Modifiers::ALT), Code::KeyV);   // Alt+V: pop Vizier up / hide it
         tauri_plugin_global_shortcut::Builder::new()
         .with_shortcuts([ears, mouth, down, up, tab, ptab, pdown, pup, pleft, pright, lock, vizier])
-        .expect("Alt+E / Alt+M / Alt+Up / Alt+Down / Alt+T / Tab / Up / Down / Alt+K / Alt+V")
+        .expect("Alt+E / Alt+M / Alt+Up / Alt+Down / Alt+T (top of script) / Tab / Up / Down / Alt+K / Alt+V")
         .with_handler(move |app, sc, ev| {
             if ev.state() != ShortcutState::Pressed {
                 return;
             }
             let name = if sc == &vizier { "alt+v" }
-                else if sc == &pleft { "left" } else if sc == &pright { "right" } else if sc == &tab || sc == &ptab { "tab" }
+                else if sc == &pleft { "left" } else if sc == &pright { "right" } else if sc == &ptab { "tab" } else if sc == &tab { "alt+t" }
                 else if sc == &down || sc == &pdown { "down" } else if sc == &up || sc == &pup { "up" }
                 else if sc == &ears { "alt+e" } else if sc == &mouth { "alt+m" } else { "" };
             if sc == &lock {
@@ -256,6 +256,7 @@ fn hotkey(app: &tauri::AppHandle, name: &str) {
         }
         "left" | "right" => { let _ = w.eval(&format!("window.vizierPart&&window.vizierPart({})", if name == "right" { 1 } else { -1 })); }
         "tab" => { let _ = w.eval("window.vizierTab&&window.vizierTab()"); }
+        "alt+t" => { let _ = w.eval("window.vizierTop&&window.vizierTop()"); }
         "down" | "up" => { let _ = w.eval(&format!("window.vizierStep&&window.vizierStep({})", if name == "down" { 1 } else { -1 })); }
         "alt+e" | "alt+m" => {
             let k = if name == "alt+e" { "ears" } else { "mouth" };
