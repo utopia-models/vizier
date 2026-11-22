@@ -1024,7 +1024,9 @@ async def speaker_script(_req):
     for s in secs:   # "changed" is always null: the user does not want 'changed HH:MM' marks (track_changes is kept, unused)
         s["lines"] = [{"text": l, "changed": None} for l in s["lines"]]
     m = re.match(r"#\s*(.*)", text)
-    return web.json_response({"configured": True, "source": p.name, "title": m.group(1)[:120] if m else "",
+    previews = [{"label": x[0].strip(), "url": x[1].strip()} for x in
+                (l.split("|", 1) for l in re.findall(r"^>\s*preview:\s*(.+)$", text, re.M)) if len(x) == 2 and x[1].strip().startswith("http")]
+    return web.json_response({"configured": True, "source": p.name, "title": m.group(1)[:160] if m else "", "previews": previews,
                               "sections": secs, "now": time.time()})
 
 

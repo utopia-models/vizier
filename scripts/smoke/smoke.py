@@ -14,7 +14,7 @@ What it does (every step is a PASS/FAIL line, with a screenshot in --out; exit 0
      the same code the shortcuts run (main.rs hotkey()).
   3. Over the DevTools protocol, with real key and mouse-wheel input (Input.dispatchKeyEvent / dispatchMouseEvent):
      the page links to the server (and to LiveKit when --talk-url is given); the default view is Speaker Script; Tab visits
-     TALK, SETTINGS, DESKS, AGENTS, Speaker Script and Eagle Script in that order and comes back to TALK; Speaker Script shows
+     TALK, SETTINGS, Speaker Script and Eagle Script in that order and comes back to TALK; Speaker Script shows
      his spoken lines read-only (no highlight, no scroll by itself) and Eagle Script lights the current cue from
      vsl-follow's state.json; neither shows 'changed HH:MM' marks; every tab scrolls to its bottom by wheel (and
      the lists by arrow keys, the selected row always fully on screen); every SETTINGS row that can change
@@ -235,21 +235,21 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
     # ---- Tab: TALK -> SETTINGS -> DESKS -> AGENTS -> Speaker Script -> Eagle Script -> TALK
     await c.js("window.vizierPanels.goTab('talk')"); await asyncio.sleep(0.25)
     seen = []
-    for _ in range(8):
+    for _ in range(6):
         await c.key("Tab"); await asyncio.sleep(0.25)
         m = await c.js("document.body.dataset.mode")
         seen.append(m); await c.shot(out, f"tab-{m}")
-    want = ["settings", "desks", "agents", "tscript", "hscript", "qc", "approval", "talk"]
+    want = ["settings", "tscript", "hscript", "qc", "approval", "talk"]   # DESKS and AGENTS are gone; the preview tabs show only when the script names pages
     labels = await c.js("[...document.querySelectorAll('header .tab:not([hidden])')].map(t=>t.textContent)")
-    ok("Tab visits SETTINGS, DESKS, AGENTS, Speaker Script, Eagle Script, QC, APPROVAL and back to TALK (no SCRIPT tab)",
-       seen == want and labels == ["TALK", "SETTINGS", "DESKS", "AGENTS", "Speaker Script", "Eagle Script", "QC", "APPROVAL"], " > ".join(seen) + f"; tabs {labels}")
+    ok("Tab visits SETTINGS, Speaker Script, Eagle Script, QC, APPROVAL and back to TALK (no SCRIPT tab)",
+       seen == want and labels == ["TALK", "SETTINGS", "Speaker Script", "Eagle Script", "QC", "APPROVAL"], " > ".join(seen) + f"; tabs {labels}")
 
     # ---- every tab to the bottom: wheel, then keys with the selection on screen
     await c.js("window.vizierPanels.goTab('talk')")
     await c.js("(()=>{const b=document.getElementById('talkmain');for(let i=0;i<60;i++){const p=document.createElement('p');p.className='ln me';p.textContent='smoke line '+i;b.appendChild(p)}})()")
     await scroll_check(c, out, "#talkmain", "TALK")
 
-    for tab, pid in (("settings", "p-settings"), ("desks", "p-desks")):
+    for tab, pid in (("settings", "p-settings"),):
         await c.js(f"window.vizierPanels.goTab('{tab}')"); await asyncio.sleep(0.6)
         await until(lambda: c.js(f"document.querySelectorAll('#{pid} .row').length > 1"), 8)
         await scroll_check(c, out, f"#{pid}", tab.upper())
@@ -270,10 +270,6 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
         for _ in range(n): await c.js("window.vizierStep(1)")
         v = await sel_visible(c, pid)
         ok(f"{tab.upper()}: the global Down (vizierStep) keeps the selected row on screen", v and v["in"], str(v))
-
-    await c.js("window.vizierPanels.goTab('agents')"); await asyncio.sleep(0.8)
-    await until(lambda: c.js("document.querySelectorAll('#p-agents .row').length > 1"), 8)
-    await scroll_check(c, out, "#p-agents", "AGENTS")
 
     # ---- Speaker Script: his spoken lines, read-only; arrows step the marked line
     await c.js("window.vizierPanels.goTab('tscript')"); await asyncio.sleep(0.6)
