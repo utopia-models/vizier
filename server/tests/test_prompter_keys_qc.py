@@ -59,8 +59,8 @@ def test_current_line_is_lit_no_next_marker_and_only_keys_and_clicks_move_the_cu
     step = HTML[HTML.index("function panelStep(d)"):][:700]
     assert 'mode === "tscript"' in step and "tsCur = Math.max(0, Math.min(n - 1, tsCur + d))" in step
     # nothing else assigns the cursor (no voice, no timer)
-    # the declaration, the clamp when the script shrinks, the keyed step, and a click on a row
-    assert len(re.findall(r"\btsCur\s*=[^=]", HTML)) == 4
+    # the declaration, the clamp when the script shrinks, the keyed step, and a click on a row, and the take reset (/prompter/goto)
+    assert len(re.findall(r"\btsCur\s*=[^=]", HTML)) == 6
 
 
 def test_his_global_keys_are_registered():

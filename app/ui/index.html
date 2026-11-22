@@ -37,6 +37,9 @@
   /* SETTINGS / DESKS / AGENTS (the deployment's issue 13798): one list each, the selected row marked, arrows drive it */
   #jobhdr { flex:0 0 auto; padding:6px 14px; background:#101a14; color:#cfeccf; border-bottom:1px solid #2c4a35; font:700 17px system-ui; letter-spacing:.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   #jobhdr:empty { display:none; }
+  #jobhdr .vslk { display:inline-block; font:800 11px system-ui; letter-spacing:.14em; color:#101a14; background:#6fbf7a; border-radius:3px; padding:1px 6px; margin-right:6px; vertical-align:middle; }
+  #jobhdr .mvp { font:600 14px system-ui; color:#e8d58a; white-space:normal; overflow:hidden; max-height:2.6em; margin-top:3px; }
+  #jobhdr .mvp .vslk { background:#e8d58a; }
   /* the prompter's line-by-line look (the #text p / p.cur of the SCRIPT view, restored): one short line per row; the line he is on
      is INDENTED and highlighted with the arrow, the next line is dimmed, the lines already said are faded */
   .row.you .v { font-weight:700; color:#fff; line-height:1.3; }
@@ -65,16 +68,16 @@
   .panel .dot.green { background:#3ddc84; } .panel .dot.amber, .panel .dot.yellow { background:#ffd34d; } .panel .dot.red { background:#ff4d4d; }
   #rtabs { display:none !important; }   /* the one row of tabs is the header: TALK / SCRIPT / CONTEXT */
   /* TALK: a raw transcript, large, newest at the bottom */
-  #settalk { flex:0 0 34%; border-top:1px solid var(--line); margin-bottom:28px; }
-  #settalk .ln { font-size:22px !important; }
-  #settalk::before { content:"LIVE TRANSCRIPT"; display:block; font:700 12px system-ui; letter-spacing:.14em; color:var(--dim); margin-bottom:8px; }
-  #talkmain, #settalk { flex:1; min-height:0; overflow-y:auto; padding:18px 28px 28px; display:flex; flex-direction:column; user-select:text; }
-  #talkmain .sp, #settalk .sp { flex:1 0 0; }
-  #talkmain .ln, #settalk .ln { margin:0 0 .55em; font:500 32px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  #talkmain .ln.me, #settalk .ln.me { color:var(--fg); }
-  #talkmain .ln.agent, #settalk .ln.agent { color:var(--accent); }
-  #talkmain .ln i, #settalk .ln i { font:700 .42em system-ui; font-style:normal; letter-spacing:.1em; opacity:.6; margin-right:.9em; vertical-align:.25em; }
-  #talkmain .ln.partial, #settalk .ln.partial { opacity:.55; }
+  #settalk, #tstalk { flex:0 0 34%; border-top:1px solid var(--line); margin-bottom:28px; }
+  #settalk .ln, #tstalk .ln { font-size:22px !important; }
+  #settalk::before, #tstalk::before { content:"LIVE TRANSCRIPT"; display:block; font:700 12px system-ui; letter-spacing:.14em; color:var(--dim); margin-bottom:8px; }
+  #talkmain, #settalk, #tstalk { flex:1; min-height:0; overflow-y:auto; padding:18px 28px 28px; display:flex; flex-direction:column; user-select:text; }
+  #talkmain .sp, #settalk .sp, #tstalk .sp { flex:1 0 0; }
+  #talkmain .ln, #settalk .ln, #tstalk .ln { margin:0 0 .55em; font:500 32px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #talkmain .ln.me, #settalk .ln.me, #tstalk .ln.me { color:var(--fg); }
+  #talkmain .ln.agent, #settalk .ln.agent, #tstalk .ln.agent { color:var(--accent); }
+  #talkmain .ln i, #settalk .ln i, #tstalk .ln i { font:700 .42em system-ui; font-style:normal; letter-spacing:.1em; opacity:.6; margin-right:.9em; vertical-align:.25em; }
+  #talkmain .ln.partial, #settalk .ln.partial, #tstalk .ln.partial { opacity:.55; }
   #talkmain .ln.partial::after, #settalk .ln.partial::after { content:"▍"; margin-left:2px; color:var(--hi); }
   #talkmain .none, #settalk .none { color:var(--dim); font:500 20px system-ui; }
   .tab.pinned { border-color:var(--fg); }
@@ -187,6 +190,7 @@
   <div id="settalk" class="talkbox" title="the live transcript: your speech and Eagle's replies, newest at the bottom"><div class="sp"></div></div>
   <div id="keylegend-s" class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> pick a setting &nbsp;·&nbsp; <b>← →</b> change it &nbsp;·&nbsp; <b>Alt+E</b> ears &nbsp;·&nbsp; <b>Alt+M</b> voice &nbsp;·&nbsp; <b>Alt+V</b> show / hide</div></section>
 <section class="mode" id="m-tscript"><div class="panel" id="p-tscript"></div>
+  <div id="tstalk" class="talkbox" title="the live transcript while you talk with Eagle: your speech and Eagle's replies, newest at the bottom"><div class="sp"></div></div>
   <div class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> step a line &nbsp;·&nbsp; the arrow marks the line ahead &nbsp;·&nbsp; nothing moves but by your keys</div></section>
 <section class="mode" id="m-qc"><div class="panel" id="p-qc"></div>
   <div class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> scroll &nbsp;·&nbsp; read-only: the QA checklist and the last vsl_qa verdict</div></section>
@@ -292,7 +296,7 @@ async function pollHealth() {
 // GET /talk/transcript?since=<seq> every 500 ms: new final lines (you and the agent) plus the one live partial. The
 // view sticks to the bottom unless you scrolled up to read.
 // The same transcript shows under SETTINGS (the user 2026-11-22: "transcript in Talk settings"): one view state per box.
-const talkBox = { talkmain: { seq: 0, part: null }, settalk: { seq: 0, part: null } };
+const talkBox = { talkmain: { seq: 0, part: null }, settalk: { seq: 0, part: null }, tstalk: { seq: 0, part: null } };
 const talkWho = ch => ch === "me" ? "YOU" : "EAGLE";
 function talkRow(ch, text, partial) {
   const d = document.createElement("p");
@@ -301,7 +305,7 @@ function talkRow(ch, text, partial) {
   return d;
 }
 async function pollTalk() {
-  const id = mode === "talk" ? "talkmain" : mode === "settings" ? "settalk" : null;
+  const id = mode === "talk" ? "talkmain" : mode === "settings" ? "settalk" : mode === "tscript" ? "tstalk" : null;
   if (!id) return;
   const S = talkBox[id];
   let j; try { j = await api("talk/transcript?since=" + S.seq).then(r => r.json()); } catch { return; }
@@ -411,13 +415,18 @@ every(400, async () => {
   const sn = await api("prompter/snap").then(r => r.json()).catch(() => null);
   if (sn && window.__TAURI__) { if (snapSeq < 0) snapSeq = sn.seq; else if (sn.seq !== snapSeq) { snapSeq = sn.seq; window.__TAURI__.core.invoke("snapshot").catch(() => {}); } }
 });
-every(400, async () => {   // POST /prompter/goto: the take flow's reset to part 1 line 1 when it loads a script (never driven by speech)
-  if (mode !== "rec" || !takes.length) return;
+every(120, async () => {   // POST /prompter/goto: the take flow's reset to part 1 line 1 when it loads a script (never driven by speech). 120 ms (was 400): Tyler 2026-11-22 "resetting the prompter to line one should be a lot faster"
+  if (!(mode === "tscript" || (mode === "rec" && takes.length))) return;
   const g = await api("prompter/goto").then(r => r.json()).catch(() => null);
   if (!g) return;
   if (gotoSeq < 0) { gotoSeq = g.seq; return; }   // the first read only learns the counter
   if (g.seq === gotoSeq) return;
   gotoSeq = g.seq;
+  if (mode === "tscript") {   // the Speaker Script: the reset lands on the line at once, no waiting for the 2 s script poll
+    const n = tsLines(panel.tscript.data), want = Math.max(0, (g.line || 1) - 1); tsCur = n ? Math.min(n - 1, want) : want; drawTscript();
+    if (tsCur === 0) $("p-tscript").scrollTop = 0; else selIntoView("p-tscript");
+    reportTs(); return;
+  }
   if (g.part >= 1 && g.part - 1 !== t) goTake(g.part - 1);
   if (g.line >= 1) goLine(g.line - 1);
 });
@@ -725,7 +734,11 @@ function roleOf(title) {
 // The header every tab carries, from GET /speaker-script. The diagram and the working app are plain Chrome tabs the take driver opens, never Vizier tabs.
 async function loadHdr() {
   let d; try { d = await getJSON("speaker-script"); } catch { return; }
-  $("jobhdr").textContent = d.title || "";
+  // Which VSL this is (Tyler 2026-11-22: "I want to be clear which VSL this is for"): a labelled title on every tab, and the MVP
+  // the VSL shows (Tyler: "Where is the IVP?", the speech-to-text of MVP) as its own line under it.
+  const h = $("jobhdr"), mvp = (d.mvp || []).join(" ");
+  h.innerHTML = d.title ? `<span class="vslk">VSL</span> ${esc(d.title)}` + (mvp ? `<div class="mvp"><span class="vslk">MVP</span> ${esc(mvp)}</div>` : "") : "";
+  h.title = (d.source ? d.source + " · " : "") + "the VSL being recorded" + (mvp ? "; MVP: " + mvp : "");
 }
 function drawTscript() {   // the CURRENT line (the one he is reading) is lit; no next-line marker; nothing scrolls by itself
   const d = panel.tscript.data, el = $("p-tscript"), top = el.scrollTop;

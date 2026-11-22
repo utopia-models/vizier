@@ -1072,8 +1072,10 @@ async def speaker_script(_req):
     for s in secs:   # "changed" is always null: the user does not want 'changed HH:MM' marks (track_changes is kept, unused)
         s["lines"] = [{"text": l, "changed": None} for l in s["lines"]]
     m = re.match(r"#\s*(.*)", text)
+    # the MVP the VSL shows (Tyler 2026-11-22 "Where is the IVP?"; IVP is speech-to-text of MVP): the lines of the section titled mvp
+    mvp = [x["text"] for sec in secs if re.search(r"\bmvp\b", sec["title"], re.I) for x in sec["lines"]]
     return web.json_response({"configured": True, "source": p.name, "title": m.group(1)[:160] if m else "",
-                              "sections": secs, "now": time.time()})
+                              "mvp": mvp, "sections": secs, "now": time.time()})
 
 
 def _cells(line):
