@@ -245,7 +245,7 @@ const liveCall = () => !!health.call && !/^(bench-|probe)/.test(health.call);
 function autoMode() { return "tscript"; }   // no CALL mode: on a call you Tab to SCRIPT
 let frontSent = null;
 function refreshTabs() {
-  if (mode && mode !== frontSent) { frontSent = mode; api("state/front", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tab: mode }) }).catch(() => {}); }
+  if (mode && mode !== frontSent) { frontSent = mode; api("state/front", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tab: mode, build: CFG.build || null }) }).catch(() => {}); }
   $("tab-talk").classList.toggle("on", mode === "talk");
   for (const k of PANELS) $("tab-" + k).classList.toggle("on", mode === k);
   $("tab-rec").classList.toggle("on", mode === "rec" && rtab === "script");
@@ -819,7 +819,7 @@ function connect() {
   ws = new WebSocket(SERVER.replace(/^http/, "ws") + "/feed");
   // The feed coming back is the first sign the server is up again: re-read health and the open panel now instead of
   // waiting for their next tick, so a restart costs the restart and not one more poll period.
-  ws.onopen = () => { feedTry = 0; link.ok = Date.now(); if (!feedUp) { feedUp = true; tl("feed linked to " + SERVER); pollHealth(); if (PANELS.includes(mode)) panelOpen(mode); } };
+  ws.onopen = () => { feedTry = 0; link.ok = Date.now(); if (CFG.build) api("state/front", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tab: mode, build: CFG.build }) }).catch(() => {}); if (!feedUp) { feedUp = true; tl("feed linked to " + SERVER); pollHealth(); if (PANELS.includes(mode)) panelOpen(mode); } };
   // Full Jitter (the deployment's issue 15077): 100 ms doubling to a 5 s cap, a random point under it, reset on open. A
   // restarted server (~2 s) is back on the feed within one or two tries, and a long outage is retried every <=5 s.
   ws.onclose = () => { if (feedUp !== false) { feedUp = false; tl("feed lost: " + SERVER); } setTimeout(connect, Math.random() * Math.min(5000, 100 * 2 ** Math.min(feedTry++, 10))); };

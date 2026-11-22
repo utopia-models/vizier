@@ -88,3 +88,16 @@ def test_unconfigured_handoff_still_records_the_moment(vz, monkeypatch):
         return await (await c.post("/handoff", json={"section": "s", "line": 3})).json()
     r = run(v, f)
     assert r["configured"] is False and r["fired"] is True
+
+
+def test_state_reports_the_app_build(vz):
+    """The app posts its build (build.rs: git sha) with the front tab; GET /state shows it, so a detector can compare the
+    exe on the laptop with main without touching the laptop."""
+    v, d = vz
+    async def f(c):
+        s0 = await (await c.get("/state")).json()
+        await c.post("/state/front", json={"tab": "tscript", "build": {"sha": "ea3cb5239bfd", "version": "0.3.0", "built_at": 1795340000}})
+        return s0, await (await c.get("/state")).json()
+    s0, s1 = run(v, f)
+    assert s0["app_build"] is None
+    assert s1["app_build"]["sha"] == "ea3cb5239bfd" and s1["app_build"]["version"] == "0.3.0" and s1["front_tab"] == "tscript"
