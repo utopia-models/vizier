@@ -205,16 +205,15 @@ fn talk_shortcuts() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     let pleft = Shortcut::new(None, Code::ArrowLeft);   // plain Left / Right: previous / next part, global like Up / Down
     let pright = Shortcut::new(None, Code::ArrowRight);
     let lock = Shortcut::new(Some(Modifiers::ALT), Code::KeyK);
-    let follow = Shortcut::new(Some(Modifiers::ALT), Code::KeyF);   // Alt+F: the agent following the reader's voice on / off
     let vizier = Shortcut::new(Some(Modifiers::ALT), Code::KeyV);   // Alt+V: pop Vizier up / hide it
         tauri_plugin_global_shortcut::Builder::new()
-        .with_shortcuts([ears, mouth, down, up, tab, ptab, pdown, pup, pleft, pright, lock, follow, vizier])
-        .expect("Alt+E / Alt+M / Alt+Up / Alt+Down / Alt+T / Tab / Up / Down / Alt+K / Alt+F / Alt+V")
+        .with_shortcuts([ears, mouth, down, up, tab, ptab, pdown, pup, pleft, pright, lock, vizier])
+        .expect("Alt+E / Alt+M / Alt+Up / Alt+Down / Alt+T / Tab / Up / Down / Alt+K / Alt+V")
         .with_handler(move |app, sc, ev| {
             if ev.state() != ShortcutState::Pressed {
                 return;
             }
-            let name = if sc == &vizier { "alt+v" } else if sc == &follow { "alt+f" }
+            let name = if sc == &vizier { "alt+v" }
                 else if sc == &pleft { "left" } else if sc == &pright { "right" } else if sc == &tab || sc == &ptab { "tab" }
                 else if sc == &down || sc == &pdown { "down" } else if sc == &up || sc == &pup { "up" }
                 else if sc == &ears { "alt+e" } else if sc == &mouth { "alt+m" } else { "" };
@@ -255,7 +254,6 @@ fn hotkey(app: &tauri::AppHandle, name: &str) {
                 }
             }
         }
-        "alt+f" => { let _ = w.eval("window.vizierFollow&&window.vizierFollow()"); }
         "left" | "right" => { let _ = w.eval(&format!("window.vizierPart&&window.vizierPart({})", if name == "right" { 1 } else { -1 })); }
         "tab" => { let _ = w.eval("window.vizierTab&&window.vizierTab()"); }
         "down" | "up" => { let _ = w.eval(&format!("window.vizierStep&&window.vizierStep({})", if name == "down" { 1 } else { -1 })); }

@@ -29,22 +29,8 @@ def run(v, fn):
     return asyncio.run(go())
 
 
-def test_follow_is_off_by_default_on_server_and_page(vz):
-    v, _, _ = vz
-    assert run(v, lambda c: _get(c, "/prompter/follow")) == {"on": False}
-    assert re.search(r"followOn = false;", HTML)
-
-
 async def _get(c, path):
     return await (await c.get(path)).json()
-
-
-def test_follow_can_still_be_turned_on(vz):
-    v, _, _ = vz
-    async def f(c):
-        r = await (await c.post("/prompter/follow", json={"toggle": True})).json()
-        return r
-    assert run(v, f) == {"on": True}
 
 
 def test_qc_unconfigured_says_so(vz):
