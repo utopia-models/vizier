@@ -1003,7 +1003,7 @@ def spoken_sections(text):
     out, cur = [], None
     for line in text.splitlines():
         if line.startswith("#"):
-            cur = {"title": re.sub(r"^#+\s*", "", line), "lines": []} if re.match(r"##\s*\d", line) else None
+            cur = {"title": re.sub(r"^#+\s*", "", line), "lines": []} if re.match(r"##\s*(\d|\[|HANDOFF)", line) else None
             if cur: out.append(cur)
             continue
         l = line.strip()

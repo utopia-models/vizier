@@ -25,7 +25,7 @@ def test_no_desks_or_agents_panel_and_every_tab_has_the_job_header():
     for k in ("desks", "agents"):
         assert f'id="tab-{k}"' not in HTML and f'id="m-{k}"' not in HTML, k
     assert HTML.index('id="jobhdr"') < HTML.index('id="m-talk"') and "async function loadHdr" in HTML
-    assert 'roleOf(s.title)' in HTML and "YOU SAY:" in HTML and "AI VOICE SAYS" in HTML and "HANDOFF:" in HTML
+    assert 'roleOf(s.title)' in HTML and "[Tyler]" in HTML and "[AI voice]" in HTML and "HANDOFF:" in HTML
 
 
 def test_global_arrows_drive_the_panels():
@@ -60,3 +60,79 @@ def test_vizier_has_no_diagram_or_app_tab_and_no_user_visible_mouth():
     assert "Mouth" not in HTML and "mouth</b>" not in HTML
     talk = (Path(__file__).resolve().parents[2] / "app" / "ui" / "talk.js").read_text()
     assert ">Voice <b>" in talk and "Mouth" not in talk.replace("applyMouth", "")
+
+
+def _sections(md):
+    import sys; sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    import vizier
+    return vizier.spoken_sections(md)
+
+
+INTRO_ONLY = """# Upwork Intro VSL \u00b7 Take 1
+
+## [Tyler] Intro
+Hi, I'm Tyler Youk.
+I'm looking at your AI Automation Architect post.
+I have an architecture diagram and an MVP ready.
+
+## HANDOFF: the voice agent takes over
+Stay silent, the voice agent takes over.
+
+## [AI voice] Architecture diagram
+Every morning a routine wakes the chief of staff.
+It reads your priorities from memory.
+
+## [AI voice] Working app
+Here's one morning briefing, box by box.
+"""
+ENTIRE = """# Upwork Full VSL \u00b7 Take 1
+
+## [Tyler] Your post
+I read your whole post.
+You want one chief of staff.
+
+## [Tyler] The demo
+Here is the demo.
+"""
+
+
+def _no_paragraphs(secs):
+    for s in secs:
+        for l in s["lines"]:
+            assert len(l.split()) <= 15, ("a paragraph, not a line", l)
+            assert not re.search(r'[.!?]["\u201d]?\s+[A-Z]', l), ("two sentences in one row", l)
+
+
+def test_intro_only_script_is_tagged_sections_in_order_and_one_line_per_row():
+    secs = _sections(INTRO_ONLY)
+    assert [s["title"] for s in secs] == ["[Tyler] Intro", "HANDOFF: the voice agent takes over", "[AI voice] Architecture diagram", "[AI voice] Working app"]
+    assert [len(s["lines"]) for s in secs] == [3, 1, 2, 1]
+    _no_paragraphs(secs)
+
+
+def test_entire_script_is_all_tyler_sections_no_handoff_no_ai():
+    secs = _sections(ENTIRE)
+    assert [s["title"] for s in secs] == ["[Tyler] Your post", "[Tyler] The demo"]
+    _no_paragraphs(secs)
+
+
+def test_a_paragraph_row_would_fail_the_check():
+    import pytest
+    with pytest.raises(AssertionError):
+        _no_paragraphs(_sections("## [Tyler] Intro\nHi, I'm Tyler Youk. I'm looking at your post. I have a diagram ready for you and an MVP too.\n"))
+
+
+def test_current_line_indented_and_highlighted_next_dimmed_finished_faded():
+    """Tyler 2026-11-22: copied from the prompter he approved (#text p dim, p.cur lit): the line he is on is indented + highlighted
+    with the arrow, the next line is dimmed, finished lines are faded; sections carry [Tyler] / [AI voice] tags only."""
+    fn = HTML[HTML.index("function drawTscript"):]; fn = fn[: fn.index("\n}\n")]
+    for cls in ("cur", "done", "next", "later"):
+        assert f'" {cls}"' in fn or f'" sel {cls}"' in fn, cls
+    assert 'cur ? "\u25b6" : ""' in fn and "s.lines.map(" in fn
+    css = lambda sel: re.search(re.escape(sel) + r"\s*\{([^}]*)\}", HTML).group(1)
+    assert "margin-left" in css(".panel .row.cur") and "background" in css(".panel .row.cur") and "opacity:1" in css(".panel .row.cur")
+    assert "color:var(--hi)" in css(".panel .row.cur .v")
+    done, nxt = float(re.search(r"opacity:([\d.]+)", css(".panel .row.done")).group(1)), float(re.search(r"opacity:([\d.]+)", css(".panel .row.next")).group(1))
+    assert done < nxt < 1
+    for old in ("YOU SAY", "AI VOICE SAYS", "INTRO (Tyler)", "AI VOICE (do not read)"):
+        assert old not in HTML, old
