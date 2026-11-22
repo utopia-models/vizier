@@ -29,3 +29,15 @@ def test_header_and_labelled_sections(tmp_path, monkeypatch):
     assert "previews" not in d
     assert [s["title"] for s in d["sections"]] == ["[Tyler] Intro", "[AI voice] Your post"]
     assert [l["text"] for l in d["sections"][0]["lines"]] == ["Hi, I'm Tyler."]
+
+
+def test_mvp_lines_and_ui_wiring(tmp_path, monkeypatch):
+    """Tyler 2026-11-22: which VSL, where the MVP is, the transcript on the Speaker Script, a fast reset to line one."""
+    m = load(tmp_path, monkeypatch)
+    (tmp_path / "speaker-script.md").write_text("# T\n\n## [Tyler] Intro\nHi.\n\n## [AI voice] MVP\nThe app does X.\nIt does Y.\n\n## [AI voice] Diagram\nD.\n")
+    async def go():
+        async with TestClient(TestServer(m.make_app())) as c:
+            return await (await c.get("/speaker-script")).json()
+    assert asyncio.run(go())["mvp"] == ["The app does X.", "It does Y."]
+    html = (Path(__file__).resolve().parents[2] / "app" / "ui" / "index.html").read_text()
+    assert 'class="vslk">VSL</span>' in html and 'id="tstalk"' in html and "every(120" in html
