@@ -195,37 +195,20 @@ fn talk_shortcuts() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     // Prompter lines from any app (a remote-desktop client in front swallows plain arrows): Alt+Down next line, Alt+Up previous.
     let down = Shortcut::new(Some(Modifiers::ALT), Code::ArrowDown);
     let up = Shortcut::new(Some(Modifiers::ALT), Code::ArrowUp);
-    let tab = Shortcut::new(Some(Modifiers::ALT), Code::KeyT);   // Alt+T: top of the current script (line 0 lit, scrolled to top); Tab / S switch tabs
-    // Plain Tab / Up / Down, global (the reader never has to click the Vizier window to give it focus). They steal
-    // those keys from every app on this machine, which is the point on a presenting laptop (the reader talks; an agent drives).
-    // Alt+K releases them (and takes them again): the escape if the laptop is ever used for typing.
-    let ptab = Shortcut::new(None, Code::Tab);
-    let pdown = Shortcut::new(None, Code::ArrowDown);
-    let pup = Shortcut::new(None, Code::ArrowUp);
-    let pleft = Shortcut::new(None, Code::ArrowLeft);   // plain Left / Right: previous / next part, global like Up / Down
-    let pright = Shortcut::new(None, Code::ArrowRight);
-    let lock = Shortcut::new(Some(Modifiers::ALT), Code::KeyK);
+    // Plain Tab / arrows and Alt+T are NOT global (knowledge#17021): they act only while Vizier has focus (the page's own
+    // keydown handlers), so Chrome / OBS keep their arrows and Alt+T reaches the take session's hook. Alt+Up / Alt+Down stay
+    // global only as the session's synthetic channel; Alt+V pops Vizier up / hides it.
     let vizier = Shortcut::new(Some(Modifiers::ALT), Code::KeyV);   // Alt+V: pop Vizier up / hide it
         tauri_plugin_global_shortcut::Builder::new()
-        .with_shortcuts([ears, mouth, down, up, tab, ptab, pdown, pup, pleft, pright, lock, vizier])
-        .expect("Alt+E / Alt+M / Alt+Up / Alt+Down / Alt+T (top of script) / Tab / Up / Down / Alt+K / Alt+V")
+        .with_shortcuts([ears, mouth, down, up, vizier])
+        .expect("Alt+E / Alt+M / Alt+Up / Alt+Down / Alt+V")
         .with_handler(move |app, sc, ev| {
             if ev.state() != ShortcutState::Pressed {
                 return;
             }
             let name = if sc == &vizier { "alt+v" }
-                else if sc == &pleft { "left" } else if sc == &pright { "right" } else if sc == &ptab { "tab" } else if sc == &tab { "alt+t" }
-                else if sc == &down || sc == &pdown { "down" } else if sc == &up || sc == &pup { "up" }
+                else if sc == &down { "down" } else if sc == &up { "up" }
                 else if sc == &ears { "alt+e" } else if sc == &mouth { "alt+m" } else { "" };
-            if sc == &lock {
-                let gs = app.global_shortcut();
-                if gs.is_registered(ptab) {
-                    for k in [ptab, pdown, pup, pleft, pright] { let _ = gs.unregister(k); }
-                } else {
-                    for k in [ptab, pdown, pup, pleft, pright] { let _ = gs.register(k); }
-                }
-                return;
-            }
             hotkey(app, name);
         })
         .build()

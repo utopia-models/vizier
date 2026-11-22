@@ -173,7 +173,7 @@ SCRIPT shows the spoken lines and nothing else: no coach note, no BUILD footer, 
 | PageDown / PageUp, ↓ / ↑ | next / previous line, also while scrolling |
 | Alt+↓ / Alt+↑ | the same from any app (global shortcut); they scroll CONTEXT / DO NOT SAY too |
 | Tab / Alt+T | next panel: TALK → SETTINGS → DESKS → AGENTS → TALK. From SCRIPT / CONTEXT, back to TALK. S opens SCRIPT |
-| Tab, ↑, ↓ (plain) | global in the desktop app: they work from any window, on that laptop only. Alt+K releases them and takes them again |
+| Tab, ↑, ↓ (plain) | only while Vizier has focus; they never reach Chrome or OBS (knowledge#17021). Alt+V is the one global show/hide key |
 | `+` `=` `]` / `-` `_` `[` | faster / slower (×1.15) |
 | Ctrl + / Ctrl − | bigger / smaller type (SCRIPT and CONTEXT together) |
 | Home | top of the part |
@@ -185,7 +185,7 @@ SCRIPT shows the spoken lines and nothing else: no coach note, no BUILD footer, 
 
 Tab cycles four panels: **TALK** (the live transcript), **SETTINGS**, **DESKS** and **AGENTS**. Every one works by keyboard
 alone: ↑ ↓ pick a row, ← → change it (→ or Enter opens a desk). The arrows are global in the desktop app, so they reach the
-panel from any window (Alt+K releases them).
+panel from any window.
 
 | panel | what it shows | what the keys change | server config |
 |---|---|---|---|

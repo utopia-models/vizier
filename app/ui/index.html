@@ -511,7 +511,6 @@ document.addEventListener("keydown", e => {
   else if (k === "ArrowUp" || k === "PageUp") step(-1);
   else if (k === "Home") { goLine(0); }
   else if (k === " " || PAUSE_KEYS.has(k)) play();
-  else if ((k === "r" || k === "R") && !e.ctrlKey && !recording) record();
   else if (k === "+" || k === "=" || k === "]") setSpeed(1.15);
   else if (k === "-" || k === "_" || k === "[") setSpeed(1 / 1.15);
   else return;
