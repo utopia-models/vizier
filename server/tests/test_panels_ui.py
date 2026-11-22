@@ -12,11 +12,38 @@ def test_four_panels_and_their_tabs_exist():
         assert f'id="tab-{k}"' in HTML and f'id="m-{k}"' in HTML, k
 
 
-def test_tab_cycles_the_four_panels():
+def test_tab_cycles_the_three_panels_and_qc_approval_are_gone():
+    """The user 2026-11-22: QC and APPROVAL "fixed or removed": removed. Tab cycles TALK, SETTINGS, Speaker Script, Eagle Script."""
     fn = HTML[HTML.index("window.vizierTab = () =>"):]
     fn = fn[: fn.index("};")]
     assert '["talk", ...PANELS]' in fn   # Tab reaches SCRIPT (#14)
-    assert re.search(r'const PANELS = \["settings", "tscript", "hscript", "qc", "approval"\]', HTML)
+    assert re.search(r'const PANELS = \["settings", "tscript", "hscript"\]', HTML)
+    for k in ("qc", "approval"):
+        assert re.search(rf'<span id="tab-{k}" hidden></span>', HTML), k     # an inert stub, never a visible tab
+        assert f'class="tab hs" id="tab-{k}"' not in HTML, k
+
+
+def test_settings_shows_the_live_transcript():
+    """The user 2026-11-22: the live transcript sits under SETTINGS, fed by the same GET /talk/transcript as TALK."""
+    sec = HTML[HTML.index('<section class="mode" id="m-settings">'):]
+    sec = sec[: sec.index("</section>")]
+    assert 'id="settalk"' in sec
+    poll = HTML[HTML.index("async function pollTalk()"):]
+    poll = poll[: poll.index("\n}\n")]
+    assert 'mode === "settings" ? "settalk"' in poll and "talk/transcript?since=" in poll
+
+
+def test_down_into_ai_voice_hands_off():
+    """The user 2026-11-22: Down onto the first [AI voice] line starts the voice agent (POST /handoff) and swaps face -> orb
+    (studiod "face orb"); only Down, only across the boundary, from panelStep (his keys), never from anything else."""
+    step = HTML[HTML.index("function panelStep(d) {"):]
+    step = step[: step.index("\n}\n")]
+    assert "maybeHandoff(was, tsCur)" in step
+    fn = HTML[HTML.index("function maybeHandoff(from, to) {"):]
+    fn = fn[: fn.index("\n}\n")]
+    assert "to <= from" in fn and 'roleOf(b.title).row !== "ai"' in fn and 'roleOf(a.title).row === "ai"' in fn
+    assert 'api("handoff"' in fn and '"face orb"' in fn
+    assert HTML.count("maybeHandoff(") == 2      # defined once, called once: nothing but his Down key fires it
 
 
 def test_no_desks_or_agents_panel_and_every_tab_has_the_job_header():

@@ -5,7 +5,12 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **The hand-off: Down into an `[AI voice]` section starts the voice agent and swaps the face card for the orb.** On the Speaker Script tab, the reader's Down key onto the first line of an `[AI voice]` section (coming from a line that is not `[AI voice]`) does two things once: the app POSTs `studiod` `face orb` on its own machine (loopback, beside OBS: hides the `--face-source` scene item, default `Face`, and shows `--orb-source`, default `Orb`, in the program scene; `face cam` reverses it), and POSTs the server's new `POST /handoff {"section","line"}`, which runs `VIZIER_HANDOFF_CMD` (`{section}`, `{line}` shell-quoted) in the background once per take; a second post for the same take answers `"already": true` and runs nothing, so Up / Down across the boundary never starts a second voice agent. `POST /handoff {"done": true}` (the voice agent's last line) stops the take through the same switch as `POST /vsl` (the contract's auto-stop). `GET /handoff` and `GET /state` (`handoff`) show it. Only the reader's Down key fires it; nothing else calls it.
+- **SETTINGS shows the live transcript** (the same `GET /talk/transcript` feed as TALK) under the settings rows.
+
 ### Removed
+- **QC and APPROVAL tabs** (the user 2026-11-22: "fixed or removed"). Tab cycles TALK, SETTINGS, Speaker Script, Eagle Script. `GET /qc`, `GET /approval` and `POST /approve` stay on the server for agents.
 - **Speech-follow is gone: nothing listens to the reader to move the prompter.** `app/ui/follow.js`, the Vosk recognizer and its fetch, Alt+F, `POST/GET /prompter/follow` and the server `FOLLOW` switch are deleted. Only the reader's own keys move the position (Up / Down, Left / Right, Home, the wheel, a clicker); `server/tests/test_no_speech_follow.py` replays me / them speech over every transcript path and asserts the position holds, and that key reports still move it.
 
 ### Added

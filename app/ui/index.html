@@ -65,15 +65,18 @@
   .panel .dot.green { background:#3ddc84; } .panel .dot.amber, .panel .dot.yellow { background:#ffd34d; } .panel .dot.red { background:#ff4d4d; }
   #rtabs { display:none !important; }   /* the one row of tabs is the header: TALK / SCRIPT / CONTEXT */
   /* TALK: a raw transcript, large, newest at the bottom */
-  #talkmain { flex:1; min-height:0; overflow-y:auto; padding:18px 28px 28px; display:flex; flex-direction:column; user-select:text; }
-  #talkmain .sp { flex:1 0 0; }
-  #talkmain .ln { margin:0 0 .55em; font:500 32px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  #talkmain .ln.me { color:var(--fg); }
-  #talkmain .ln.agent { color:var(--accent); }
-  #talkmain .ln i { font:700 .42em system-ui; font-style:normal; letter-spacing:.1em; opacity:.6; margin-right:.9em; vertical-align:.25em; }
-  #talkmain .ln.partial { opacity:.55; }
-  #talkmain .ln.partial::after { content:"▍"; margin-left:2px; color:var(--hi); }
-  #talkmain .none { color:var(--dim); font:500 20px system-ui; }
+  #settalk { flex:0 0 34%; border-top:1px solid var(--line); margin-bottom:28px; }
+  #settalk .ln { font-size:22px !important; }
+  #settalk::before { content:"LIVE TRANSCRIPT"; display:block; font:700 12px system-ui; letter-spacing:.14em; color:var(--dim); margin-bottom:8px; }
+  #talkmain, #settalk { flex:1; min-height:0; overflow-y:auto; padding:18px 28px 28px; display:flex; flex-direction:column; user-select:text; }
+  #talkmain .sp, #settalk .sp { flex:1 0 0; }
+  #talkmain .ln, #settalk .ln { margin:0 0 .55em; font:500 32px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #talkmain .ln.me, #settalk .ln.me { color:var(--fg); }
+  #talkmain .ln.agent, #settalk .ln.agent { color:var(--accent); }
+  #talkmain .ln i, #settalk .ln i { font:700 .42em system-ui; font-style:normal; letter-spacing:.1em; opacity:.6; margin-right:.9em; vertical-align:.25em; }
+  #talkmain .ln.partial, #settalk .ln.partial { opacity:.55; }
+  #talkmain .ln.partial::after, #settalk .ln.partial::after { content:"▍"; margin-left:2px; color:var(--hi); }
+  #talkmain .none, #settalk .none { color:var(--dim); font:500 20px system-ui; }
   .tab.pinned { border-color:var(--fg); }
   #rec { color:var(--rec); font-weight:700; }
   .grow { flex:1; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
@@ -156,8 +159,7 @@
   <span class="tab set" id="tab-settings" title="SETTINGS: every Eagle setting; arrows change them">SETTINGS</span>
   <span class="tab ts" id="tab-tscript" title="Speaker Script: his spoken beats, read-only; nothing highlights or scrolls by itself">Speaker Script</span>
   <span class="tab hs" id="tab-hscript" title="Eagle Script: the cues Eagle will run, read-only; the current one is lit">Eagle Script</span>
-  <span class="tab hs" id="tab-qc" title="QC: the QA checklist and the last vsl_qa verdict; read-only">QC</span>
-  <span class="tab hs" id="tab-approval" title="APPROVAL: the gate report, the references used and the diff from the last version; read-only">APPROVAL</span>
+  <span id="tab-qc" hidden></span><span id="tab-approval" hidden></span>   <!-- QC and APPROVAL removed (the user 2026-11-22: "fix or remove"); the gate runs before Vizier, not in it -->
   <span id="tab-rec" hidden></span><span id="tab-ctx" hidden></span>   <!-- the teleprompter is gone (the user, Architect 8981): inert stubs so old refs stay null-safe -->
   <span class="tab call" id="tab-call" hidden title="CALL: shown automatically while a call is live">CALL</span>
   <span class="grow" data-tauri-drag-region><span id="rec"></span> <span id="title" data-tauri-drag-region>connecting…</span></span>
@@ -182,6 +184,7 @@
   <div id="talkmain"><div class="sp"></div></div>
 </section>
 <section class="mode" id="m-settings"><div class="panel" id="p-settings"></div>
+  <div id="settalk" class="talkbox" title="the live transcript: your speech and Eagle's replies, newest at the bottom"><div class="sp"></div></div>
   <div id="keylegend-s" class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> pick a setting &nbsp;·&nbsp; <b>← →</b> change it &nbsp;·&nbsp; <b>Alt+E</b> ears &nbsp;·&nbsp; <b>Alt+M</b> voice &nbsp;·&nbsp; <b>Alt+V</b> show / hide</div></section>
 <section class="mode" id="m-tscript"><div class="panel" id="p-tscript"></div>
   <div class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> step a line &nbsp;·&nbsp; the arrow marks the line ahead &nbsp;·&nbsp; nothing moves but by your keys</div></section>
@@ -249,8 +252,8 @@ function refreshTabs() {
   $("tab-ctx").classList.toggle("on", mode === "rec" && rtab === "context");
   $("tab-call").classList.toggle("on", mode === "call"); $("tab-call").hidden = mode !== "call";
 }
-const PANELS = ["settings", "tscript", "hscript", "qc", "approval"];   // the deployment's issue 13798: Scout's panels beside TALK
-const MODES = ["rec", "call", "talk", ...PANELS];
+const PANELS = ["settings", "tscript", "hscript"];   // the deployment's issue 13798: Scout's panels beside TALK (QC, APPROVAL removed 2026-11-22)
+const MODES = ["rec", "call", "talk", ...PANELS, "qc", "approval"];   // qc/approval: stub sections, never reached by Tab
 function goTab(n) {   // TALK / SETTINGS / DESKS / AGENTS, and SCRIPT / CONTEXT: the one row at the top
   pinned = (n === "talk" || PANELS.includes(n)) ? n : "tscript"; setMode();
   if (PANELS.includes(n)) panelOpen(n);
@@ -288,7 +291,8 @@ async function pollHealth() {
 // ---------- TALK: the raw live transcript of the conversation with the agent ----------
 // GET /talk/transcript?since=<seq> every 500 ms: new final lines (you and the agent) plus the one live partial. The
 // view sticks to the bottom unless you scrolled up to read.
-let talkSeq = 0, talkPart = null;
+// The same transcript shows under SETTINGS (the user 2026-11-22: "transcript in Talk settings"): one view state per box.
+const talkBox = { talkmain: { seq: 0, part: null }, settalk: { seq: 0, part: null } };
 const talkWho = ch => ch === "me" ? "YOU" : "EAGLE";
 function talkRow(ch, text, partial) {
   const d = document.createElement("p");
@@ -297,15 +301,17 @@ function talkRow(ch, text, partial) {
   return d;
 }
 async function pollTalk() {
-  if (mode !== "talk") return;
-  let j; try { j = await api("talk/transcript?since=" + talkSeq).then(r => r.json()); } catch { return; }
-  const box = $("talkmain"), stick = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
-  if (j.seq < talkSeq) { box.querySelectorAll(".ln").forEach(x => x.remove()); talkSeq = 0; return; }   // the server restarted
+  const id = mode === "talk" ? "talkmain" : mode === "settings" ? "settalk" : null;
+  if (!id) return;
+  const S = talkBox[id];
+  let j; try { j = await api("talk/transcript?since=" + S.seq).then(r => r.json()); } catch { return; }
+  const box = $(id), stick = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+  if (j.seq < S.seq) { box.querySelectorAll(".ln").forEach(x => x.remove()); S.seq = 0; return; }   // the server restarted
   const key = JSON.stringify([j.lines.length ? j.lines[j.lines.length - 1].seq : 0, j.partial]);
-  if (key === talkPart) return;
-  talkPart = key;
+  if (key === S.part) return;
+  S.part = key;
   box.querySelectorAll(".ln.partial").forEach(x => x.remove());
-  for (const l of j.lines) { box.appendChild(talkRow(l.ch, l.text)); talkSeq = Math.max(talkSeq, l.seq); }
+  for (const l of j.lines) { box.appendChild(talkRow(l.ch, l.text)); S.seq = Math.max(S.seq, l.seq); }
   if (j.partial) box.appendChild(talkRow(j.partial.ch, j.partial.text, true));
   while (box.querySelectorAll(".ln").length > 200) box.querySelector(".ln").remove();
   if (!box.querySelector(".ln")) { if (!box.querySelector(".none")) box.insertAdjacentHTML("beforeend", '<div class="none">Say something to Eagle: it shows here as you speak.</div>'); }
@@ -771,8 +777,24 @@ function panelOpen(n) { ({ settings: () => { drawSettings(); loadSettings(); }, 
 // The selected row is kept on screen every time the selection moves (the user 2026-11-15: arrow-down moved the selection
 // below the window and the list never followed). Only on a move: the 2 s redraw never pulls a list the wheel scrolled.
 function selIntoView(id) { const r = $(id).querySelector(".row.sel"); if (r) r.scrollIntoView({ block: "nearest" }); }
+// The hand-off (the user 2026-11-22): his Down key onto the first line of an [AI voice] section starts the voice agent and
+// swaps his face card for the gold orb. Only Down, only when crossing from a line that is not [AI voice]; once per take
+// (the server answers "already" after that). The orb swap goes straight to studiod on this machine (loopback, beside OBS).
+const sectionAt = (d, i) => { let n = 0; for (const s of (d && d.sections) || []) { if (i < n + s.lines.length) return s; n += s.lines.length; } return null; };
+const STUDIOD = () => (Q.get("studiod") || CFG.studiod || "http://127.0.0.1:17900").replace(/\/+$/, "");
+let handoffAt = 0;
+function maybeHandoff(from, to) {
+  const d = panel.tscript.data, a = sectionAt(d, from), b = sectionAt(d, to);
+  if (to <= from || !b || roleOf(b.title).row !== "ai" || (a && roleOf(a.title).row === "ai")) return false;
+  if (Date.now() - handoffAt < 1500) return false; handoffAt = Date.now();
+  // the orb: a simple text/plain POST needs no CORS preflight; studiod parses the JSON body whatever its type
+  fetch(STUDIOD() + "/cmd", { method: "POST", mode: "no-cors", body: JSON.stringify({ id: "handoff-" + Math.floor(Date.now() / 60000), verb: "face orb" }) }).catch(() => {});
+  api("handoff", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ section: b.title, line: to + 1 }) })
+    .then(r => r.json()).then(j => { window.vizierHandoff = j; tl("handoff " + (j.already ? "(already fired this take)" : "fired") + ": " + b.title); }).catch(() => {});
+  return true;
+}
 function panelStep(d) {
-  if (mode === "tscript") { const n = tsLines(panel.tscript.data); if (!n) return; tsCur = Math.max(0, Math.min(n - 1, tsCur + d)); drawTscript(); selIntoView("p-tscript"); reportTs(); return; }
+  if (mode === "tscript") { const n = tsLines(panel.tscript.data); if (!n) return; const was = tsCur; tsCur = Math.max(0, Math.min(n - 1, tsCur + d)); drawTscript(); selIntoView("p-tscript"); reportTs(); maybeHandoff(was, tsCur); return; }
   if (mode === "qc") { $("p-qc").scrollTop += d * 80; return; }
   if (mode === "approval") { $("p-approval").scrollTop += d * 80; return; }
   if (mode === "hscript") { $("p-hscript").scrollTop += d * 80; return; }

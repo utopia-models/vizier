@@ -78,6 +78,8 @@ The window reports where the reader is, and an agent that hears them keeps the s
 | endpoint | does |
 |---|---|
 | `GET /prompter/position` | the current part, line and its text, with its age in seconds |
+| `POST /handoff` | `{"section","line"}`: the reader's Down key reached an `[AI voice]` section; runs `VIZIER_HANDOFF_CMD` once per take. `{"done": true}`: the voice agent finished; stops the take |
+| `GET /handoff` | whether the hand-off fired this take, when, at which line, and the command's exit code |
 | `POST /prompter/goto {"part", "line"}` | jumps the prompter there (1-based) |
 | `POST /prompter/snap` | the app writes a picture of what it shows (`%PUBLIC%\vizier\live.png`), any tab, any mode, since the window is hidden from capture; laptop-eye on Ra bumps it every 2 s (issue 14117) |
 | `POST /prompter/note {"text"}` | the one-line note under the script |

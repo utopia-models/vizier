@@ -31,6 +31,7 @@ class FakeOBS:
     def __init__(self, port):
         self.port, self.requests, self.streaming, self.recording, self.salt, self.challenge = port, [], False, False, "s4lt", "ch4l"
         self.loop = asyncio.new_event_loop(); self.runner = None; self.conns = set()
+        self.items, self.enabled = {("VSL", "Face"): 7, ("VSL", "Orb"): 9}, {7: True, 9: False}   # the hand-off sources
         threading.Thread(target=self.loop.run_forever, daemon=True).start()
 
     def expected_auth(self):
@@ -52,6 +53,13 @@ class FakeOBS:
             if t == "GetStreamStatus": resp["responseData"] = {"outputActive": self.streaming}
             elif t == "GetRecordStatus": resp["responseData"] = {"outputActive": self.recording}
             elif t == "StopRecord": resp["responseData"] = {"outputPath": "C:/VSL/fake.mkv"}
+            elif t == "GetCurrentProgramScene": resp["responseData"] = {"currentProgramSceneName": "VSL", "sceneName": "VSL"}
+            elif t == "GetSceneItemId":
+                rd = d.get("requestData", {}); iid = self.items.get((rd.get("sceneName"), rd.get("sourceName")))
+                if iid is None: resp["requestStatus"] = {"result": False, "code": 600, "comment": "No scene items were found"}
+                else: resp["responseData"] = {"sceneItemId": iid}
+            elif t == "SetSceneItemEnabled":
+                rd = d.get("requestData", {}); self.enabled[rd["sceneItemId"]] = rd["sceneItemEnabled"]
             await ws.send_json({"op": 7, "d": resp})
             if t in ("StartRecord", "StopRecord"):
                 await asyncio.sleep(0.03)   # OBS emits STARTING/STOPPING then STARTED/STOPPED
@@ -160,3 +168,22 @@ def test_cue_verbs_and_unknown_verb(rig):
     assert call(port, "cue back")["state"]["beat"] == 4
     assert call(port, "dance")["http"] == 400
     assert json.loads(state.read_text())["beat"] == 4
+
+
+def test_face_orb_swaps_the_face_card_for_the_orb_and_back(rig):
+    """The hand-off (Down into [AI voice]): face card hidden, orb shown, in the program scene; "face cam" reverses it."""
+    obs, port, state, _ = rig
+    r = call(port, "face orb")
+    assert r["ok"] and r["scene"] == "VSL" and obs.enabled == {7: False, 9: True}, r
+    assert r["state"]["face"] == "orb" and json.loads(state.read_text())["face"] == "orb"
+    assert "StartStream" not in obs.requests
+    r = call(port, "face cam")
+    assert r["ok"] and obs.enabled == {7: True, 9: False} and r["state"]["face"] == "cam", r
+
+
+def test_face_orb_reports_a_missing_source(rig):
+    obs, port, _, _ = rig
+    del obs.items[("VSL", "Orb")]
+    r = call(port, "face orb")
+    assert r.get("http") == 502 and not r["ok"] and any("Orb" in e for e in r["errors"]), r
+    assert obs.enabled[7] is False          # the face card still went off: the take never shows both
