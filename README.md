@@ -203,13 +203,13 @@ panel from any window (Alt+K releases them).
 
 | panel | what it shows | what the keys change | server config |
 |---|---|---|---|
-| SETTINGS | the agent's voice, Ears, Mouth, its wake rules (silent unless addressed; how many times its name is said in a call; outside a call once), whether a call is live | voice (previous / next in the agent's catalog), Ears, Mouth, silent-unless-asked on/off, the in-call name count | `VIZIER_VOICE_URL`: the voice agent's control API (`GET /health`, `GET /voices`, `POST /voice {"step"\|"name"}`, `POST /address {"on","call_n"}`) |
+| SETTINGS | the agent's voice, Ears, Voice, its wake rules (silent unless addressed; how many times its name is said in a call; outside a call once), whether a call is live | voice (previous / next in the agent's catalog), Ears, Voice, silent-unless-asked on/off, the in-call name count | `VIZIER_VOICE_URL`: the voice agent's control API (`GET /health`, `GET /voices`, `POST /voice {"step"\|"name"}`, `POST /address {"on","call_n"}`) |
 | DESKS | the desks the agent can put on this screen | → / Enter: the agent opens the picked desk | `VIZIER_DESKS_CMD` prints `[{"id","name","agent"?,"detail"?}]`; `VIZIER_DESK_OPEN_CMD` opens one (`{id}` is replaced; only a listed id ever reaches it) |
 | AGENTS | each agent's health, what it is doing, how fresh | ↑ ↓ scroll | `VIZIER_AGENTS_DIR`: one `<agent>.json` per agent; read from its `liveness` block (`health`, `healthAt`, `healthReasons`, `task`/`externalEvent`) |
 
 Nothing configured = the panel says so; it never shows a value it did not read.
 
-### Talk to an agent: Ears (Alt+E) and Mouth (Alt+M)
+### Talk to an agent: Ears (Alt+E) and Voice (Alt+M)
 
 Vizier can put you in a [LiveKit](https://livekit.io) room with an agent, so you talk to it from the laptop. Add two keys to
 `config.json` (app config dir) or `vizier.json` beside the exe:
@@ -218,8 +218,8 @@ Vizier can put you in a [LiveKit](https://livekit.io) room with an agent, so you
 { "talkUrl": "wss://livekit.example.com", "talkToken": "<a join token for the agent's room>" }
 ```
 
-A small pill shows **Ears ●  Mouth ●** in the top-right corner. From any app, **Alt+E** turns Ears on (your mic goes
-into the room) and off again; **Alt+M** turns Mouth on (you hear the agent's replies) and off. On a call: Ears on, Mouth
+A small pill shows **Ears ●  Voice ●** in the top-right corner. From any app, **Alt+E** turns Ears on (your mic goes
+into the room) and off again; **Alt+M** turns Voice on (you hear the agent's replies) and off. On a call: Ears on, Voice
 off. The switches are also this participant's LiveKit attributes (`ears`, `mouth` = `on`/`off`), so the agent side can
 read them with any LiveKit SDK. Vizier itself does no speech-to-text: an agent process in the room transcribes and
 answers. Without `talkUrl`/`talkToken` there is no pill and nothing joins. Code: `app/ui/talk.js`.

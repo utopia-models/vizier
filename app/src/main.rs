@@ -184,7 +184,7 @@ fn main() {
         .expect("error while running Vizier");
 }
 
-/// Alt+E toggles Ears and Alt+M toggles Mouth in ui/talk.js, from any app (global shortcuts). Each press flips one
+/// Alt+E toggles Ears and Alt+M toggles Voice in ui/talk.js, from any app (global shortcuts). Each press flips one
 /// switch; the page owns the state. With no talk config the page has no `vizierTalk.state.room`, and a press does nothing.
 /// Alt+V (V for Vizier) pops the window up where it was, and the next Alt+V minimizes it again (park.rs;
 /// the deployment's issue 13798, the user's card 2026-11-15 2:09 PM: "Alt+V pops Vizier bottom-left, small"). Was Alt+V Alt+V.

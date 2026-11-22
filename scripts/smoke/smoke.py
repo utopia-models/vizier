@@ -18,7 +18,7 @@ What it does (every step is a PASS/FAIL line, with a screenshot in --out; exit 0
      his spoken lines read-only (no highlight, no scroll by itself) and Eagle Script lights the current cue from
      vsl-follow's state.json; neither shows 'changed HH:MM' marks; every tab scrolls to its bottom by wheel (and
      the lists by arrow keys, the selected row always fully on screen); every SETTINGS row that can change
-     changes and changes back; Alt+E and Alt+M flip Ears and Mouth (keys in the page, and the native shortcut when the
+     changes and changes back; Alt+E and Alt+M flip Ears and Voice (keys in the page, and the native shortcut when the
      talk link is up); Alt+V hides the window and Alt+V brings it back; Alt+R starts a (dry) take and Alt+R stops it.
   4. Stops the smoke instance and its task, whatever happened.
 Needs: ssh to the box (Windows OpenSSH, PowerShell), python3 with aiohttp here (server/requirements.txt).
@@ -223,7 +223,7 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
         print("AUDIO-DEVICES " + json.dumps(await c.js("(async()=>{const st=vizierTalk.state;const d=await navigator.mediaDevices.enumerateDevices();"
               "return {status:st.status,room:st.room&&st.room.name,me:st.room&&st.room.localParticipant.identity,mic:!!st.mic,"
               "devices:d.map(x=>x.kind+':'+x.label)}})()")), flush=True)
-        print(f"AUDIO-HOLD {AUDIO_SECS}s: Ears and Mouth on, in room {ROOM}", flush=True)
+        print(f"AUDIO-HOLD {AUDIO_SECS}s: Ears and Voice on, in room {ROOM}", flush=True)
         r = await c.js(f"{AUDIO_JS}({AUDIO_SECS})")
         print("AUDIO " + json.dumps(r), flush=True)
         ok("audio: the Ears track is the processed mic (echo cancellation, noise suppression, auto gain on)",
@@ -239,7 +239,7 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
         await c.key("Tab"); await asyncio.sleep(0.25)
         m = await c.js("document.body.dataset.mode")
         seen.append(m); await c.shot(out, f"tab-{m}")
-    want = ["settings", "tscript", "hscript", "qc", "approval", "talk"]   # DESKS and AGENTS are gone; the preview tabs show only when the script names pages
+    want = ["settings", "tscript", "hscript", "qc", "approval", "talk"]   # DESKS and AGENTS are gone; the diagram and app are Chrome tabs, not Vizier tabs
     labels = await c.js("[...document.querySelectorAll('header .tab:not([hidden])')].map(t=>t.textContent)")
     ok("Tab visits SETTINGS, Speaker Script, Eagle Script, QC, APPROVAL and back to TALK (no SCRIPT tab)",
        seen == want and labels == ["TALK", "SETTINGS", "Speaker Script", "Eagle Script", "QC", "APPROVAL"], " > ".join(seen) + f"; tabs {labels}")
