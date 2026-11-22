@@ -722,16 +722,6 @@ async def talk_transcript(req):
     return web.json_response({"seq": TALK["seq"], "lines": [x for x in TALK["lines"] if x["seq"] > since], "partial": p})
 
 
-FOLLOW = {"on": False}   # OFF by default (ask 821: the reader steps lines with his own keys; voice-follow lags). POST /prompter/follow {"on": bool} or {"toggle": true}: the agent's speech-follow and screen driving
-
-
-async def prompter_follow(req):
-    if req.method == "POST":
-        b = await body(req)
-        FOLLOW["on"] = (not FOLLOW["on"]) if b.get("toggle") else bool(b.get("on", True))
-    return web.json_response(FOLLOW)
-
-
 SNAP = {"seq": 0}   # POST /prompter/snap asks the app for a picture of the prompter (live.png beside the exe's public dir)
 
 
@@ -1557,8 +1547,6 @@ def make_app() -> web.Application:
     r.add_get("/talk/transcript", talk_transcript)
     r.add_post("/talk/transcript", talk_transcript)
     r.add_get("/qc", qc)
-    r.add_get("/prompter/follow", prompter_follow)
-    r.add_post("/prompter/follow", prompter_follow)
     r.add_post("/prompter/snap", prompter_snap)
     r.add_post("/prompter/goto", prompter_goto)
     r.add_post("/prompter/record", prompter_record)

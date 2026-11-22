@@ -5,6 +5,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Removed
+- **Speech-follow is gone: nothing listens to the reader to move the prompter.** `app/ui/follow.js`, the Vosk recognizer and its fetch, Alt+F, `POST/GET /prompter/follow` and the server `FOLLOW` switch are deleted. Only the reader's own keys move the position (Up / Down, Left / Right, Home, the wheel, a clicker); `server/tests/test_no_speech_follow.py` replays me / them speech over every transcript path and asserts the position holds, and that key reports still move it.
+
 ### Added
 - **The reading cursor is published: `GET /state` carries it, `GET /events` pushes it, `cursor.jsonl` logs it (0.3.0).** Every move of the line cursor on the Speaker Script tab (Up / Down, the global hotkeys, a click on a row, a shortened script) is posted by the app to `POST /prompter/position` and kept server-side: `current_line_index` (0-based), `current_line_text`, `total_lines`, `script_id` (sha of the live script), `script_name`, `part`, `parts`, a monotonically increasing `seq` and `updated_at`. `GET /state` has them at the top level. The change is pushed on `GET /events` (Server-Sent Events, one `event: cursor` per move, `id` = seq, the cursor now on connect), on `GET /cursor?since=<seq>&timeout=<s>` (long-poll), and appended to `$VIZIER_DATA/cursor.jsonl` (override `VIZIER_CURSOR_LOG`). An unchanged post (the app re-sends every 5 s so a restarted server learns it) does not bump `seq`. Read it: `curl -s http://127.0.0.1:18787/state`; wait for the next move: `curl -s "http://127.0.0.1:18787/cursor?since=$SEQ&timeout=60"`; watch: `curl -sN http://127.0.0.1:18787/events` or `tail -f $VIZIER_DATA/cursor.jsonl`. Measured, 20 real ArrowDown presses in the real page (`scripts/cursor-e2e.py`): key to event p50 4.9 ms, p95 14.3 ms; key to `/state` showing it p50 12.5 ms, p95 32 ms.
 
