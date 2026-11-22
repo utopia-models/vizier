@@ -324,6 +324,9 @@ fn config(app: tauri::AppHandle) -> serde_json::Value {
             }
         }
     }
+    // which commit this exe is (build.rs): the page reports it to the server (POST /state/front), GET /state shows it
+    out.insert("build".into(), serde_json::json!({"sha": env!("VIZIER_GIT_SHA"), "version": env!("CARGO_PKG_VERSION"),
+                                                  "built_at": env!("VIZIER_BUILT_AT").parse::<u64>().unwrap_or(0)}));
     serde_json::Value::Object(out)
 }
 

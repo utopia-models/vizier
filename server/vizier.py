@@ -1133,6 +1133,7 @@ WRITE_SECRET_FILE = os.environ.get("VIZIER_WRITE_SECRET_FILE", "")
 WRITE_KEEP = int(os.environ.get("VIZIER_WRITE_KEEP", "20"))
 WRITE_MAX = 512 * 1024
 FRONT = {"tab": None, "at": None}   # the tab the app reports as front (POST /state/front)
+APP_BUILD: dict = {}   # the running app's build (POST /state/front "build"): {sha, version, built_at, at}
 
 
 def write_log_path() -> Path:
@@ -1275,13 +1276,17 @@ async def state(req):
         "take": {"name": v["name"] or VSL_NAME or current_script(req.app).stem, "recording": v["actual"], "pending": v["pending"],
                  "prompter_recording": REC.get("take")},
         **{k: CURSOR[k] for k in ("seq", "updated_at") + CURSOR_KEYS},
-        "handoff": handoff_view(), "front_tab": FRONT["tab"], "front_tab_at": FRONT["at"], "write_enabled": bool(write_secret())})
+        "handoff": handoff_view(), "app_build": APP_BUILD if APP_BUILD.get("sha") else None, "front_tab": FRONT["tab"], "front_tab_at": FRONT["at"], "write_enabled": bool(write_secret())})
 
 
 async def state_front(req):
-    """POST /state/front {"tab"}: the app reports which tab is front (so GET /state can say)."""
+    """POST /state/front {"tab", "build"?}: the app reports which tab is front and which build it is (so GET /state can
+    say: app_build {sha, version, built_at, at}, what a detector compares with main)."""
     b = await body(req)
     FRONT.update(tab=str(b.get("tab", ""))[:24] or None, at=time.time())
+    bd = b.get("build")
+    if isinstance(bd, dict) and bd.get("sha"):
+        APP_BUILD.update(sha=str(bd["sha"])[:40], version=str(bd.get("version", ""))[:20], built_at=int(bd.get("built_at") or 0), at=time.time())
     return web.json_response({"ok": True})
 
 
