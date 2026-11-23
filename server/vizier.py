@@ -532,6 +532,9 @@ async def prompter_position(req):
         b = await body(req)
         POS.update(part=int(b.get("part", 0) or 0), parts=int(b.get("parts", 0) or 0), title=str(b.get("title", ""))[:120],
                    line=int(b.get("line", 0) or 0), lines=int(b.get("lines", 0) or 0), text=str(b.get("text", ""))[:400], t=time.time())
+        ln = int(b.get("line", 0) or 0)
+        if ARM["armed"] and ln >= 1 and ln - 1 != CURSOR["current_line_index"]:
+            await arm_note_move(ln - 1, int(b.get("lines", 0) or 0) - 1)
         cursor_set(b)
         return web.json_response({"ok": True, "seq": CURSOR["seq"]})
     return web.json_response({**POS, "age_s": round(time.time() - POS["t"], 1) if POS["t"] else None})
@@ -559,7 +562,7 @@ def loop_rows() -> list[str]:
 
 
 def loop_view() -> dict:
-    return {"row": LOOP["row"], "clip": LOOP["clip"], "state": LOOP_STATE, "refused": LOOP["refused"], "banner": player.banner_view()}
+    return {"armed": ARM["armed"], "row": LOOP["row"], "clip": LOOP["clip"], "state": LOOP_STATE, "refused": LOOP["refused"], "banner": player.banner_view()}
 
 
 def loop_goto(row: int, slug: str) -> None:
@@ -576,6 +579,75 @@ def loop_goto(row: int, slug: str) -> None:
                 "text": rows[row] if row < len(rows) else ""})
 
 
+# ---------- opt-in AUTO-RECORD (issue 17409) ----------
+# POST /take/arm {"slug", "dir"?} arms ONE take. DEFAULT IS UNARMED and nothing here arms by itself: an unarmed move never touches
+# OBS. Armed, the FIRST move off the staged row issues ONE StartRecord, awaited (confirmed) before the move is published; later
+# moves add no OBS call. Stop is only (a) POST /take/stop or (b) VIZIER_AUTOSTOP_S after the LAST row's move; either disarms and
+# writes <take dir>/row_times.json (the same take_do writer as /take/stop). OBS unreachable at the first move: red banner
+# "recording did not start", stepping goes on.
+ARM: dict = {"armed": False, "slug": None, "dir": None, "staged": None, "tried": False, "started": False, "timer": None}
+
+
+def arm_reset() -> None:
+    t = ARM.get("timer")
+    if t and t is not asyncio.current_task():
+        t.cancel()
+    ARM.update(armed=False, slug=None, dir=None, staged=None, tried=False, started=False, timer=None)
+
+
+def arm_banner() -> None:
+    player.BANNER["banner"] = {"text": "recording did not start", "row": None, "at": time.time()}
+
+
+def autostop_s() -> float:
+    return float(os.environ.get("VIZIER_AUTOSTOP_S", "6"))
+
+
+async def arm_stop() -> tuple[dict, int]:
+    """The one place an armed take ends: ONE StopRecord (only if this take started OBS), row_times.json, disarm."""
+    started = ARM["started"]
+    arm_reset()
+    if not started:
+        return {"ok": True, "sent": None, "state": LOOP_STATE}, 200
+    return await take_do(False, {})
+
+
+async def arm_autostop_after(delay: float) -> None:
+    await asyncio.sleep(delay)
+    await arm_stop()
+
+
+async def arm_note_move(new: int | None, last: int) -> None:
+    """Call BEFORE a row move is published. Starts OBS on the first move off the staged row (armed only) and (re)arms the
+    auto-stop timer when the move lands on the last row. `last` is the last row's index."""
+    if not ARM["armed"] or new is None:
+        return
+    if not ARM["tried"]:
+        if new == ARM["staged"]:
+            return
+        ARM["tried"] = True                # ONE attempt per take; never block his reading
+        out, status = await take_do(True, {"dir": ARM["dir"], "slug": ARM["slug"]})
+        if status != 200:
+            arm_banner()
+            return
+        ARM["started"] = True
+    if not ARM["started"]:
+        return
+    if ARM["timer"]:
+        ARM["timer"].cancel(); ARM["timer"] = None
+    if new >= last >= 0:
+        ARM["timer"] = asyncio.get_running_loop().create_task(arm_autostop_after(autostop_s()))
+
+
+async def take_arm(req):
+    """POST /take/arm {"slug": "9263"[, "dir": "<take dir>"]} arms ONE take (opt-in; never armed by default)."""
+    b = await body(req)
+    arm_reset()
+    slug = loop_slug(b)
+    ARM.update(armed=True, slug=slug, dir=b.get("dir"), staged=LOOP["row"])
+    return web.json_response({"ok": True, "armed": True, "slug": slug, "staged": ARM["staged"]})
+
+
 async def prompter_key(req):
     """POST /prompter/key {"key": "Down"|"Up"|"AltT"[, "slug"]} -> {"row","clip","state","refused","banner"}.
     Down = next row (stays on the last), Up = row-1 clipped at 0, AltT = row 0: pure functions of the row index."""
@@ -585,7 +657,14 @@ async def prompter_key(req):
         return bad("key is Down, Up or AltT")
     row = LOOP["row"]
     target = {"Down": row + 1, "Up": max(0, row - 1), "AltT": 0}[k]
-    loop_goto(target, loop_slug(b))
+    slug = loop_slug(b)
+    rows = loop_rows()
+    t = max(0, min(target, len(rows) - 1)) if rows else max(0, target)
+    if player.clip_path(slug, t) is not None:       # a refused row never starts a take
+        await arm_note_move(t, len(rows) - 1)
+    loop_goto(target, slug)
+    if ARM["armed"] and ARM["tried"] and not ARM["started"]:     # moving onto a row with its clip clears the banner; OBS-down must stay red
+        arm_banner()
     return web.json_response({"ok": True, **loop_view()})
 
 
@@ -619,15 +698,14 @@ async def take_row_times_get(req):
                               "start_ms": TAKE["start_ms"], **take_row_times()})
 
 
-async def take_obs(req):
-    """POST /take/start | /take/stop: ONE obs-websocket request from this server (StartRecord / StopRecord), nothing else."""
-    b = (await body(req)) if req.can_read_body else {}
-    start = req.path.endswith("start")
+async def take_do(start: bool, b: dict) -> tuple[dict, int]:
+    """ONE obs-websocket request (StartRecord / StopRecord) plus the take bookkeeping and row_times.json. Shared by /take/start|stop
+    and the opt-in auto-record, so there is one writer. -> (body, http status)."""
     kind = "StartRecord" if start else "StopRecord"
     try:
         await obsws.request(OBS_URL, kind, OBS_PASSWORD)
     except obsws.ObsError as e:
-        return web.json_response({"ok": False, "error": str(e), "state": LOOP_STATE}, status=502)
+        return {"ok": False, "error": str(e), "state": LOOP_STATE}, 502
     now = int(time.time() * 1000)
     out: dict = {"ok": True, "sent": kind, "state": LOOP_STATE}
     if start:
@@ -645,7 +723,19 @@ async def take_obs(req):
         except OSError as e:
             out["row_times_error"] = str(e)
         out["rows"] = len(rt["rows"])
-    return web.json_response(out)
+    return out, 200
+
+
+async def take_obs(req):
+    """POST /take/start | /take/stop: ONE obs-websocket request from this server (StartRecord / StopRecord), nothing else.
+    A /take/stop on an armed take also disarms it."""
+    b = (await body(req)) if req.can_read_body else {}
+    start = req.path.endswith("start")
+    if not start and ARM["armed"]:
+        out = await arm_stop()
+        return web.json_response(out[0], status=out[1])
+    out, status = await take_do(start, b)
+    return web.json_response(out, status=status)
 
 
 async def cursor_get(req):
@@ -1763,6 +1853,7 @@ def make_app() -> web.Application:
     r.add_post("/horus-script/undo", write_undo)
     r.add_get("/state", state)
     r.add_post("/prompter/key", prompter_key)
+    r.add_post("/take/arm", take_arm)
     r.add_post("/take/start", take_obs)
     r.add_post("/take/stop", take_obs)
     r.add_get("/take/row_times", take_row_times_get)
