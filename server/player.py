@@ -1,4 +1,4 @@
-"""The clip player (knowledge#17355, part of #17079): on every Down the laptop PLAYS that row's pre-recorded clip full
+"""The clip player (the deployment's clip player ask): on every Down the laptop PLAYS that row's pre-recorded clip full
 screen, so the reader SEES the cursor, clicks, scroll and typing move; nothing depends on live Chrome focus or OS input.
 
   GET  /player?slug=<slug>            the kiosk page (player.html): one <video>, follows GET /events, plays row-<i>.webm

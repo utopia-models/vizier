@@ -1,4 +1,4 @@
-# launch-player.ps1: open the clip player full screen on this PC (knowledge#17355). No compile: the player is one HTML page
+# launch-player.ps1: open the clip player full screen on this PC. No compile: the player is one HTML page
 # the Vizier server serves at /player; it follows the reading cursor (GET /events) and plays clips/<slug>/row-<i>.webm.
 #   powershell -ExecutionPolicy Bypass -File launch-player.ps1 -User <windows user> [-Slug <script slug>] [-Server http://127.0.0.1:18787]
 # Runs in the signed-in user's desktop session through a scheduled task (a process started over SSH has no desktop).

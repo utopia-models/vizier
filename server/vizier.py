@@ -1646,7 +1646,7 @@ def make_app() -> web.Application:
     r.add_post("/speaker-script/undo", write_undo)
     r.add_post("/horus-script/undo", write_undo)
     r.add_get("/state", state)
-    player.register(r)   # the clip player (knowledge#17355): /player, /clips/<slug>/row-N.webm, /player/log, /player/banner
+    player.register(r)   # the clip player: /player, /clips/<slug>/row-N.webm, /player/log, /player/banner
     r.add_get("/cursor", cursor_get)
     r.add_get("/events", cursor_events)
     r.add_get("/approval", approval)

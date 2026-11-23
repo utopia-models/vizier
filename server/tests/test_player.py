@@ -1,4 +1,4 @@
-"""The clip player (knowledge#17355): synthetic 2 s clips, a real Chromium on /player, the cursor driven through
+"""The clip player: synthetic 2 s clips, a real Chromium on /player, the cursor driven through
 POST /prompter/position exactly as the app does. Acceptance: (1) clips 0..4 start in order within 300 ms of each cursor
 event; (2) the cursor / key path is untouched by the player (state readback idx 0..5); (3) a missing clip is a visible
 card + a banner in GET /state, cleared by the next row that has its clip."""
