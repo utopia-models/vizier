@@ -239,7 +239,6 @@ fn hotkey(app: &tauri::AppHandle, name: &str) {
         }
         "left" | "right" => { let _ = w.eval(&format!("window.vizierPart&&window.vizierPart({})", if name == "right" { 1 } else { -1 })); }
         "tab" => { let _ = w.eval("window.vizierTab&&window.vizierTab()"); }
-        "alt+t" => { let _ = w.eval("window.vizierTop&&window.vizierTop()"); }
         "down" | "up" => { let _ = w.eval(&format!("window.vizierStep&&window.vizierStep({})", if name == "down" { 1 } else { -1 })); }
         "alt+e" | "alt+m" => {
             let k = if name == "alt+e" { "ears" } else { "mouth" };
