@@ -1061,6 +1061,21 @@ def spoken_sections(text):
     return out
 
 
+def job_post_title(p, head):
+    """The job post this VSL answers (asks 2506: "in this green section I want the job post title"): the first heading of the
+    run's post.md, else run.json's title, else the script's own title line ("Vizier speaker script: <job> (one-shot, #N)")."""
+    try:
+        t = re.match(r"#\s*(.*)", (p.parent / "post.md").read_text())
+        if t and t.group(1).strip(): return t.group(1).strip()[:160]
+    except OSError: pass
+    try:
+        t = json.loads((p.parent / "run.json").read_text()).get("title")
+        if t: return str(t)[:160]
+    except (OSError, ValueError, AttributeError): pass
+    t = re.search(r"speaker script:\s*(.+?)(?:\s*\(.*\))?\s*$", head, re.I)
+    return t.group(1).strip()[:160] if t else ""
+
+
 async def speaker_script(_req):
     """GET /speaker-script: his spoken lines per section. Read-only; no current line (the page never highlights or scrolls)."""
     p = Path(SPEAKER_SCRIPT).expanduser() if SPEAKER_SCRIPT else None
@@ -1075,7 +1090,7 @@ async def speaker_script(_req):
     # the MVP the VSL shows (the reader 2026-11-22 "Where is the IVP?"; IVP is speech-to-text of MVP): the lines of the section titled mvp
     mvp = [x["text"] for sec in secs if re.search(r"\bmvp\b", sec["title"], re.I) for x in sec["lines"]]
     return web.json_response({"configured": True, "source": p.name, "title": m.group(1)[:160] if m else "",
-                              "mvp": mvp, "sections": secs, "now": time.time()})
+                              "job": job_post_title(p, m.group(1) if m else ""), "mvp": mvp, "sections": secs, "now": time.time()})
 
 
 def _cells(line):

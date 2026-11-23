@@ -41,3 +41,18 @@ def test_mvp_lines_and_ui_wiring(tmp_path, monkeypatch):
     assert asyncio.run(go())["mvp"] == ["The app does X.", "It does Y."]
     html = (Path(__file__).resolve().parents[2] / "app" / "ui" / "index.html").read_text()
     assert 'class="vslk">VSL</span>' in html and 'id="tstalk"' in html and "every(120" in html
+
+
+def test_job_post_title(tmp_path, monkeypatch):
+    """asks 2506: the job post title rides GET /speaker-script (post.md heading, run.json title, else the title line)."""
+    m = load(tmp_path, monkeypatch)
+    sp = tmp_path / "speaker-script.md"
+    sp.write_text("# Vizier speaker script: Clio expert to automate workflows (one-shot, #11180)\n\n## [Host] Intro\nHi.\n")
+    async def go():
+        async with TestClient(TestServer(m.make_app())) as c:
+            return await (await c.get("/speaker-script")).json()
+    assert asyncio.run(go())["job"] == "Clio expert to automate workflows"
+    (tmp_path / "post.md").write_text("# Need an AI automation architect\n\ntext\n")
+    assert asyncio.run(go())["job"] == "Need an AI automation architect"
+    html = (Path(__file__).resolve().parents[2] / "app" / "ui" / "index.html").read_text()
+    assert 'class="vslk">JOB</span>' in html and 'id="topbtn"' in html
