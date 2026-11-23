@@ -780,6 +780,39 @@ async def talk_log(req):
     return web.json_response({"ok": True})
 
 
+SWITCH_FILE = DATA / "talk-switch.json"   # the Ears/Voice switches, kept across restarts (absent = both ON, the default)
+
+
+def switch_state() -> dict:
+    out = {"ears": True, "mouth": True}
+    try:
+        d = json.loads(SWITCH_FILE.read_text())
+        for k in out:
+            if isinstance(d.get(k), bool):
+                out[k] = d[k]
+    except (OSError, ValueError, AttributeError):
+        pass
+    return out
+
+
+async def talk_switch(req):
+    """GET: {"ears","mouth"} as last set (both true when never set). POST {"ears"?: bool, "mouth"?: bool}: set and keep them
+    in DATA/talk-switch.json, so a restart of the app or this server comes back with the same Voice/Ears state (the
+    deployment's issue 97: a redeploy turned Voice ON again while a take was being recorded)."""
+    if req.method == "POST":
+        b = await body(req)
+        st = switch_state()
+        for k in st:
+            if isinstance(b.get(k), bool):
+                st[k] = b[k]
+        SWITCH_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = SWITCH_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(st))
+        os.replace(tmp, SWITCH_FILE)
+        return web.json_response(st)
+    return web.json_response(switch_state())
+
+
 async def talk_loopback(req):
     """POST: the app's loopback check (vizierTalk.loopback()): per audio output, whether this machine's
     mic hears it and how far echo cancellation brings it down. Kept in DATA/talk-loopback.json; GET returns the last."""
@@ -1923,6 +1956,8 @@ def make_app() -> web.Application:
     r.add_get("/prompter/goto", prompter_goto)
     r.add_get("/prompter/snap", prompter_snap)
     r.add_post("/talk/log", talk_log)
+    r.add_get("/talk/switch", talk_switch)
+    r.add_post("/talk/switch", talk_switch)
     r.add_get("/talk/loopback", talk_loopback)
     r.add_post("/talk/loopback", talk_loopback)
     r.add_get("/talk/loopback/run", talk_loopback_run)

@@ -21,6 +21,7 @@ export function tlog(msg) {
 }
 tlog("talk.js loaded");
 
+// Issue 97 (2026-11-23): the switches now persist across restarts via the server (GET/POST /talk/switch); ON only when never set.
 // Ears and Voice are ON at every start (the deployment's issue 13786, the user 2026-11-15: "I need Scout on demand at all times"; the
 // agent's voice must be heard on the laptop every time). A switch kept off from an earlier session silenced the agent
 // on the next launch with nothing on screen saying why (fresh WebView profile: both off, so nothing was ever heard).
@@ -226,10 +227,17 @@ function note(src) {   // who flipped a switch, for the audit (so a switch that 
     body: JSON.stringify({ src, ears: state.ears, mouth: state.mouth }) }).catch(() => {});
 }
 
+function saveSwitch() {   // the server keeps the switches, so a restart or redeploy comes back with the same state (issue 97)
+  if (!serverBase) return;
+  fetch(serverBase + "/talk/switch", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ears: state.ears, mouth: state.mouth }) }).catch(() => {});
+}
+
 export async function toggle(k, src = "js") {
   if (k !== "ears" && k !== "mouth") return;
   state[k] = !state[k];
   keep();
+  saveSwitch();
   note(`${src}:${k}`);
   pending[k] = true;
   paint();
@@ -265,6 +273,13 @@ async function join(cfg) {
   if (!started) {                        // the start state, once per launch (a reconnect keeps this session's toggles)
     started = true;
     for (const k of (cfg.talkStartOff || [])) if (k === "ears" || k === "mouth") state[k] = false;
+    const base = (cfg.server || "").replace(/\/$/, "");
+    if (base) {   // the last state the user set (server-kept); no answer or no file = the defaults above
+      try {
+        const r = await fetch(base + "/talk/switch");
+        if (r.ok) { const d = await r.json(); for (const k of ["ears", "mouth"]) if (typeof d[k] === "boolean") state[k] = d[k]; }
+      } catch (e) { /* server down: defaults */ }
+    }
   }
   serverBase = (cfg.server || "").replace(/\/$/, "");
   const { url, token } = await creds(cfg);
