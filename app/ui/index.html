@@ -385,6 +385,11 @@ async function watchCallsStart() {
   const r = callsAutoTab(callsPrev, st);
   callsPrev = r;
   if (r.show && mode !== "calls") goTab("calls");
+  // A call start also turns Voice OFF (the same switch as Alt+M): the agent's replies come out of the laptop speakers,
+  // the mic hears them again and they land in the transcript as ME (2026-11-23 mic test), and a client would hear them.
+  // Voice is ON at every launch on purpose, so a restart before a call would otherwise leave it on. Alt+M brings it back.
+  const t = talkState();
+  if (r.show && t && t.mouth && window.vizierTalk.toggle) window.vizierTalk.toggle("mouth", "calls");
 }
 let callsCut = Number(store.get("calls.cut")) || 0, callsKey = "";
 async function pollCalls() {
