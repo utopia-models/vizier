@@ -738,7 +738,7 @@ async function loadHdr() {
   // Which VSL this is (the reader 2026-11-22: "I want to be clear which VSL this is for"): a labelled title on every tab, and the MVP
   // the VSL shows (the reader: "Where is the IVP?", the speech-to-text of MVP) as its own line under it.
   const h = $("jobhdr"), mvp = (d.mvp || []).join(" ");
-  h.innerHTML = d.title ? `<span class="vslk">VSL</span> ${esc(d.title)}` + (mvp ? `<div class="mvp"><span class="vslk">MVP</span> ${esc(mvp)}</div>` : "") : "";
+  h.innerHTML = d.title ? (d.job ? `<span class="vslk">JOB</span> ${esc(d.job)}<div class="mvp" style="color:#cfeccf;font-weight:700"><span class="vslk" style="background:#6fbf7a">VSL</span> ${esc(d.title)}</div>` : `<span class="vslk">VSL</span> ${esc(d.title)}`) + (mvp ? `<div class="mvp"><span class="vslk">MVP</span> ${esc(mvp)}</div>` : "") : "";
   h.title = (d.source ? d.source + " · " : "") + "the VSL being recorded" + (mvp ? "; MVP: " + mvp : "");
 }
 function drawTscript() {   // the CURRENT line (the one he is reading) is lit; no next-line marker; nothing scrolls by itself
