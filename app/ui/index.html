@@ -53,6 +53,7 @@
   .msg.ysay { font-size:22px; font-weight:900; color:#fff; letter-spacing:.03em; }
   .msg.aisay { font-size:18px; font-weight:700; color:#6f7785; letter-spacing:.03em; }
   .msg.handsay { font-size:22px; font-weight:900; color:#ffb347; border-top:2px solid #ffb347; padding-top:8px; }
+  #p-tscript::after { content:""; display:block; height:100%; }   /* room under the last rows so every row can reach the top */
   .panel { flex:1; min-height:0; overflow-y:auto; padding:14px 28px 46px; scroll-padding:10px 0 50px; }   /* scrollIntoView clears the fixed key legend */
   .panel .row { display:flex; align-items:baseline; gap:18px; padding:10px 14px; border-radius:8px; border:1px solid transparent; font:500 24px/1.3 system-ui; }
   .panel .row .lm { flex:0 0 74px; color:var(--hi); font-weight:700; }
@@ -425,7 +426,7 @@ every(120, async () => {   // POST /prompter/goto: the take flow's reset to part
   gotoSeq = g.seq;
   if (mode === "tscript") {   // the Speaker Script: the reset lands on the line at once, no waiting for the 2 s script poll
     const n = tsLines(panel.tscript.data), want = Math.max(0, (g.line || 1) - 1); tsCur = n ? Math.min(n - 1, want) : want; drawTscript();
-    if (tsCur === 0) $("p-tscript").scrollTop = 0; else selIntoView("p-tscript");
+    if (tsCur === 0) $("p-tscript").scrollTop = 0; else tsPin();
     reportTs(); return;
   }
   if (g.part >= 1 && g.part - 1 !== t) goTake(g.part - 1);
@@ -793,6 +794,11 @@ async function loadApproval() { await readPanel("approval", "approval", m => ({ 
 function panelOpen(n) { ({ settings: () => { drawSettings(); loadSettings(); }, tscript: () => { drawTscript(); loadTscript(); }, hscript: () => { drawHscript(); loadHscript(); }, qc: () => { drawQc(); loadQc(); }, approval: () => { drawApproval(); loadApproval(); } })[n](); }
 // The selected row is kept on screen every time the selection moves (the user 2026-11-15: arrow-down moved the selection
 // below the window and the list never followed). Only on a move: the 2 s redraw never pulls a list the wheel scrolled.
+// The speaker script keeps the CURRENT row pinned at the TOP of the panel (Tyler 2026-11-23: with "nearest" the lit row sank to the
+// bottom and the next one was out of view). pinDelta is the whole rule: how far to scroll so the row's top lands PIN_MARGIN under the panel's top.
+const PIN_MARGIN = 12;
+function pinDelta(rowTop, panelTop, margin) { return rowTop - panelTop - margin; }
+function tsPin() { const el = $("p-tscript"), r = el.querySelector(".row.sel"); if (!r) return; el.scrollTop += pinDelta(r.getBoundingClientRect().top, el.getBoundingClientRect().top, PIN_MARGIN); }
 function selIntoView(id) { const r = $(id).querySelector(".row.sel"); if (r) r.scrollIntoView({ block: "nearest" }); }
 // The hand-off (the user 2026-11-22): his Down key onto the first line of an [AI voice] section starts the voice agent and
 // swaps his face card for the gold orb. Only Down, only when crossing from a line that is not [AI voice]; once per take
@@ -811,7 +817,7 @@ function maybeHandoff(from, to) {
   return true;
 }
 function panelStep(d) {
-  if (mode === "tscript") { const n = tsLines(panel.tscript.data); if (!n) return; const was = tsCur; tsCur = Math.max(0, Math.min(n - 1, tsCur + d)); drawTscript(); selIntoView("p-tscript"); reportTs(); maybeHandoff(was, tsCur); return; }
+  if (mode === "tscript") { const n = tsLines(panel.tscript.data); if (!n) return; const was = tsCur; tsCur = Math.max(0, Math.min(n - 1, tsCur + d)); drawTscript(); tsPin(); reportTs(); maybeHandoff(was, tsCur); return; }
   if (mode === "qc") { $("p-qc").scrollTop += d * 80; return; }
   if (mode === "approval") { $("p-approval").scrollTop += d * 80; return; }
   if (mode === "hscript") { $("p-hscript").scrollTop += d * 80; return; }
