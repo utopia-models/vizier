@@ -91,7 +91,8 @@ jobs:
       - name: park.rs unit tests (Alt+V Alt+V minimize)
         run: rustc --edition 2021 --test app/src/park.rs -o /tmp/park && /tmp/park
       - run: scripts/setup-xwin.sh
-      - run: app/build.sh
+      - name: build (the commit is stamped into the app: /state shows app_build.sha)
+        run: VIZIER_GIT_SHA="${GITHUB_SHA::12}" app/build.sh
       - name: version matches the tag
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
