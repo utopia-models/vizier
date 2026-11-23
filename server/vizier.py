@@ -492,6 +492,8 @@ async def prompter_note(req):
 CURSOR: dict = {"seq": 0, "updated_at": None, "current_line_index": None, "current_line_text": "", "total_lines": 0,
                 "script_id": None, "script_name": "", "part": 0, "parts": 0}
 CURSOR_SUBS: set = set()   # one asyncio.Queue per open /events stream
+# The take: between POST /take/start and /take/stop every cursor move is kept as (epoch_ms, row) so row_times.json can be derived.
+TAKE: dict = {"active": False, "dir": None, "start_ms": None, "events": [], "stop_ms": None}
 CURSOR_KEYS = ("current_line_index", "current_line_text", "total_lines", "script_id", "script_name", "part", "parts")
 
 
@@ -510,6 +512,8 @@ def cursor_set(b: dict) -> bool:
         return False
     CURSOR.update(new, seq=CURSOR["seq"] + 1, updated_at=time.time())
     row = dict(CURSOR)
+    if TAKE["active"] and CURSOR["current_line_index"] is not None:
+        TAKE["events"].append((int(CURSOR["updated_at"] * 1000), CURSOR["current_line_index"]))
     for q in list(CURSOR_SUBS):
         q.put_nowait(row)
     try:
@@ -585,15 +589,63 @@ async def prompter_key(req):
     return web.json_response({"ok": True, **loop_view()})
 
 
+def row_times(events: list, stop_ms: int) -> dict:
+    """Pure. events = [(epoch_ms, row)] in order, one per ARRIVAL on a row (Down, Up, Alt+T = a move to row 0).
+    -> {"rows":[{"i","start_ms","end_ms"}]} one entry per visited row: start_ms = the LAST arrival on it, end_ms = the
+    next time the cursor left it (the next event on a different row), or stop_ms when nothing followed. Sorted by i."""
+    last: dict = {}
+    for k, (t, i) in enumerate(events):
+        last[i] = (t, k)
+    rows = []
+    for i in sorted(last):
+        t, k = last[i]
+        end = next((t2 for t2, i2 in events[k + 1:] if i2 != i), stop_ms)
+        rows.append({"i": i, "start_ms": t, "end_ms": max(end, t)})
+    return {"rows": rows}
+
+
+def take_row_times() -> dict:
+    stop = TAKE["stop_ms"] or int(time.time() * 1000)
+    return row_times(TAKE["events"], stop)
+
+
+def take_default_dir(b: dict) -> Path:
+    return Path(b.get("dir") or DATA / "takes" / f"{loop_slug(b)}-{int(time.time())}")
+
+
+async def take_row_times_get(req):
+    """GET /take/row_times: the row times of the take in progress (or the last one), live."""
+    return web.json_response({"ok": True, "active": TAKE["active"], "dir": str(TAKE["dir"]) if TAKE["dir"] else None,
+                              "start_ms": TAKE["start_ms"], **take_row_times()})
+
+
 async def take_obs(req):
     """POST /take/start | /take/stop: ONE obs-websocket request from this server (StartRecord / StopRecord), nothing else."""
-    await body(req) if req.can_read_body else None
-    kind = "StartRecord" if req.path.endswith("start") else "StopRecord"
+    b = (await body(req)) if req.can_read_body else {}
+    start = req.path.endswith("start")
+    kind = "StartRecord" if start else "StopRecord"
     try:
         await obsws.request(OBS_URL, kind, OBS_PASSWORD)
     except obsws.ObsError as e:
         return web.json_response({"ok": False, "error": str(e), "state": LOOP_STATE}, status=502)
-    return web.json_response({"ok": True, "sent": kind, "state": LOOP_STATE})
+    now = int(time.time() * 1000)
+    out: dict = {"ok": True, "sent": kind, "state": LOOP_STATE}
+    if start:
+        # the row on screen when recording begins is the first arrival
+        idx = CURSOR["current_line_index"]
+        TAKE.update(active=True, dir=take_default_dir(b), start_ms=now, stop_ms=None, events=[(now, idx)] if idx is not None else [])
+        out["take_dir"] = str(TAKE["dir"])
+    elif TAKE["active"]:
+        TAKE.update(active=False, stop_ms=now)
+        rt = take_row_times()
+        try:
+            TAKE["dir"].mkdir(parents=True, exist_ok=True)
+            (TAKE["dir"] / "row_times.json").write_text(json.dumps(rt))
+            out["row_times"] = str(TAKE["dir"] / "row_times.json")
+        except OSError as e:
+            out["row_times_error"] = str(e)
+        out["rows"] = len(rt["rows"])
+    return web.json_response(out)
 
 
 async def cursor_get(req):
@@ -1713,6 +1765,7 @@ def make_app() -> web.Application:
     r.add_post("/prompter/key", prompter_key)
     r.add_post("/take/start", take_obs)
     r.add_post("/take/stop", take_obs)
+    r.add_get("/take/row_times", take_row_times_get)
     player.register(r)   # the clip player: /player, /clips/<slug>/row-N.webm, /player/log, /player/banner
     r.add_get("/cursor", cursor_get)
     r.add_get("/events", cursor_events)
