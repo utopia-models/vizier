@@ -14,7 +14,7 @@ def vz(tmp_path, monkeypatch):
     for k in list(os.environ):
         if k.startswith("VIZIER_"):
             monkeypatch.delenv(k)
-    (tmp_path / "speaker-script.md").write_text("# T\n\n## [Tyler] Intro\nHi.\n\n## [AI voice] Architecture diagram\nHere it is.\n")
+    (tmp_path / "speaker-script.md").write_text("# T\n\n## [Host] Intro\nHi.\n\n## [AI voice] Architecture diagram\nHere it is.\n")
     monkeypatch.setenv("VIZIER_DATA", str(tmp_path / "data"))
     monkeypatch.setenv("VIZIER_SPEAKER_SCRIPT", str(tmp_path / "speaker-script.md"))
     monkeypatch.setenv("VIZIER_HANDOFF_CMD", f"echo {{section}} {{line}} >> {tmp_path / 'ran.txt'}")

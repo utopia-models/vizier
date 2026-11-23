@@ -22,5 +22,7 @@ def test_script_view_empties_coach_build_and_context():
     coach = re.search(r"async function coach\(\) \{(.*?)\n\}", HTML, re.S).group(1)
     assert coach.index("if (onScript())") < coach.index("Coach on part"), "coach() writes the label only off SCRIPT"
     build = re.search(r"async function buildlog\(\) \{(.*?)\n\}", HTML, re.S).group(1)
-    assert build.index("if (onScript())") < build.index("BUILD"), "buildlog() writes the footer only off SCRIPT"
+    guard = 'if (!(mode === "rec" && rtab === "context")) { $("build").innerHTML = "";'
+    assert guard in build, "buildlog() empties the footer unless CONTEXT is showing (vizier#76: no stale BUILD line under the script)"
+    assert build.index(guard) < build.index("const shown"), "the guard runs before any build line is written"
     assert 'if (tb === "script" && mode === "rec") clearForScript();' in HTML

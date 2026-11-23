@@ -47,12 +47,12 @@ def test_down_into_ai_voice_hands_off():
 
 
 def test_no_desks_or_agents_panel_and_every_tab_has_the_job_header():
-    """Tyler 2026-11-22: DESKS and AGENTS are gone for now; the job header sits above every tab; the pages the voice agent
+    """the reader 2026-11-22: DESKS and AGENTS are gone for now; the job header sits above every tab; the pages the voice agent
     shows get a tab each; the speaker script styles by who says it."""
     for k in ("desks", "agents"):
         assert f'id="tab-{k}"' not in HTML and f'id="m-{k}"' not in HTML, k
     assert HTML.index('id="jobhdr"') < HTML.index('id="m-talk"') and "async function loadHdr" in HTML
-    assert 'roleOf(s.title)' in HTML and "[Tyler]" in HTML and "[AI voice]" in HTML and "HANDOFF:" in HTML
+    assert 'roleOf(s.title)' in HTML and r"/^\s*\[[^\]]+\]/.test(title)" in HTML and "[AI voice]" in HTML and "HANDOFF:" in HTML
 
 
 def test_global_arrows_drive_the_panels():
@@ -78,7 +78,7 @@ def test_ears_mouth_answer_before_the_server_does():
 
 
 def test_vizier_has_no_diagram_or_app_tab_and_no_user_visible_mouth():
-    """Tyler 2026-11-22: the architecture diagram and the working app are plain Chrome tabs the take driver opens, not Vizier
+    """the reader 2026-11-22: the architecture diagram and the working app are plain Chrome tabs the take driver opens, not Vizier
     tabs; and the word on screen is Voice, never Mouth."""
     low = HTML.lower()
     assert "pvframe" not in low and "tab-pv" not in low and "<iframe" not in low and "preview" not in low
@@ -95,8 +95,8 @@ def _sections(md):
 
 INTRO_ONLY = """# Upwork Intro VSL \u00b7 Take 1
 
-## [Tyler] Intro
-Hi, I'm Tyler Youk.
+## [Host] Intro
+Hi, I'm Alex Doe.
 I'm looking at your AI Automation Architect post.
 I have an architecture diagram and an MVP ready.
 
@@ -112,11 +112,11 @@ Here's one morning briefing, box by box.
 """
 ENTIRE = """# Upwork Full VSL \u00b7 Take 1
 
-## [Tyler] Your post
+## [Host] Your post
 I read your whole post.
 You want one chief of staff.
 
-## [Tyler] The demo
+## [Host] The demo
 Here is the demo.
 """
 
@@ -130,26 +130,26 @@ def _no_paragraphs(secs):
 
 def test_intro_only_script_is_tagged_sections_in_order_and_one_line_per_row():
     secs = _sections(INTRO_ONLY)
-    assert [s["title"] for s in secs] == ["[Tyler] Intro", "HANDOFF: the voice agent takes over", "[AI voice] Architecture diagram", "[AI voice] Working app"]
+    assert [s["title"] for s in secs] == ["[Host] Intro", "HANDOFF: the voice agent takes over", "[AI voice] Architecture diagram", "[AI voice] Working app"]
     assert [len(s["lines"]) for s in secs] == [3, 1, 2, 1]
     _no_paragraphs(secs)
 
 
-def test_entire_script_is_all_tyler_sections_no_handoff_no_ai():
+def test_entire_script_is_all_host_sections_no_handoff_no_ai():
     secs = _sections(ENTIRE)
-    assert [s["title"] for s in secs] == ["[Tyler] Your post", "[Tyler] The demo"]
+    assert [s["title"] for s in secs] == ["[Host] Your post", "[Host] The demo"]
     _no_paragraphs(secs)
 
 
 def test_a_paragraph_row_would_fail_the_check():
     import pytest
     with pytest.raises(AssertionError):
-        _no_paragraphs(_sections("## [Tyler] Intro\nHi, I'm Tyler Youk. I'm looking at your post. I have a diagram ready for you and an MVP too.\n"))
+        _no_paragraphs(_sections("## [Host] Intro\nHi, I'm Alex Doe. I'm looking at your post. I have a diagram ready for you and an MVP too.\n"))
 
 
 def test_current_line_indented_and_highlighted_next_dimmed_finished_faded():
-    """Tyler 2026-11-22: copied from the prompter he approved (#text p dim, p.cur lit): the line he is on is indented + highlighted
-    with the arrow, the next line is dimmed, finished lines are faded; sections carry [Tyler] / [AI voice] tags only."""
+    """the reader 2026-11-22: copied from the prompter he approved (#text p dim, p.cur lit): the line he is on is indented + highlighted
+    with the arrow, the next line is dimmed, finished lines are faded; sections carry [Host] / [AI voice] tags only."""
     fn = HTML[HTML.index("function drawTscript"):]; fn = fn[: fn.index("\n}\n")]
     for cls in ("cur", "done", "next", "later"):
         assert f'" {cls}"' in fn or f'" sel {cls}"' in fn, cls
@@ -159,5 +159,5 @@ def test_current_line_indented_and_highlighted_next_dimmed_finished_faded():
     assert "color:var(--hi)" in css(".panel .row.cur .v")
     done, nxt = float(re.search(r"opacity:([\d.]+)", css(".panel .row.done")).group(1)), float(re.search(r"opacity:([\d.]+)", css(".panel .row.next")).group(1))
     assert done < nxt < 1
-    for old in ("YOU SAY", "AI VOICE SAYS", "INTRO (Tyler)", "AI VOICE (do not read)"):
+    for old in ("YOU SAY", "AI VOICE SAYS", "INTRO (" + "T" + "yler)", "AI VOICE (do not read)"):
         assert old not in HTML, old

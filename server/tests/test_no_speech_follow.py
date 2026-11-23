@@ -1,4 +1,4 @@
-"""Tyler 2026-11-22 7:34 AM: "It shouldn't be listening to me and doing the arrows for me. I will talk and I will press Down."
+"""the reader 2026-11-22 7:34 AM: "It shouldn't be listening to me and doing the arrows for me. I will talk and I will press Down."
 The prompter position (GET /state current_line_index) moves ONLY on the reader's own key reports (POST /prompter/position, which
 the app sends from its Up / Down / Left / Right / Home / wheel handlers). Speech events, me and them, whose text equals the
 current and the later script lines never move it, over every transcript path the server has."""
