@@ -544,7 +544,7 @@ async def prompter_position(req):
 # ONE process holds the row index, the clip started for it and the take. Down / Up / AltT arrive here (the app's shortcuts and
 # any driver POST the same /prompter/key), the row's pre-rendered clip is started through the player, and OBS is a sink:
 # /take/start and /take/stop are one obs-websocket request each. There is one state, "staged": nothing here is a rehearsal
-# or a recording mode, so a pass cannot differ from the next one. A row without its clip is refused, never shown dead.
+# or a recording mode, so a pass cannot differ from the next one. Down always moves: no clip is required or played.
 LOOP: dict = {"row": 0, "clip": None, "refused": None}
 LOOP_STATE = "staged"
 OBS_URL = os.environ.get("VIZIER_OBS_URL", "ws://127.0.0.1:4455")
@@ -566,15 +566,10 @@ def loop_view() -> dict:
 
 
 def loop_goto(row: int, slug: str) -> None:
-    """Show `row`: refuse (row unchanged, banner set) when its clip is missing, else move, start the clip, publish the cursor."""
+    """Show `row`: move and publish the cursor. No clip is required or played (brute-force reading only)."""
     rows = loop_rows()
     row = max(0, min(row, len(rows) - 1)) if rows else max(0, row)
-    if player.clip_path(slug, row) is None:
-        player.note_missing(row)
-        LOOP["refused"] = f"no clip for row {row}"
-        return
-    LOOP.update(row=row, clip=row, refused=None)
-    player.note_started(row, slug)
+    LOOP.update(row=row, clip=None, refused=None)   # brute-force reading: no clip is played or required, Down always moves
     cursor_set({"part": 1, "parts": 1, "title": "speaker script", "line": row + 1, "lines": len(rows),
                 "text": rows[row] if row < len(rows) else ""})
 
@@ -660,8 +655,7 @@ async def prompter_key(req):
     slug = loop_slug(b)
     rows = loop_rows()
     t = max(0, min(target, len(rows) - 1)) if rows else max(0, target)
-    if player.clip_path(slug, t) is not None:       # a refused row never starts a take
-        await arm_note_move(t, len(rows) - 1)
+    await arm_note_move(t, len(rows) - 1)
     loop_goto(target, slug)
     if ARM["armed"] and ARM["tried"] and not ARM["started"]:     # moving onto a row with its clip clears the banner; OBS-down must stay red
         arm_banner()
@@ -1857,7 +1851,6 @@ def make_app() -> web.Application:
     r.add_post("/take/start", take_obs)
     r.add_post("/take/stop", take_obs)
     r.add_get("/take/row_times", take_row_times_get)
-    player.register(r)   # the clip player: /player, /clips/<slug>/row-N.webm, /player/log, /player/banner
     r.add_get("/cursor", cursor_get)
     r.add_get("/events", cursor_events)
     r.add_get("/approval", approval)

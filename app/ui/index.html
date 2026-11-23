@@ -794,7 +794,7 @@ async function loadApproval() { await readPanel("approval", "approval", m => ({ 
 function panelOpen(n) { ({ settings: () => { drawSettings(); loadSettings(); }, tscript: () => { drawTscript(); loadTscript(); }, hscript: () => { drawHscript(); loadHscript(); }, qc: () => { drawQc(); loadQc(); }, approval: () => { drawApproval(); loadApproval(); } })[n](); }
 // The selected row is kept on screen every time the selection moves (the user 2026-11-15: arrow-down moved the selection
 // below the window and the list never followed). Only on a move: the 2 s redraw never pulls a list the wheel scrolled.
-// The speaker script keeps the CURRENT row pinned at the TOP of the panel (Tyler 2026-11-23: with "nearest" the lit row sank to the
+// The speaker script keeps the CURRENT row pinned at the TOP of the panel (with "nearest" the lit row sank to the
 // bottom and the next one was out of view). pinDelta is the whole rule: how far to scroll so the row's top lands PIN_MARGIN under the panel's top.
 const PIN_MARGIN = 12;
 function pinDelta(rowTop, panelTop, margin) { return rowTop - panelTop - margin; }
