@@ -156,6 +156,7 @@
   #build .t { color:#6fbf7a; font:12px ui-monospace, monospace; margin-right:8px; }
 </style></head>
 <body>
+<button id="topbtn" title="back to line 1, lit" style="position:fixed;top:6px;right:150px;z-index:20;padding:4px 12px;font:700 13px system-ui;background:#1d2a3a;color:#cfe3ff;border:1px solid #2f6aa0;border-radius:6px;cursor:pointer">&#8679; Top</button>
 <header data-tauri-drag-region>
   <span id="dot" title="link to the vizier service"></span><b data-tauri-drag-region title="drag to move Vizier; its edges resize it">Vizier</b>
   <span class="tab talk" id="tab-talk" title="TALK: a live transcript of your conversation with Eagle">TALK</span>
@@ -444,7 +445,7 @@ window.vizierStep = d => {
   if (rtab === "script") step(d); else $("doc").scrollTop += d * 140;   // CONTEXT / DO NOT SAY scroll by hand
 };
 window.vizierPart = d => { if (PANELS.includes(mode)) return panelChange(d); if (mode === "rec" && takes.length) { goTake(t + d); if (recording) record(); } };   // global Left / Right (main.rs)
-window.vizierTop = () => {   // Alt+T from any app: line 0 of the CURRENT script, lit, panel scrolled to the top (Tab / S switch tabs)
+window.vizierTop = () => {   // the TOP button (Alt+T is gone, knowledge#17206): line 0 of the CURRENT script, lit, panel scrolled to the top (Tab / S switch tabs)
   if (mode === "tscript") { tsCur = 0; drawTscript(); $("p-tscript").scrollTop = 0; reportTs(); }
   else if (mode === "hscript") { const el = $("p-hscript"), c = ((panel.hscript.data || {}).cues || [])[0]; if (c) { panel.hscript.data.current = c.beat; hsCur = c.beat; } drawHscript(); el.scrollTop = 0; }
 };
@@ -963,7 +964,7 @@ let buildOpen = false, buildLines = [];
 async function buildlog() {
   const j = await api("buildlog?n=30").then(r => r.json()).catch(() => null);
   buildLines = (j && j.lines) || []; if (mode === "rec" && rtab === "context") showTab("context");   // CONTEXT is live
-  if (onScript()) { $("build").innerHTML = ""; $("build").classList.remove("on"); return; }
+  if (!(mode === "rec" && rtab === "context")) { $("build").innerHTML = ""; $("build").classList.remove("on"); return; }   // the build log shows on CONTEXT only (Tyler 2026-11-22: the stale BUILD line under the script)
   if (!j || !j.lines || !j.lines.length) { $("build").classList.remove("on"); return; }
   const ago = j.mtime ? Math.max(0, Math.round((Date.now() / 1000 - j.mtime) / 60)) : null;
   const shown = j.lines.slice().reverse().slice(0, buildOpen ? 12 : 3);
@@ -972,6 +973,7 @@ async function buildlog() {
       return `<div class="l">${m ? `<span class="t">${esc(m[1])}</span>${esc(m[2])}` : esc(l)}</div>`; }).join("");
   $("build").classList.add("on");
 }
+$("topbtn").onclick = () => { if (mode === "rec") { goTake(t); goLine(0); } else window.vizierTop(); };
 $("build").onclick = () => { buildOpen = !buildOpen; $("build").classList.toggle("open", buildOpen); buildlog(); };
 
 (async () => {

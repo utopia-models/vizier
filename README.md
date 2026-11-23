@@ -172,7 +172,7 @@ SCRIPT shows the spoken lines and nothing else: no coach note, no BUILD footer, 
 | mouse wheel / trackpad | scroll by hand; pauses the auto-scroll |
 | PageDown / PageUp, ↓ / ↑ | next / previous line, also while scrolling |
 | Alt+↓ / Alt+↑ | the same from any app (global shortcut); they scroll CONTEXT / DO NOT SAY too |
-| Tab / Alt+T | next panel: TALK → SETTINGS → DESKS → AGENTS → TALK. From SCRIPT / CONTEXT, back to TALK. S opens SCRIPT |
+| Tab | next panel: TALK → SETTINGS → DESKS → AGENTS → TALK. From SCRIPT / CONTEXT, back to TALK. S opens SCRIPT |
 | Tab, ↑, ↓ (plain) | only while Vizier has focus; they never reach Chrome or OBS (knowledge#17021). Alt+V is the one global show/hide key |
 | `+` `=` `]` / `-` `_` `[` | faster / slower (×1.15) |
 | Ctrl + / Ctrl − | bigger / smaller type (SCRIPT and CONTEXT together) |

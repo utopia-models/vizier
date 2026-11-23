@@ -285,7 +285,7 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
     for _ in range(4): await c.key("ArrowDown")
     await c.js("window.vizierTop()"); await asyncio.sleep(0.3)
     top = await c.js("(()=>{const p=document.getElementById('p-tscript');return {cur:[...p.querySelectorAll('.row')].findIndex(x=>x.classList.contains('cur')),top:p.scrollTop,mode:document.body.dataset.mode}})()")
-    ok("Alt+T (vizierTop) lights line 0 of the Speaker Script, scrolls to the top and stays on the tab", top["cur"] == 0 and top["top"] == 0 and top["mode"] == "tscript", str(top))
+    ok("Top button (vizierTop) lights line 0 of the Speaker Script, scrolls to the top and stays on the tab", top["cur"] == 0 and top["top"] == 0 and top["mode"] == "tscript", str(top))
     for _ in range(4): await c.key("ArrowDown")
     await c.key("Enter"); await asyncio.sleep(0.5)
     ro = await c.js("(()=>{const p=document.getElementById('p-tscript');return {sel:p.querySelectorAll('.sel,.cur,.now').length,mode:document.body.dataset.mode}})()")
