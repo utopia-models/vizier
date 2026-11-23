@@ -81,3 +81,21 @@ def test_take_is_one_obs_call_each(vz):
         async with TestClient(TestServer(v.make_app())) as c:
             assert (await c.post("/take/start", json={})).status == 502   # OBS down says so
     run(go())
+
+
+def test_zero_padded_clip_names_are_the_same_row(vz):
+    """The renderer writes row-00.webm .. row-NN.webm; the key handler and the page ask for row-0 .. row-N: both must find the clip."""
+    v, tmp = vz
+    d = tmp / "clips" / "t"
+    for f in list(d.iterdir()): f.unlink()
+    for i in range(10): (d / f"row-{i:02d}.webm").write_bytes(b"x")
+    import player
+    assert all(player.clip_path("t", i) is not None for i in range(10))
+    async def go():
+        async with TestClient(TestServer(v.make_app())) as c:
+            assert (await c.get("/clips/t/row-3.webm")).status == 200     # asked unpadded, on disk padded
+            assert (await c.get("/clips/t/row-03.webm")).status == 200
+            assert (await c.get("/clips/t/row-99.webm")).status == 404
+            r = await (await c.post("/prompter/key", json={"key": "Down"})).json()
+            assert r["row"] == 1 and not r.get("refused")
+    run(go())
