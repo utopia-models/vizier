@@ -306,7 +306,7 @@ function talkRow(ch, text, partial) {
   return d;
 }
 async function pollTalk() {
-  const id = mode === "talk" ? "talkmain" : mode === "settings" ? "settalk" : null;   // the speaker script has no transcript box (Tyler 2026-11-22: it took script room and he never uses it)
+  const id = mode === "talk" ? "talkmain" : mode === "settings" ? "settalk" : null;   // the speaker script has no transcript box (the reader 2026-11-22: it took script room and he never uses it)
   if (!id) return;
   const S = talkBox[id];
   let j; try { j = await api("talk/transcript?since=" + S.seq).then(r => r.json()); } catch { return; }
@@ -977,7 +977,7 @@ async function buildlog() {
 $("topbtn").onclick = () => {
   if (mode === "rec") { goTake(t); goLine(0); } else window.vizierTop();
   // the laptop session takes the same path Alt+T took (Do-Top: app tab at its start view, diagram beat 0): without this the
-  // prompter went to row 1 while Chrome stayed where it was (Eagle, knowledge#17206). Fire-and-forget; no session = no-op.
+  // prompter went to row 1 while Chrome stayed where it was (Eagle, issue 17206). Fire-and-forget; no session = no-op.
   fetch("http://127.0.0.1:18791/vsl/top", { method: "POST" }).catch(() => {});
 };
 $("build").onclick = () => { buildOpen = !buildOpen; $("build").classList.toggle("open", buildOpen); buildlog(); };

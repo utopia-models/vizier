@@ -533,7 +533,7 @@ async def prompter_position(req):
     return web.json_response({**POS, "age_s": round(time.time() - POS["t"], 1) if POS["t"] else None})
 
 
-# ---------- the loop: Vizier owns the row, its clip and the take (knowledge#17374) ----------
+# ---------- the loop: Vizier owns the row, its clip and the take (issue 17374) ----------
 # ONE process holds the row index, the clip started for it and the take. Down / Up / AltT arrive here (the app's shortcuts and
 # any driver POST the same /prompter/key), the row's pre-rendered clip is started through the player, and OBS is a sink:
 # /take/start and /take/stop are one obs-websocket request each. There is one state, "staged": nothing here is a rehearsal

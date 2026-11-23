@@ -1,4 +1,4 @@
-"""knowledge#17374: Vizier owns the loop. Keys, clips, one state, and OBS start/stop as one request each (fake obs-websocket)."""
+"""issue 17374: Vizier owns the loop. Keys, clips, one state, and OBS start/stop as one request each (fake obs-websocket)."""
 import asyncio, importlib, os, sys
 from pathlib import Path
 
