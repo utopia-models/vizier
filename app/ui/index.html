@@ -367,10 +367,10 @@ function callsRender(st, now, clearedAt) {
 }
 // </calls-render>
 // <calls-autotab>
-// `calls start` brings the Calls tab up by itself (Architect 18299, 2026-11-23): Tyler must not have to press Tab before a
+// `calls start` brings the Calls tab up by itself (2026-11-23): the reader must not have to press Tab before a
 // call. A START is an active state that is new: it was inactive, or its title changed, or the tab was just cleared (calls
 // start resets then starts within milliseconds, and calls stop leaves active=true, so a 2 s poll can miss the false in
-// between). Only a start switches, so he can still leave Calls during a call and it will not snap back.
+// between). Only a start switches, so the reader can still leave Calls during a call and it will not snap back.
 function callsAutoTab(prev, st) {
   const active = !!(st && st.active), title = (st && st.title) || "";
   const n = ((st && st.transcript) || []).length + ((st && st.cards) || []).length;

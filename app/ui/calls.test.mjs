@@ -48,7 +48,7 @@ test("Clear hides everything older than the cut", () => {
   assert.ok(!r.cards.includes("first ask") && r.cards.includes("second ask") && !r.lines.includes("THEM</i>"));
 });
 
-// `calls start` selects the Calls tab: only a START switches (Architect 18299).
+// `calls start` selects the Calls tab: only a START switches .
 const auto = src.match(/\/\/ <calls-autotab>\n([\s\S]*?)\/\/ <\/calls-autotab>/)[1];
 const callsAutoTab = new Function(`${auto}; return callsAutoTab;`)();
 const S = (active, title, n) => ({ active, title, transcript: Array(n).fill({}), cards: [] });
