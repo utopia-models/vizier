@@ -47,6 +47,8 @@ from pathlib import Path
 
 from aiohttp import web
 
+import player
+
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 
@@ -1293,7 +1295,7 @@ async def state(req):
         "take": {"name": v["name"] or VSL_NAME or current_script(req.app).stem, "recording": v["actual"], "pending": v["pending"],
                  "prompter_recording": REC.get("take")},
         **{k: CURSOR[k] for k in ("seq", "updated_at") + CURSOR_KEYS},
-        "handoff": handoff_view(), "app_build": APP_BUILD if APP_BUILD.get("sha") else None, "front_tab": FRONT["tab"], "front_tab_at": FRONT["at"], "write_enabled": bool(write_secret())})
+        "handoff": handoff_view(), "app_build": APP_BUILD if APP_BUILD.get("sha") else None, "clip_banner": player.banner_view(), "front_tab": FRONT["tab"], "front_tab_at": FRONT["at"], "write_enabled": bool(write_secret())})
 
 
 async def state_front(req):
@@ -1644,6 +1646,7 @@ def make_app() -> web.Application:
     r.add_post("/speaker-script/undo", write_undo)
     r.add_post("/horus-script/undo", write_undo)
     r.add_get("/state", state)
+    player.register(r)   # the clip player: /player, /clips/<slug>/row-N.webm, /player/log, /player/banner
     r.add_get("/cursor", cursor_get)
     r.add_get("/events", cursor_events)
     r.add_get("/approval", approval)
