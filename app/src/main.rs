@@ -200,7 +200,7 @@ fn talk_shortcuts() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     // Prompter lines from any app (a remote-desktop client in front swallows plain arrows): Alt+Down next line, Alt+Up previous.
     let down = Shortcut::new(Some(Modifiers::ALT), Code::ArrowDown);
     let up = Shortcut::new(Some(Modifiers::ALT), Code::ArrowUp);
-    // Plain Tab / arrows are global WHILE VIZIER IS VISIBLE and released while minimized (knowledge#17206, replacing #17021;
+    // Plain Tab / arrows are global WHILE VIZIER IS VISIBLE and released while minimized (issue 17206, replacing #17021;
     // plain_keys / sync_plain_keys). Alt+T is gone. Alt+Up / Alt+Down stay global; Alt+V pops Vizier up / hides it, always.
     let vizier = Shortcut::new(Some(Modifiers::ALT), Code::KeyV);   // Alt+V: pop Vizier up / hide it
         tauri_plugin_global_shortcut::Builder::new()
@@ -220,7 +220,7 @@ fn talk_shortcuts() -> tauri::plugin::TauriPlugin<tauri::Wry> {
         .build()
 }
 
-/// The plain keys (knowledge#17206, Tyler 11-22: "If vizier is NOT minimized, all arrows and tabs and alt+keys works"):
+/// The plain keys (issue 17206, the reader 11-22: "If vizier is NOT minimized, all arrows and tabs and alt+keys works"):
 /// global while Vizier is visible, even with Chrome focused mid-demo; released to the OS while it is minimized.
 /// Alt+V (and Alt+E/M/Up/Down) stay registered always.
 fn plain_keys() -> Vec<(tauri_plugin_global_shortcut::Shortcut, &'static str)> {

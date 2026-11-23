@@ -405,7 +405,7 @@ function mark() {   // the current line = the last paragraph whose top is at or 
   if (i !== curIdx) { if (ps[curIdx]) ps[curIdx].classList.remove("cur"); if (ps[i]) ps[i].classList.add("cur"); curIdx = i; reportPos(); }
 }
 let lastPos = "", gotoSeq = -1, snapSeq = -1;
-// The reader's own keys (arrows, Home, the wheel, a clicker) are the ONLY thing that moves the prompter (Tyler 2026-11-22: "I will talk
+// The reader's own keys (arrows, Home, the wheel, a clicker) are the ONLY thing that moves the prompter (the reader 2026-11-22: "I will talk
 // and I will press Down"). Nothing here listens: no speech-follow, no auto-advance, no cue follower.
 const sayText = l => unlabel(String(l).replace(/^\s*\(scout\)\s*/i, ""));
 // An agent asked to LOOK at the app (POST /prompter/snap): whatever tab is showing goes to live.png. Every mode, every
@@ -416,7 +416,7 @@ every(400, async () => {
   const sn = await api("prompter/snap").then(r => r.json()).catch(() => null);
   if (sn && window.__TAURI__) { if (snapSeq < 0) snapSeq = sn.seq; else if (sn.seq !== snapSeq) { snapSeq = sn.seq; window.__TAURI__.core.invoke("snapshot").catch(() => {}); } }
 });
-every(120, async () => {   // POST /prompter/goto: the take flow's reset to part 1 line 1 when it loads a script (never driven by speech). 120 ms (was 400): Tyler 2026-11-22 "resetting the prompter to line one should be a lot faster"
+every(120, async () => {   // POST /prompter/goto: the take flow's reset to part 1 line 1 when it loads a script (never driven by speech). 120 ms (was 400): the reader 2026-11-22 "resetting the prompter to line one should be a lot faster"
   if (!(mode === "tscript" || (mode === "rec" && takes.length))) return;
   const g = await api("prompter/goto").then(r => r.json()).catch(() => null);
   if (!g) return;
@@ -445,7 +445,7 @@ window.vizierStep = d => {
   if (rtab === "script") step(d); else $("doc").scrollTop += d * 140;   // CONTEXT / DO NOT SAY scroll by hand
 };
 window.vizierPart = d => { if (PANELS.includes(mode)) return panelChange(d); if (mode === "rec" && takes.length) { goTake(t + d); if (recording) record(); } };   // global Left / Right (main.rs)
-window.vizierTop = () => {   // the TOP button (Alt+T is gone, knowledge#17206): line 0 of the CURRENT script, lit, panel scrolled to the top (Tab / S switch tabs)
+window.vizierTop = () => {   // the TOP button (Alt+T is gone, issue 17206): line 0 of the CURRENT script, lit, panel scrolled to the top (Tab / S switch tabs)
   if (mode === "tscript") { tsCur = 0; drawTscript(); $("p-tscript").scrollTop = 0; reportTs(); }
   else if (mode === "hscript") { const el = $("p-hscript"), c = ((panel.hscript.data || {}).cues || [])[0]; if (c) { panel.hscript.data.current = c.beat; hsCur = c.beat; } drawHscript(); el.scrollTop = 0; }
 };
@@ -727,16 +727,16 @@ function reportTs() {   // where his keys left him (POST /prompter/position -> G
 }
 // the line he is on, moved ONLY by his keys (Up / Down); nothing else moves it
 const tsLines = d => ((d && d.sections) || []).reduce((n, s) => n + s.lines.length, 0);
-// Who says it (Tyler 2026-11-22): every section heading carries a speaker tag. [Tyler] sections are his lines; [AI voice] sections are
-// the voice agent's (dim, not to be read); HANDOFF is amber and he stays silent. A regular take is all [Tyler].
+// Who says it (the reader 2026-11-22): every section heading carries a speaker tag. a [Name] section (any tag but [AI voice]) is the reader's lines; [AI voice] sections are
+// the voice agent's (dim, not to be read); HANDOFF is amber and he stays silent. A regular take is all reader sections.
 function roleOf(title) {
-  return /^\s*\[Tyler\]/i.test(title) ? { msg: "ysay", row: "you" } : /^\s*\[AI voice\]/i.test(title) ? { msg: "aisay", row: "ai" } : /^\s*\d*\s*·?\s*HANDOFF:/i.test(title) ? { msg: "handsay", row: "hand" } : { msg: "", row: "" };
+  return /^\s*\[AI voice\]/i.test(title) ? { msg: "aisay", row: "ai" } : /^\s*\[[^\]]+\]/.test(title) ? { msg: "ysay", row: "you" } : /^\s*\d*\s*·?\s*HANDOFF:/i.test(title) ? { msg: "handsay", row: "hand" } : { msg: "", row: "" };
 }
 // The header every tab carries, from GET /speaker-script. The diagram and the working app are plain Chrome tabs the take driver opens, never Vizier tabs.
 async function loadHdr() {
   let d; try { d = await getJSON("speaker-script"); } catch { return; }
-  // Which VSL this is (Tyler 2026-11-22: "I want to be clear which VSL this is for"): a labelled title on every tab, and the MVP
-  // the VSL shows (Tyler: "Where is the IVP?", the speech-to-text of MVP) as its own line under it.
+  // Which VSL this is (the reader 2026-11-22: "I want to be clear which VSL this is for"): a labelled title on every tab, and the MVP
+  // the VSL shows (the reader: "Where is the IVP?", the speech-to-text of MVP) as its own line under it.
   const h = $("jobhdr"), mvp = (d.mvp || []).join(" ");
   h.innerHTML = d.title ? `<span class="vslk">VSL</span> ${esc(d.title)}` + (mvp ? `<div class="mvp"><span class="vslk">MVP</span> ${esc(mvp)}</div>` : "") : "";
   h.title = (d.source ? d.source + " · " : "") + "the VSL being recorded" + (mvp ? "; MVP: " + mvp : "");
@@ -964,7 +964,7 @@ let buildOpen = false, buildLines = [];
 async function buildlog() {
   const j = await api("buildlog?n=30").then(r => r.json()).catch(() => null);
   buildLines = (j && j.lines) || []; if (mode === "rec" && rtab === "context") showTab("context");   // CONTEXT is live
-  if (!(mode === "rec" && rtab === "context")) { $("build").innerHTML = ""; $("build").classList.remove("on"); return; }   // the build log shows on CONTEXT only (Tyler 2026-11-22: the stale BUILD line under the script)
+  if (!(mode === "rec" && rtab === "context")) { $("build").innerHTML = ""; $("build").classList.remove("on"); return; }   // the build log shows on CONTEXT only (the reader 2026-11-22: the stale BUILD line under the script)
   if (!j || !j.lines || !j.lines.length) { $("build").classList.remove("on"); return; }
   const ago = j.mtime ? Math.max(0, Math.round((Date.now() / 1000 - j.mtime) / 60)) : null;
   const shown = j.lines.slice().reverse().slice(0, buildOpen ? 12 : 3);
