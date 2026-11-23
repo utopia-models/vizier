@@ -972,7 +972,12 @@ async function buildlog() {
       return `<div class="l">${m ? `<span class="t">${esc(m[1])}</span>${esc(m[2])}` : esc(l)}</div>`; }).join("");
   $("build").classList.add("on");
 }
-$("topbtn").onclick = () => { if (mode === "rec") { goTake(t); goLine(0); } else window.vizierTop(); };
+$("topbtn").onclick = () => {
+  if (mode === "rec") { goTake(t); goLine(0); } else window.vizierTop();
+  // the laptop session takes the same path Alt+T took (Do-Top: app tab at its start view, diagram beat 0): without this the
+  // prompter went to row 1 while Chrome stayed where it was (Eagle, knowledge#17206). Fire-and-forget; no session = no-op.
+  fetch("http://127.0.0.1:18791/vsl/top", { method: "POST" }).catch(() => {});
+};
 $("build").onclick = () => { buildOpen = !buildOpen; $("build").classList.toggle("open", buildOpen); buildlog(); };
 
 (async () => {
