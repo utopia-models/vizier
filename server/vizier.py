@@ -47,6 +47,7 @@ from pathlib import Path
 
 from aiohttp import web
 
+import obsws
 import player
 
 HERE = Path(__file__).resolve().parent
@@ -530,6 +531,69 @@ async def prompter_position(req):
         cursor_set(b)
         return web.json_response({"ok": True, "seq": CURSOR["seq"]})
     return web.json_response({**POS, "age_s": round(time.time() - POS["t"], 1) if POS["t"] else None})
+
+
+# ---------- the loop: Vizier owns the row, its clip and the take (knowledge#17374) ----------
+# ONE process holds the row index, the clip started for it and the take. Down / Up / AltT arrive here (the app's shortcuts and
+# any driver POST the same /prompter/key), the row's pre-rendered clip is started through the player, and OBS is a sink:
+# /take/start and /take/stop are one obs-websocket request each. There is one state, "staged": nothing here is a rehearsal
+# or a recording mode, so a pass cannot differ from the next one. A row without its clip is refused, never shown dead.
+LOOP: dict = {"row": 0, "clip": None, "refused": None}
+LOOP_STATE = "staged"
+OBS_URL = os.environ.get("VIZIER_OBS_URL", "ws://127.0.0.1:4455")
+OBS_PASSWORD = os.environ.get("VIZIER_OBS_PASSWORD", "")
+
+
+def loop_slug(b: dict | None = None) -> str:
+    return str((b or {}).get("slug") or os.environ.get("VIZIER_CLIP_SLUG") or "current")
+
+
+def loop_rows() -> list[str]:
+    """Every spoken line of the speaker script, flat: row i is the i-th (the clip row-<i> belongs to it)."""
+    sp = file_view(script_target("speaker-script"))
+    return [l for k in parse_takes(sp["text"] or "") for l in k["lines"]]
+
+
+def loop_view() -> dict:
+    return {"row": LOOP["row"], "clip": LOOP["clip"], "state": LOOP_STATE, "refused": LOOP["refused"], "banner": player.banner_view()}
+
+
+def loop_goto(row: int, slug: str) -> None:
+    """Show `row`: refuse (row unchanged, banner set) when its clip is missing, else move, start the clip, publish the cursor."""
+    rows = loop_rows()
+    row = max(0, min(row, len(rows) - 1)) if rows else max(0, row)
+    if player.clip_path(slug, row) is None:
+        player.note_missing(row)
+        LOOP["refused"] = f"no clip for row {row}"
+        return
+    LOOP.update(row=row, clip=row, refused=None)
+    player.note_started(row, slug)
+    cursor_set({"part": 1, "parts": 1, "title": "speaker script", "line": row + 1, "lines": len(rows),
+                "text": rows[row] if row < len(rows) else ""})
+
+
+async def prompter_key(req):
+    """POST /prompter/key {"key": "Down"|"Up"|"AltT"[, "slug"]} -> {"row","clip","state","refused","banner"}.
+    Down = next row (stays on the last), Up = row-1 clipped at 0, AltT = row 0: pure functions of the row index."""
+    b = await body(req)
+    k = str(b.get("key", ""))
+    if k not in ("Down", "Up", "AltT"):
+        return bad("key is Down, Up or AltT")
+    row = LOOP["row"]
+    target = {"Down": row + 1, "Up": max(0, row - 1), "AltT": 0}[k]
+    loop_goto(target, loop_slug(b))
+    return web.json_response({"ok": True, **loop_view()})
+
+
+async def take_obs(req):
+    """POST /take/start | /take/stop: ONE obs-websocket request from this server (StartRecord / StopRecord), nothing else."""
+    await body(req) if req.can_read_body else None
+    kind = "StartRecord" if req.path.endswith("start") else "StopRecord"
+    try:
+        await obsws.request(OBS_URL, kind, OBS_PASSWORD)
+    except obsws.ObsError as e:
+        return web.json_response({"ok": False, "error": str(e), "state": LOOP_STATE}, status=502)
+    return web.json_response({"ok": True, "sent": kind, "state": LOOP_STATE})
 
 
 async def cursor_get(req):
@@ -1295,7 +1359,7 @@ async def state(req):
         "take": {"name": v["name"] or VSL_NAME or current_script(req.app).stem, "recording": v["actual"], "pending": v["pending"],
                  "prompter_recording": REC.get("take")},
         **{k: CURSOR[k] for k in ("seq", "updated_at") + CURSOR_KEYS},
-        "handoff": handoff_view(), "app_build": APP_BUILD if APP_BUILD.get("sha") else None, "clip_banner": player.banner_view(), "front_tab": FRONT["tab"], "front_tab_at": FRONT["at"], "write_enabled": bool(write_secret())})
+        "handoff": handoff_view(), "app_build": APP_BUILD if APP_BUILD.get("sha") else None, "clip_banner": player.banner_view(), **loop_view(), "front_tab": FRONT["tab"], "front_tab_at": FRONT["at"], "write_enabled": bool(write_secret())})
 
 
 async def state_front(req):
@@ -1646,6 +1710,9 @@ def make_app() -> web.Application:
     r.add_post("/speaker-script/undo", write_undo)
     r.add_post("/horus-script/undo", write_undo)
     r.add_get("/state", state)
+    r.add_post("/prompter/key", prompter_key)
+    r.add_post("/take/start", take_obs)
+    r.add_post("/take/stop", take_obs)
     player.register(r)   # the clip player: /player, /clips/<slug>/row-N.webm, /player/log, /player/banner
     r.add_get("/cursor", cursor_get)
     r.add_get("/events", cursor_events)

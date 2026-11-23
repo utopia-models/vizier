@@ -38,6 +38,42 @@ def banner_view():
     return BANNER["banner"]
 
 
+def clip_path(slug: str, row: int):
+    """The clip file for a row (webm, else mp4), or None: the one test the key handler and the page both rest on."""
+    if not SLUG_RE.match(slug or ""):
+        return None
+    for ext in ("webm", "mp4"):
+        p = clips_dir() / slug / f"row-{row}.{ext}"
+        if p.is_file():
+            return p
+    return None
+
+
+def record(event: str, row, **kw) -> dict:
+    """Append one player-log row (memory + player.jsonl): the same sink the page's POST /player/log writes."""
+    r = {"at": time.time(), "event": event, "row": row, "seq": kw.get("seq"), "clip": kw.get("clip", ""),
+         "ms_from_cursor": None, "server_ms_from_cursor": None}
+    LOG.append(r)
+    del LOG[:-500]
+    try:
+        lp = log_path()
+        lp.parent.mkdir(parents=True, exist_ok=True)
+        with open(lp, "a") as f:
+            f.write(json.dumps(r) + "\n")
+    except OSError:
+        pass
+    return r
+
+
+def note_missing(row: int) -> None:
+    BANNER["banner"] = {"text": f"no clip for row {row}", "row": row, "at": time.time()}
+
+
+def note_started(row: int, slug: str) -> None:
+    record("clip_start", row, clip=f"{slug}/row-{row}")
+    BANNER["banner"] = None
+
+
 async def player_page(_):
     return web.FileResponse(HERE / "player.html", headers={"Cache-Control": "no-store"})
 
