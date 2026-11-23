@@ -92,7 +92,7 @@ jobs:
         run: rustc --edition 2021 --test app/src/park.rs -o /tmp/park && /tmp/park
       - run: scripts/setup-xwin.sh
       - name: build and stamp the commit into the app
-        run: VIZIER_GIT_SHA="${GITHUB_SHA::12}" app/build.sh
+        run: VIZIER_GIT_SHA="$(echo "$GITHUB_SHA" | cut -c1-12)" app/build.sh
       - name: version matches the tag
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
