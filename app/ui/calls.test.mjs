@@ -47,3 +47,19 @@ test("Clear hides everything older than the cut", () => {
   const r = callsRender(st, NOW, NOW / 1000 - 4.5);
   assert.ok(!r.cards.includes("first ask") && r.cards.includes("second ask") && !r.lines.includes("THEM</i>"));
 });
+
+// `calls start` selects the Calls tab: only a START switches (Architect 18299).
+const auto = src.match(/\/\/ <calls-autotab>\n([\s\S]*?)\/\/ <\/calls-autotab>/)[1];
+const callsAutoTab = new Function(`${auto}; return callsAutoTab;`)();
+const S = (active, title, n) => ({ active, title, transcript: Array(n).fill({}), cards: [] });
+test("a call starting brings Calls up once, and never snaps back during the call", () => {
+  let r = callsAutoTab(null, S(true, "3Y call", 0)); assert.equal(r.show, true);          // first start
+  r = callsAutoTab(r, S(true, "3Y call", 4)); assert.equal(r.show, false);                // same call, lines arriving
+  r = callsAutoTab(r, S(true, "3Y call", 9)); assert.equal(r.show, false);                // still no snap-back
+});
+test("a new start is seen even when the poll never saw active=false", () => {
+  let r = callsAutoTab(null, S(true, "Mic check", 5)); r = callsAutoTab(r, S(true, "Mic check", 5));
+  assert.equal(callsAutoTab(r, S(true, "3Y call", 0)).show, true);                        // new title
+  assert.equal(callsAutoTab(r, S(true, "Mic check", 0)).show, true);                      // same title, tab cleared
+  assert.equal(callsAutoTab(r, S(false, "", 0)).show, false);                             // reset alone: no switch
+});

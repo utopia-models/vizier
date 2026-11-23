@@ -366,6 +366,26 @@ function callsRender(st, now, clearedAt) {
   };
 }
 // </calls-render>
+// <calls-autotab>
+// `calls start` brings the Calls tab up by itself (Architect 18299, 2026-11-23): Tyler must not have to press Tab before a
+// call. A START is an active state that is new: it was inactive, or its title changed, or the tab was just cleared (calls
+// start resets then starts within milliseconds, and calls stop leaves active=true, so a 2 s poll can miss the false in
+// between). Only a start switches, so he can still leave Calls during a call and it will not snap back.
+function callsAutoTab(prev, st) {
+  const active = !!(st && st.active), title = (st && st.title) || "";
+  const n = ((st && st.transcript) || []).length + ((st && st.cards) || []).length;
+  const p = prev || { active: false, title: "", n: 0 };
+  const show = active && (!p.active || title !== p.title || (p.n > 0 && n === 0));
+  return { active, title, n, show };
+}
+// </calls-autotab>
+let callsPrev = null;
+async function watchCallsStart() {
+  let st; try { st = await getJSON("calls/state"); } catch { return; }
+  const r = callsAutoTab(callsPrev, st);
+  callsPrev = r;
+  if (r.show && mode !== "calls") goTab("calls");
+}
 let callsCut = Number(store.get("calls.cut")) || 0, callsKey = "";
 async function pollCalls() {
   if (mode !== "calls") return;
@@ -1052,7 +1072,7 @@ $("build").onclick = () => { buildOpen = !buildOpen; $("build").classList.toggle
   try { if (window.__TAURI__) CFG = (await window.__TAURI__.core.invoke("config")) || {}; } catch (e) { console.error(e); }
   SERVER = (Q.get("server") || store.get("vizier.server") || DEFAULT()).replace(/\/+$/, "");
   connect(); pollHealth(); buildlog(); context(); scripts(); coach();
-  every(1000, pollHealth); every(500, pollTalk); every(1000, pollCalls); every(2000, coach); every(2000, scripts); every(5000, buildlog); every(5000, context);
+  every(1000, pollHealth); every(500, pollTalk); every(1000, pollCalls); every(2000, watchCallsStart); every(2000, coach); every(2000, scripts); every(5000, buildlog); every(5000, context);
 })();
 </script><script type="module" src="talk.js" onerror="window.__TAURI__&&window.__TAURI__.core.invoke('talk_log',{line:new Date().toISOString()+' talk.js did not load: no talk link'})"></script>
 </body></html>
