@@ -129,8 +129,10 @@ fn main() {
             w.show()?;
             exclude_all_now();
             let keep = w.clone();
+            let keep_app = app.handle().clone();
             std::thread::spawn(move || loop {
                 std::thread::sleep(std::time::Duration::from_secs(2));
+                sync_plain_keys(&keep_app);
                 if affinity(&keep) != "0x11" {
                     let _ = keep.set_content_protected(true);
                 }
@@ -156,6 +158,8 @@ fn main() {
             #[cfg(windows)]
             grant_media(&w);
             let pin = w.clone();
+            let sync_app = app.handle().clone();
+            sync_plain_keys(&sync_app);
             w.on_window_event(move |e| match e {
                 // Not pinned: the reader drags it by its header and resizes it by its edges, and every move and resize
                 // is remembered (window.json), so it opens there next time. A minimize is a move too (Windows parks
@@ -163,10 +167,11 @@ fn main() {
                 WindowEvent::Moved(_) => remember_rect(&pin),
                 // A restore from minimized arrives as a Resized; a re-show takes focus: both re-assert the exclusion.
                 WindowEvent::Resized(_) => {
+                    sync_plain_keys(&sync_app);
                     exclude_all(&pin);
                     remember_rect(&pin)
                 }
-                WindowEvent::Focused(true) => exclude_all(&pin),
+                WindowEvent::Focused(true) => { sync_plain_keys(&sync_app); exclude_all(&pin) }
                 WindowEvent::ScaleFactorChanged { .. } => {
                     if !pin.is_minimized().unwrap_or(false) {
                         place(&pin)
@@ -195,9 +200,8 @@ fn talk_shortcuts() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     // Prompter lines from any app (a remote-desktop client in front swallows plain arrows): Alt+Down next line, Alt+Up previous.
     let down = Shortcut::new(Some(Modifiers::ALT), Code::ArrowDown);
     let up = Shortcut::new(Some(Modifiers::ALT), Code::ArrowUp);
-    // Plain Tab / arrows and Alt+T are NOT global (knowledge#17021): they act only while Vizier has focus (the page's own
-    // keydown handlers), so Chrome / OBS keep their arrows and Alt+T reaches the take session's hook. Alt+Up / Alt+Down stay
-    // global only as the session's synthetic channel; Alt+V pops Vizier up / hides it.
+    // Plain Tab / arrows are global WHILE VIZIER IS VISIBLE and released while minimized (knowledge#17206, replacing #17021;
+    // plain_keys / sync_plain_keys). Alt+T is gone. Alt+Up / Alt+Down stay global; Alt+V pops Vizier up / hides it, always.
     let vizier = Shortcut::new(Some(Modifiers::ALT), Code::KeyV);   // Alt+V: pop Vizier up / hide it
         tauri_plugin_global_shortcut::Builder::new()
         .with_shortcuts([ears, mouth, down, up, vizier])
@@ -206,12 +210,46 @@ fn talk_shortcuts() -> tauri::plugin::TauriPlugin<tauri::Wry> {
             if ev.state() != ShortcutState::Pressed {
                 return;
             }
-            let name = if sc == &vizier { "alt+v" }
+            let plain = plain_keys().into_iter().find(|(k, _)| k == sc).map(|(_, n)| n);
+            let name = if let Some(n) = plain { n }
+                else if sc == &vizier { "alt+v" }
                 else if sc == &down { "down" } else if sc == &up { "up" }
                 else if sc == &ears { "alt+e" } else if sc == &mouth { "alt+m" } else { "" };
             hotkey(app, name);
         })
         .build()
+}
+
+/// The plain keys (knowledge#17206, Tyler 11-22: "If vizier is NOT minimized, all arrows and tabs and alt+keys works"):
+/// global while Vizier is visible, even with Chrome focused mid-demo; released to the OS while it is minimized.
+/// Alt+V (and Alt+E/M/Up/Down) stay registered always.
+fn plain_keys() -> Vec<(tauri_plugin_global_shortcut::Shortcut, &'static str)> {
+    use tauri_plugin_global_shortcut::{Code, Shortcut};
+    vec![
+        (Shortcut::new(None, Code::ArrowDown), "down"),
+        (Shortcut::new(None, Code::ArrowUp), "up"),
+        (Shortcut::new(None, Code::ArrowLeft), "left"),
+        (Shortcut::new(None, Code::ArrowRight), "right"),
+        (Shortcut::new(None, Code::Tab), "tab"),
+    ]
+}
+
+static PLAIN_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Register the plain keys while the window is on screen, unregister while minimized/hidden. Idempotent; called on every
+/// window event, after Alt+V, and on the 2 s keeper tick, so the state follows the window whichever way it changed.
+fn sync_plain_keys(app: &tauri::AppHandle) {
+    use std::sync::atomic::Ordering;
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    if smoke() { return; }
+    let Some(w) = app.get_webview_window("main") else { return };
+    let want = !w.is_minimized().unwrap_or(false) && w.is_visible().unwrap_or(true);
+    if want == PLAIN_ON.load(Ordering::SeqCst) { return; }
+    let gs = app.global_shortcut();
+    for (k, _) in plain_keys() {
+        let _ = if want { gs.register(k) } else { gs.unregister(k) };
+    }
+    PLAIN_ON.store(want, Ordering::SeqCst);
 }
 
 /// What a global shortcut does, by name: the one place both the shortcuts and the smoke test (`smoke_key`) run.
@@ -236,6 +274,7 @@ fn hotkey(app: &tauri::AppHandle, name: &str) {
                     let _ = w.set_focus();
                 }
             }
+            sync_plain_keys(app);
         }
         "left" | "right" => { let _ = w.eval(&format!("window.vizierPart&&window.vizierPart({})", if name == "right" { 1 } else { -1 })); }
         "tab" => { let _ = w.eval("window.vizierTab&&window.vizierTab()"); }
