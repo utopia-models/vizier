@@ -1793,6 +1793,111 @@ async def close_feeds(app: web.Application):
     app[STATE].feed.clients.clear()
 
 
+# ---------- CALLS: the live call copilot (silent text only) ----------
+# GET /calls/state (open) | POST /calls/transcript, /calls/card, /calls/start, /calls/reset (X-Vizier-Write secret).
+# Kept in memory and in DATA/calls.json (atomic), so a restart keeps the call. Nothing else is written.
+CALLS_KEEP_LINES, CALLS_KEEP_CARDS = 300, 50
+
+
+def calls_path() -> Path:
+    return DATA / "calls.json"
+
+
+def _calls_blank() -> dict:
+    return {"title": "", "active": False, "updated_at": 0, "transcript": [], "cards": [], "next_id": 1}
+
+
+def _calls_load() -> dict:
+    try:
+        d = json.loads(calls_path().read_text())
+        if isinstance(d, dict) and isinstance(d.get("transcript"), list) and isinstance(d.get("cards"), list):
+            return {**_calls_blank(), **d}
+    except (OSError, ValueError):
+        pass
+    return _calls_blank()
+
+
+CALLS = _calls_load()
+
+
+def _calls_save() -> None:
+    CALLS["updated_at"] = time.time()
+    try:
+        atomic_write(calls_path(), json.dumps(CALLS))
+    except OSError:
+        pass
+
+
+def _calls_id() -> int:
+    n = CALLS["next_id"]
+    CALLS["next_id"] = n + 1
+    return n
+
+
+def _calls_text(v, cap=2000) -> str:
+    return str(v or "").strip()[:cap]
+
+
+async def calls_state(req):
+    return web.json_response({"ok": True, "title": CALLS["title"], "active": bool(CALLS["active"]), "updated_at": CALLS["updated_at"],
+                              "transcript": CALLS["transcript"], "cards": CALLS["cards"]})
+
+
+async def calls_transcript(req):
+    if not write_allowed(req):
+        return bad("writes need the X-Vizier-Write secret", 403)
+    b = await body(req)
+    text = _calls_text(b.get("text"))
+    if not text:
+        return bad("text is required", 400)
+    line = {"id": 0, "t": time.time(), "speaker": "ME" if str(b.get("speaker", "")).upper() == "ME" else "THEM",
+            "text": text, "final": bool(b.get("final"))}
+    want = b.get("id")
+    lines = CALLS["transcript"]
+    i = next((k for k, x in enumerate(lines) if isinstance(want, int) and not isinstance(want, bool) and x["id"] == want), None)
+    if i is not None:
+        line["id"] = want
+        line["t"] = lines[i]["t"]
+        lines[i] = line
+    else:
+        line["id"] = _calls_id()
+        lines.append(line)
+        del lines[:-CALLS_KEEP_LINES]
+    _calls_save()
+    return web.json_response(line)
+
+
+async def calls_card(req):
+    if not write_allowed(req):
+        return bad("writes need the X-Vizier-Write secret", 403)
+    b = await body(req)
+    card = {"id": _calls_id(), "t": time.time(), "asked": _calls_text(b.get("asked"), 600), "say": _calls_text(b.get("say"), 900),
+            "next": _calls_text(b.get("next"), 600)}
+    CALLS["cards"].append(card)
+    del CALLS["cards"][:-CALLS_KEEP_CARDS]
+    _calls_save()
+    return web.json_response(card)
+
+
+async def calls_start(req):
+    if not write_allowed(req):
+        return bad("writes need the X-Vizier-Write secret", 403)
+    b = await body(req)
+    CALLS.update(_calls_blank())
+    CALLS["title"] = _calls_text(b.get("title"), 200)
+    CALLS["active"] = True
+    _calls_save()
+    return web.json_response({"ok": True, "title": CALLS["title"], "active": True})
+
+
+async def calls_reset(req):
+    if not write_allowed(req):
+        return bad("writes need the X-Vizier-Write secret", 403)
+    CALLS.update(_calls_blank())
+    _calls_save()
+    return web.json_response({"ok": True, "active": False})
+
+
 def make_app() -> web.Application:
     app = web.Application(middlewares=[cors])
     app[STATE] = State(Feed(), None, restored_script())
@@ -1829,6 +1934,11 @@ def make_app() -> web.Application:
     r.add_get("/talk/transcript", talk_transcript)
     r.add_post("/talk/transcript", talk_transcript)
     r.add_get("/qc", qc)
+    r.add_get("/calls/state", calls_state)
+    r.add_post("/calls/transcript", calls_transcript)
+    r.add_post("/calls/card", calls_card)
+    r.add_post("/calls/start", calls_start)
+    r.add_post("/calls/reset", calls_reset)
     r.add_post("/prompter/snap", prompter_snap)
     r.add_post("/prompter/goto", prompter_goto)
     r.add_post("/prompter/record", prompter_record)
