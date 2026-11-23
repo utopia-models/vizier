@@ -43,9 +43,10 @@ def clip_path(slug: str, row: int):
     if not SLUG_RE.match(slug or ""):
         return None
     for ext in ("webm", "mp4"):
-        p = clips_dir() / slug / f"row-{row}.{ext}"
-        if p.is_file():
-            return p
+        for stem in (f"row-{row}", f"row-{row:02d}", f"row-{row:03d}"):   # the renderer zero-pads (row-01.webm); the key handler and the page ask for row-1
+            p = clips_dir() / slug / f"{stem}.{ext}"
+            if p.is_file():
+                return p
     return None
 
 
@@ -83,6 +84,10 @@ async def clip_file(req):
     if not SLUG_RE.match(slug) or not CLIP_RE.match(name):
         raise web.HTTPNotFound(text="no such clip")
     p = clips_dir() / slug / name
+    if not p.is_file():   # row-1.webm asked, row-01.webm on disk (or the reverse): same row
+        m = re.match(r"^row-(\d+)\.(webm|mp4)$", name)
+        alt = clip_path(slug, int(m.group(1))) if m else None
+        p = alt if alt is not None and alt.suffix == "." + m.group(2) else p
     if not p.is_file():
         raise web.HTTPNotFound(text=f"no clip {slug}/{name}")
     return web.FileResponse(p, headers={"Cache-Control": "max-age=300"})   # cacheable: the page warms the next rows
