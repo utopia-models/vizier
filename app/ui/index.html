@@ -5,9 +5,9 @@
      CALL  = what is posted to the server's display API, over WS /feed: bullets on top, the transcript under them
              (Join call = WHIP camera+mic out, WHEP call audio in, when a media server is configured)
      RECORD = the prompter: SCRIPT (continuous scroll, reading line, keys + clicker) | CONTEXT | DO NOT SAY
-     TALK  = the plain live transcript of the conversation with the agent: your speech and its spoken replies, newest at
-             the bottom, the partial shown live and replaced by the final (GET /talk/transcript, polled every 500 ms)
-     The mode follows /health: a recording running -> RECORD; a live call (not bench-*/probe) -> CALL; else TALK.
+     CALLS = the live call copilot, silent text only: the transcript of both sides (ME / THEM) on the left, context cards
+             (ASKED / SAY / NEXT, newest on top) on the right (GET /calls/state, polled every 1 s while the tab shows)
+     The mode follows /health: a recording running -> RECORD; a live call (not bench-*/probe) -> CALL; else CALLS.
      Runs inside the Tauri shell (app/) and, for headless checks, in any browser: open index.html?server=<url>.
      Server URL, in order: ?server= · the gear (saved in localStorage) · the app's config (VIZIER_SERVER env or
      vizier.json, see README) · http://127.0.0.1:8786. -->
@@ -31,7 +31,7 @@
   #hide { display:none; }
   .tab.on { color:#000; background:var(--hi); font-weight:700; }
   .tab.call.on { background:var(--accent); }
-  .tab.talk.on { background:var(--me); }
+  .tab.calls.on { background:var(--me); }
   .tab.ctx.on { background:var(--hi); }
   .tab.set.on, .tab.desk.on, .tab.agt.on, .tab.hs.on, .tab.ts.on { background:var(--accent); }
   /* SETTINGS / DESKS / AGENTS (the deployment's issue 13798): one list each, the selected row marked, arrows drive it */
@@ -67,20 +67,20 @@
   .panel .err { color:var(--rec); }
   .panel .dot { display:inline-block; width:11px; height:11px; border-radius:50%; margin-right:10px; background:#5b6472; }
   .panel .dot.green { background:#3ddc84; } .panel .dot.amber, .panel .dot.yellow { background:#ffd34d; } .panel .dot.red { background:#ff4d4d; }
-  #rtabs { display:none !important; }   /* the one row of tabs is the header: TALK / SCRIPT / CONTEXT */
-  /* TALK: a raw transcript, large, newest at the bottom */
+  #rtabs { display:none !important; }   /* the one row of tabs is the header: Calls / Settings / Speaker Script / Eagle Script */
+  /* SETTINGS: a raw transcript, large, newest at the bottom */
   #settalk, #tstalk { flex:0 0 34%; border-top:1px solid var(--line); margin-bottom:28px; }
   #settalk .ln, #tstalk .ln { font-size:22px !important; }
   #settalk::before, #tstalk::before { content:"LIVE TRANSCRIPT"; display:block; font:700 12px system-ui; letter-spacing:.14em; color:var(--dim); margin-bottom:8px; }
-  #talkmain, #settalk, #tstalk { flex:1; min-height:0; overflow-y:auto; padding:18px 28px 28px; display:flex; flex-direction:column; user-select:text; }
-  #talkmain .sp, #settalk .sp, #tstalk .sp { flex:1 0 0; }
-  #talkmain .ln, #settalk .ln, #tstalk .ln { margin:0 0 .55em; font:500 32px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  #talkmain .ln.me, #settalk .ln.me, #tstalk .ln.me { color:var(--fg); }
-  #talkmain .ln.agent, #settalk .ln.agent, #tstalk .ln.agent { color:var(--accent); }
-  #talkmain .ln i, #settalk .ln i, #tstalk .ln i { font:700 .42em system-ui; font-style:normal; letter-spacing:.1em; opacity:.6; margin-right:.9em; vertical-align:.25em; }
-  #talkmain .ln.partial, #settalk .ln.partial, #tstalk .ln.partial { opacity:.55; }
-  #talkmain .ln.partial::after, #settalk .ln.partial::after { content:"▍"; margin-left:2px; color:var(--hi); }
-  #talkmain .none, #settalk .none { color:var(--dim); font:500 20px system-ui; }
+  #settalk, #tstalk { flex:1; min-height:0; overflow-y:auto; padding:18px 28px 28px; display:flex; flex-direction:column; user-select:text; }
+  #settalk .sp, #tstalk .sp { flex:1 0 0; }
+  #settalk .ln, #tstalk .ln { margin:0 0 .55em; font:500 32px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #settalk .ln.me, #tstalk .ln.me { color:var(--fg); }
+  #settalk .ln.agent, #tstalk .ln.agent { color:var(--accent); }
+  #settalk .ln i, #tstalk .ln i { font:700 .42em system-ui; font-style:normal; letter-spacing:.1em; opacity:.6; margin-right:.9em; vertical-align:.25em; }
+  #settalk .ln.partial, #tstalk .ln.partial { opacity:.55; }
+  #settalk .ln.partial::after { content:"▍"; margin-left:2px; color:var(--hi); }
+  #settalk .none { color:var(--dim); font:500 20px system-ui; }
   .tab.pinned { border-color:var(--fg); }
   #rec { color:var(--rec); font-weight:700; }
   .grow { flex:1; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
@@ -155,11 +155,35 @@
   #build.open div.l { white-space:normal; }
   #doing div.l { padding:2px 0; font-size:15px; } #doing .t { color:#6fbf7a; font:13px ui-monospace, monospace; margin-right:10px; }
   #build .t { color:#6fbf7a; font:12px ui-monospace, monospace; margin-right:8px; }
+  /* CALLS: the live call copilot. Left: the transcript (ME / THEM). Right: cards, newest on top. Prompter-size type. */
+  #m-calls { padding:0; }
+  #callshd { flex:0 0 auto; display:flex; align-items:center; gap:14px; padding:10px 28px; border-bottom:1px solid var(--line); font:600 22px system-ui; }
+  #callstitle { flex:1; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+  #callslive { display:inline-flex; align-items:center; gap:8px; font:600 14px system-ui; color:var(--dim); letter-spacing:.06em; }
+  #callslive i { width:12px; height:12px; border-radius:50%; background:#5a6270; display:inline-block; }
+  #callslive.on { color:#3c3; } #callslive.on i { background:#3c3; box-shadow:0 0 8px #3c3; }
+  #callsclear { padding:4px 14px; font:700 14px system-ui; background:#1d2a3a; color:#cfe3ff; border:1px solid #2f6aa0; border-radius:6px; cursor:pointer; }
+  #callsbody { flex:1; min-height:0; display:flex; }
+  #callstr, #callscards { flex:1 1 0; min-width:0; overflow-y:auto; padding:16px 28px 24px; user-select:text; }
+  #callstr { display:flex; flex-direction:column; border-right:1px solid var(--line); }
+  #callstr .sp { flex:1 0 0; }
+  #callstr .ln { margin:0 0 .5em; font:500 26px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #callstr .ln.me { color:var(--me); } #callstr .ln.them { color:var(--fg); }
+  #callstr .ln i { font:700 .5em system-ui; font-style:normal; letter-spacing:.1em; opacity:.7; margin-right:.9em; vertical-align:.2em; }
+  #callstr .ln.partial { opacity:.45; }
+  #callscards .card { border:1px solid var(--line); border-left:4px solid var(--accent); border-radius:8px; padding:12px 16px; margin-bottom:14px; background:#0b0e13; position:relative; }
+  #callscards .card:first-child { border-left-color:var(--hi); }
+  #callscards .card time { position:absolute; top:8px; right:12px; font:500 12px ui-monospace, monospace; color:var(--dim); }
+  #callscards .card div { margin:0 0 .35em; font:500 22px/1.3 system-ui, sans-serif; color:var(--dim); }
+  #callscards .card div.say { font-size:30px; color:var(--fg); font-weight:600; }
+  #callscards .card b { display:block; font:700 12px system-ui; letter-spacing:.14em; color:var(--accent); }
+  #callscards .card div.say b { color:var(--hi); }
+  #callstr .none, #callscards .none { color:var(--dim); font:500 20px system-ui; }
 </style></head>
 <body>
 <header data-tauri-drag-region>
   <span id="dot" title="link to the vizier service"></span><b data-tauri-drag-region title="drag to move Vizier; its edges resize it">Vizier</b>
-  <span class="tab talk" id="tab-talk" title="TALK: a live transcript of your conversation with Eagle">TALK</span>
+  <span class="tab calls" id="tab-calls" title="CALLS: the live call copilot, silent text only">Calls</span>
   <span class="tab set" id="tab-settings" title="SETTINGS: every Eagle setting; arrows change them">SETTINGS</span>
   <span class="tab ts" id="tab-tscript" title="Speaker Script: his spoken beats, read-only; nothing highlights or scrolls by itself">Speaker Script</span>
   <span class="tab hs" id="tab-hscript" title="Eagle Script: the cues Eagle will run, read-only; the current one is lit">Eagle Script</span>
@@ -180,14 +204,15 @@
 <audio id="callaudio" autoplay></audio>
 
 <section class="mode" id="m-rec" hidden style="display:none !important">
-  <div id="keylegend"><b>↑ ↓</b> scroll &nbsp;·&nbsp; <b>← →</b> part &nbsp;·&nbsp; <b>Tab</b> Talk / Settings / Speaker script / Eagle script &nbsp;·&nbsp; <b>Alt+E</b> ears &nbsp;·&nbsp; <b>Alt+M</b> voice &nbsp;·&nbsp; <b>Alt+V</b> show / hide</div>
+  <div id="keylegend"><b>↑ ↓</b> scroll &nbsp;·&nbsp; <b>← →</b> part &nbsp;·&nbsp; <b>Tab</b> Calls / Settings / Speaker script / Eagle script &nbsp;·&nbsp; <b>Alt+E</b> ears &nbsp;·&nbsp; <b>Alt+M</b> voice &nbsp;·&nbsp; <b>Alt+V</b> show / hide</div>
   <nav id="rtabs"><span data-t="script" class="on">SCRIPT</span><span data-t="context" hidden>CONTEXT</span><span data-t="notes" hidden>DO NOT SAY</span></nav>
   <div id="prompt"><div id="text"></div><div id="readline"></div></div>
   <div id="doc"></div>
   <div id="coach"></div>
 </section>
-<section class="mode" id="m-talk">
-  <div id="talkmain"><div class="sp"></div></div>
+<section class="mode" id="m-calls">
+  <div id="callshd"><b id="callstitle">no call</b><span id="callslive" title="green: a line or a card arrived in the last 15 s"><i></i>listening</span><button id="callsclear" title="clear the screen">Clear</button></div>
+  <div id="callsbody"><div id="callstr"><div class="sp"></div></div><div id="callscards"></div></div>
 </section>
 <section class="mode" id="m-settings"><div class="panel" id="p-settings"></div>
   <div id="settalk" class="talkbox" title="the live transcript: your speech and Eagle's replies, newest at the bottom"><div class="sp"></div></div>
@@ -252,16 +277,16 @@ function autoMode() { return "tscript"; }   // no CALL mode: on a call you Tab t
 let frontSent = null;
 function refreshTabs() {
   if (mode && mode !== frontSent) { frontSent = mode; api("state/front", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tab: mode, build: CFG.build || null }) }).catch(() => {}); }
-  $("tab-talk").classList.toggle("on", mode === "talk");
+  $("tab-calls").classList.toggle("on", mode === "calls");
   for (const k of PANELS) $("tab-" + k).classList.toggle("on", mode === k);
   $("tab-rec").classList.toggle("on", mode === "rec" && rtab === "script");
   $("tab-ctx").classList.toggle("on", mode === "rec" && rtab === "context");
   $("tab-call").classList.toggle("on", mode === "call"); $("tab-call").hidden = mode !== "call";
 }
-const PANELS = ["settings", "tscript", "hscript"];   // the deployment's issue 13798: Scout's panels beside TALK (QC, APPROVAL removed 2026-11-22)
-const MODES = ["rec", "call", "talk", ...PANELS, "qc", "approval"];   // qc/approval: stub sections, never reached by Tab
-function goTab(n) {   // TALK / SETTINGS / DESKS / AGENTS, and SCRIPT / CONTEXT: the one row at the top
-  pinned = (n === "talk" || PANELS.includes(n)) ? n : "tscript"; setMode();
+const PANELS = ["settings", "tscript", "hscript"];   // the deployment's issue 13798: Scout's panels beside CALLS (QC, APPROVAL removed 2026-11-22)
+const MODES = ["rec", "call", "calls", ...PANELS, "qc", "approval"];   // qc/approval: stub sections, never reached by Tab
+function goTab(n) {   // CALLS / SETTINGS / Speaker Script / Eagle Script, and SCRIPT / CONTEXT: the one row at the top
+  pinned = (n === "calls" || PANELS.includes(n)) ? n : "tscript"; setMode();
   if (PANELS.includes(n)) panelOpen(n);
   refreshTabs();
 }
@@ -278,7 +303,7 @@ function setMode() {
   refreshTabs();
   if (!liveCall() && pcs.length) leave();   // the call ended: stop sending the camera
 }
-$("tab-talk").onclick = () => goTab("talk"); for (const k of PANELS) $("tab-" + k).onclick = () => goTab(k); $("tab-rec").onclick = () => goTab("script"); $("tab-ctx").onclick = () => goTab("context");
+$("tab-calls").onclick = () => goTab("calls"); for (const k of PANELS) $("tab-" + k).onclick = () => goTab(k); $("tab-rec").onclick = () => goTab("script"); $("tab-ctx").onclick = () => goTab("context");
 async function pollHealth() {
   try {
     const h = await api("health").then(r => r.json());
@@ -294,11 +319,10 @@ async function pollHealth() {
   } catch {}   // #dot is painted from link (api) every 500 ms
 }
 
-// ---------- TALK: the raw live transcript of the conversation with the agent ----------
-// GET /talk/transcript?since=<seq> every 500 ms: new final lines (you and the agent) plus the one live partial. The
-// view sticks to the bottom unless you scrolled up to read.
-// The same transcript shows under SETTINGS (the user 2026-11-22: "transcript in Talk settings"): one view state per box.
-const talkBox = { talkmain: { seq: 0, part: null }, settalk: { seq: 0, part: null } };
+// ---------- SETTINGS: the live transcript of the conversation with the agent ----------
+// GET /talk/transcript?since=<seq> every 500 ms: new final lines (you and the agent) plus the one live partial, shown
+// under SETTINGS. The view sticks to the bottom unless you scrolled up to read.
+const talkBox = { settalk: { seq: 0, part: null } };
 const talkWho = ch => ch === "me" ? "YOU" : "EAGLE";
 function talkRow(ch, text, partial) {
   const d = document.createElement("p");
@@ -307,7 +331,7 @@ function talkRow(ch, text, partial) {
   return d;
 }
 async function pollTalk() {
-  const id = mode === "talk" ? "talkmain" : mode === "settings" ? "settalk" : null;   // the speaker script has no transcript box (the reader 2026-11-22: it took script room and he never uses it)
+  const id = mode === "settings" ? "settalk" : null;
   if (!id) return;
   const S = talkBox[id];
   let j; try { j = await api("talk/transcript?since=" + S.seq).then(r => r.json()); } catch { return; }
@@ -324,6 +348,42 @@ async function pollTalk() {
   else box.querySelectorAll(".none").forEach(x => x.remove());
   if (stick) box.scrollTop = box.scrollHeight;
 }
+
+// ---------- CALLS: the live call copilot, silent text only ----------
+// GET /calls/state every 1 s while the tab shows. callsRender is pure (tested in calls.test.mjs): the transcript lines
+// (ME / THEM, interim dim), the cards newest on top, the title and the listening flag (a line or card in the last 15 s).
+// <calls-render>
+function callsRender(st, now, clearedAt) {
+  const e = x => String(x == null ? "" : x).replace(/&/g, "&amp;").replace(/</g, "&lt;"), cut = clearedAt || 0;
+  const lines = ((st && st.transcript) || []).filter(l => l.t > cut), cards = ((st && st.cards) || []).filter(c => c.t > cut);
+  const hm = t => { const d = new Date(t * 1000); return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); };
+  const last = Math.max(0, ...lines.map(l => l.t), ...cards.map(c => c.t));
+  return {
+    title: (st && st.title) || "no call",
+    listening: last > 0 && now / 1000 - last < 15,
+    lines: lines.map(l => `<p class="ln ${l.speaker === "ME" ? "me" : "them"}${l.final ? "" : " partial"}" data-id="${l.id}"><i>${l.speaker === "ME" ? "ME" : "THEM"}</i>${e(l.text)}</p>`).join(""),
+    cards: cards.slice().reverse().map(c => `<section class="card" data-id="${c.id}"><time>${hm(c.t)}</time><div class="asked"><b>ASKED</b>${e(c.asked)}</div><div class="say"><b>SAY</b>${e(c.say)}</div><div class="next"><b>NEXT</b>${e(c.next)}</div></section>`).join(""),
+  };
+}
+// </calls-render>
+let callsCut = Number(store.get("calls.cut")) || 0, callsKey = "";
+async function pollCalls() {
+  if (mode !== "calls") return;
+  let st; try { st = await getJSON("calls/state"); } catch { return; }
+  const r = callsRender(st, Date.now(), callsCut);
+  $("callstitle").textContent = r.title; $("callslive").classList.toggle("on", r.listening);
+  const key = r.lines + "\n" + r.cards;
+  if (key === callsKey) return;
+  callsKey = key;
+  const tr = $("callstr"), stick = tr.scrollHeight - tr.scrollTop - tr.clientHeight < 80;
+  tr.innerHTML = '<div class="sp"></div>' + (r.lines || '<div class="none">Waiting for the call.</div>');
+  $("callscards").innerHTML = r.cards || '<div class="none">Cards appear here, newest on top.</div>';
+  if (stick) tr.scrollTop = tr.scrollHeight;
+}
+$("callsclear").onclick = () => {   // clears this screen at once (what arrived before now stays hidden); the server reset is best-effort (it needs the write secret)
+  callsCut = Date.now() / 1000; store.set("calls.cut", String(callsCut)); callsKey = ""; pollCalls();
+  api("calls/reset", { method: "POST" }).catch(() => {});
+};
 
 // ---------- RECORD: the prompter ----------
 // No key instructions on screen; a take can also be started from outside (POST /prompter/record) and the app follows
@@ -375,7 +435,7 @@ function hud() {
   $("spd").classList.toggle("play", playing);
 }
 function render() {
-  if (mode === "talk" || PANELS.includes(mode)) { $("title").textContent = ""; return; }
+  if (mode === "calls" || PANELS.includes(mode)) { $("title").textContent = ""; return; }
   if (mode === "call") { $("title").textContent = health.call ? `call ${health.call}` : "no call"; return; }
   const k = takes[t];
   if (!k) { $("title").textContent = takes.length ? "" : "no takes yet"; return; }
@@ -450,12 +510,12 @@ window.vizierTop = () => {   // the TOP button (Alt+T is gone, issue 17206): lin
   if (mode === "tscript") { tsCur = 0; drawTscript(); $("p-tscript").scrollTop = 0; reportTs(); }
   else if (mode === "hscript") { const el = $("p-hscript"), c = ((panel.hscript.data || {}).cues || [])[0]; if (c) { panel.hscript.data.current = c.beat; hsCur = c.beat; } drawHscript(); el.scrollTop = 0; }
 };
-window.vizierTab = () => {   // Alt+T from any app, or Tab in the page: TALK -> SETTINGS -> DESKS -> AGENTS -> SCRIPT -> TALK
+window.vizierTab = () => {   // Alt+T from any app, or Tab in the page: CALLS -> SETTINGS -> Speaker Script -> Eagle Script -> CALLS
   // (the deployment's issue 13798; the user 2026-11-15 3:13 PM, "I can't tab over to script": SCRIPT is in the cycle, and the
-  // prompter text is right here in this window). CONTEXT stays a click away; from it Tab goes on to TALK.
+  // prompter text is right here in this window). CONTEXT stays a click away; from it Tab goes on to CALLS.
   if (mode === "call") return;
-  const order = ["talk", ...PANELS], cur = mode;
-  goTab(cur === "context" ? "talk" : order[(order.indexOf(cur) + 1) % order.length]);
+  const order = ["calls", ...PANELS], cur = mode;
+  goTab(cur === "context" ? "calls" : order[(order.indexOf(cur) + 1) % order.length]);
 };   // the app's global Alt+Down / Alt+Up (main.rs)
 function goTake(i) { t = takes.length ? (i + takes.length) % takes.length : 0; built = ""; curIdx = 0; lastPos = ""; render(); }
 let last = 0, looping = false, pos = 0;   // pos: fractional scroll (scrollTop rounds to device pixels)
@@ -493,7 +553,7 @@ window.vizierKeyLatency = () => {
   const s = lat.slice().sort((a, b) => a - b), q = f => s.length ? +s[Math.min(s.length - 1, Math.floor(f * s.length))].toFixed(1) : null;
   return { n: s.length, p50: q(.5), p95: q(.95), max: s.length ? +s[s.length - 1].toFixed(1) : null };
 };
-document.addEventListener("keydown", e => {   // TALK and the panels: Tab, arrows, Enter, S (the app focused)
+document.addEventListener("keydown", e => {   // CALLS and the panels: Tab, arrows, Enter, S (the app focused)
   if (e.target.tagName === "INPUT" || mode === "call") return;
   const k = e.key;
   if (mode === "rec" && k !== "Tab") return;   // SCRIPT / CONTEXT keys: the prompter's own handler below
@@ -992,7 +1052,7 @@ $("build").onclick = () => { buildOpen = !buildOpen; $("build").classList.toggle
   try { if (window.__TAURI__) CFG = (await window.__TAURI__.core.invoke("config")) || {}; } catch (e) { console.error(e); }
   SERVER = (Q.get("server") || store.get("vizier.server") || DEFAULT()).replace(/\/+$/, "");
   connect(); pollHealth(); buildlog(); context(); scripts(); coach();
-  every(1000, pollHealth); every(500, pollTalk); every(2000, coach); every(2000, scripts); every(5000, buildlog); every(5000, context);
+  every(1000, pollHealth); every(500, pollTalk); every(1000, pollCalls); every(2000, coach); every(2000, scripts); every(5000, buildlog); every(5000, context);
 })();
 </script><script type="module" src="talk.js" onerror="window.__TAURI__&&window.__TAURI__.core.invoke('talk_log',{line:new Date().toISOString()+' talk.js did not load: no talk link'})"></script>
 </body></html>

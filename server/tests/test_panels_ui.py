@@ -8,15 +8,20 @@ HTML = (Path(__file__).resolve().parents[2] / "app" / "ui" / "index.html").read_
 
 
 def test_four_panels_and_their_tabs_exist():
-    for k in ("talk", "settings", "tscript", "hscript", "qc", "approval"):
+    for k in ("calls", "settings", "tscript", "hscript", "qc", "approval"):
         assert f'id="tab-{k}"' in HTML and f'id="m-{k}"' in HTML, k
+
+
+def test_talk_tab_is_gone_and_nothing_speaks_aloud():
+    assert 'id="tab-talk"' not in HTML and 'id="m-talk"' not in HTML and 'id="talkmain"' not in HTML
+    assert "speechSynthesis" not in HTML and "SpeechSynthesisUtterance" not in HTML
 
 
 def test_tab_cycles_the_three_panels_and_qc_approval_are_gone():
     """The user 2026-11-22: QC and APPROVAL "fixed or removed": removed. Tab cycles TALK, SETTINGS, Speaker Script, Eagle Script."""
     fn = HTML[HTML.index("window.vizierTab = () =>"):]
     fn = fn[: fn.index("};")]
-    assert '["talk", ...PANELS]' in fn   # Tab reaches SCRIPT (#14)
+    assert '["calls", ...PANELS]' in fn   # Tab reaches SCRIPT (#14)
     assert re.search(r'const PANELS = \["settings", "tscript", "hscript"\]', HTML)
     for k in ("qc", "approval"):
         assert re.search(rf'<span id="tab-{k}" hidden></span>', HTML), k     # an inert stub, never a visible tab
@@ -51,7 +56,7 @@ def test_no_desks_or_agents_panel_and_every_tab_has_the_job_header():
     shows get a tab each; the speaker script styles by who says it."""
     for k in ("desks", "agents"):
         assert f'id="tab-{k}"' not in HTML and f'id="m-{k}"' not in HTML, k
-    assert HTML.index('id="jobhdr"') < HTML.index('id="m-talk"') and "async function loadHdr" in HTML
+    assert HTML.index('id="jobhdr"') < HTML.index('id="m-calls"') and "async function loadHdr" in HTML
     assert 'roleOf(s.title)' in HTML and r"/^\s*\[[^\]]+\]/.test(title)" in HTML and "[AI voice]" in HTML and "HANDOFF:" in HTML
 
 
