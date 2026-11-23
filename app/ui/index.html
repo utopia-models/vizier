@@ -191,7 +191,6 @@
   <div id="settalk" class="talkbox" title="the live transcript: your speech and Eagle's replies, newest at the bottom"><div class="sp"></div></div>
   <div id="keylegend-s" class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> pick a setting &nbsp;·&nbsp; <b>← →</b> change it &nbsp;·&nbsp; <b>Alt+E</b> ears &nbsp;·&nbsp; <b>Alt+M</b> voice &nbsp;·&nbsp; <b>Alt+V</b> show / hide</div></section>
 <section class="mode" id="m-tscript"><div class="panel" id="p-tscript"></div>
-  <div id="tstalk" class="talkbox" title="the live transcript while you talk with Eagle: your speech and Eagle's replies, newest at the bottom"><div class="sp"></div></div>
   <div class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> step a line &nbsp;·&nbsp; the arrow marks the line ahead &nbsp;·&nbsp; nothing moves but by your keys</div></section>
 <section class="mode" id="m-qc"><div class="panel" id="p-qc"></div>
   <div class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> scroll &nbsp;·&nbsp; read-only: the QA checklist and the last vsl_qa verdict</div></section>
@@ -297,7 +296,7 @@ async function pollHealth() {
 // GET /talk/transcript?since=<seq> every 500 ms: new final lines (you and the agent) plus the one live partial. The
 // view sticks to the bottom unless you scrolled up to read.
 // The same transcript shows under SETTINGS (the user 2026-11-22: "transcript in Talk settings"): one view state per box.
-const talkBox = { talkmain: { seq: 0, part: null }, settalk: { seq: 0, part: null }, tstalk: { seq: 0, part: null } };
+const talkBox = { talkmain: { seq: 0, part: null }, settalk: { seq: 0, part: null } };
 const talkWho = ch => ch === "me" ? "YOU" : "EAGLE";
 function talkRow(ch, text, partial) {
   const d = document.createElement("p");
@@ -306,7 +305,7 @@ function talkRow(ch, text, partial) {
   return d;
 }
 async function pollTalk() {
-  const id = mode === "talk" ? "talkmain" : mode === "settings" ? "settalk" : mode === "tscript" ? "tstalk" : null;
+  const id = mode === "talk" ? "talkmain" : mode === "settings" ? "settalk" : null;   // the speaker script has no transcript box (Tyler 2026-11-22: it took script room and he never uses it)
   if (!id) return;
   const S = talkBox[id];
   let j; try { j = await api("talk/transcript?since=" + S.seq).then(r => r.json()); } catch { return; }

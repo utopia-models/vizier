@@ -40,7 +40,7 @@ def test_mvp_lines_and_ui_wiring(tmp_path, monkeypatch):
             return await (await c.get("/speaker-script")).json()
     assert asyncio.run(go())["mvp"] == ["The app does X.", "It does Y."]
     html = (Path(__file__).resolve().parents[2] / "app" / "ui" / "index.html").read_text()
-    assert 'class="vslk">VSL</span>' in html and 'id="tstalk"' in html and "every(120" in html
+    assert 'class="vslk">VSL</span>' in html and 'id="tstalk"' not in html and "every(120" in html
 
 
 def test_job_post_title(tmp_path, monkeypatch):
