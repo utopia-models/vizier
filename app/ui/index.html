@@ -156,13 +156,13 @@
   #build .t { color:#6fbf7a; font:12px ui-monospace, monospace; margin-right:8px; }
 </style></head>
 <body>
-<button id="topbtn" title="back to line 1, lit" style="position:fixed;top:6px;right:150px;z-index:20;padding:4px 12px;font:700 13px system-ui;background:#1d2a3a;color:#cfe3ff;border:1px solid #2f6aa0;border-radius:6px;cursor:pointer">&#8679; Top</button>
 <header data-tauri-drag-region>
   <span id="dot" title="link to the vizier service"></span><b data-tauri-drag-region title="drag to move Vizier; its edges resize it">Vizier</b>
   <span class="tab talk" id="tab-talk" title="TALK: a live transcript of your conversation with Eagle">TALK</span>
   <span class="tab set" id="tab-settings" title="SETTINGS: every Eagle setting; arrows change them">SETTINGS</span>
   <span class="tab ts" id="tab-tscript" title="Speaker Script: his spoken beats, read-only; nothing highlights or scrolls by itself">Speaker Script</span>
   <span class="tab hs" id="tab-hscript" title="Eagle Script: the cues Eagle will run, read-only; the current one is lit">Eagle Script</span>
+  <button id="topbtn" title="back to line 1, lit" style="padding:3px 11px;font:700 13px system-ui;background:#1d2a3a;color:#cfe3ff;border:1px solid #2f6aa0;border-radius:6px;cursor:pointer">&#8679; Top</button>   <!-- in the header row, never fixed: the fixed spot (right:150px) sat under the Ears/Voice/MIC pill and a click there did nothing (Eagle, vizier#76 self-test). The header's padding-right keeps the pill clear. -->
   <span id="tab-qc" hidden></span><span id="tab-approval" hidden></span>   <!-- QC and APPROVAL removed (the user 2026-11-22: "fix or remove"); the gate runs before Vizier, not in it -->
   <span id="tab-rec" hidden></span><span id="tab-ctx" hidden></span>   <!-- the teleprompter is gone (the user, Architect 8981): inert stubs so old refs stay null-safe -->
   <span class="tab call" id="tab-call" hidden title="CALL: shown automatically while a call is live">CALL</span>
