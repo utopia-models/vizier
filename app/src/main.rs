@@ -201,18 +201,19 @@ fn talk_shortcuts() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     let down = Shortcut::new(Some(Modifiers::ALT), Code::ArrowDown);
     let up = Shortcut::new(Some(Modifiers::ALT), Code::ArrowUp);
     // Plain Tab / arrows are global WHILE VIZIER IS VISIBLE and released while minimized (issue 17206, replacing #17021;
-    // plain_keys / sync_plain_keys). Alt+T is gone. Alt+Up / Alt+Down stay global; Alt+V pops Vizier up / hides it, always.
+    // plain_keys / sync_plain_keys). Alt+T is back (the reader 2026-11-24): it clicks Top. Alt+Up / Alt+Down stay global; Alt+V pops Vizier up / hides it, always.
     let vizier = Shortcut::new(Some(Modifiers::ALT), Code::KeyV);   // Alt+V: pop Vizier up / hide it
+    let top = Shortcut::new(Some(Modifiers::ALT), Code::KeyT);      // Alt+T: exactly the Top button (the reader 2026-11-24, brought back)
         tauri_plugin_global_shortcut::Builder::new()
-        .with_shortcuts([ears, mouth, down, up, vizier])
-        .expect("Alt+E / Alt+M / Alt+Up / Alt+Down / Alt+V")
+        .with_shortcuts([ears, mouth, down, up, vizier, top])
+        .expect("Alt+E / Alt+M / Alt+Up / Alt+Down / Alt+V / Alt+T")
         .with_handler(move |app, sc, ev| {
             if ev.state() != ShortcutState::Pressed {
                 return;
             }
             let plain = plain_keys().into_iter().find(|(k, _)| k == sc).map(|(_, n)| n);
             let name = if let Some(n) = plain { n }
-                else if sc == &vizier { "alt+v" }
+                else if sc == &vizier { "alt+v" } else if sc == &top { "alt+t" }
                 else if sc == &down { "down" } else if sc == &up { "up" }
                 else if sc == &ears { "alt+e" } else if sc == &mouth { "alt+m" } else { "" };
             hotkey(app, name);
@@ -278,6 +279,8 @@ fn hotkey(app: &tauri::AppHandle, name: &str) {
         }
         "left" | "right" => { let _ = w.eval(&format!("window.vizierPart&&window.vizierPart({})", if name == "right" { 1 } else { -1 })); }
         "tab" => { let _ = w.eval("window.vizierTab&&window.vizierTab()"); }
+        // Alt+T = a click on the Top button (line 1 lit, panel to the top, and the laptop session's Do-Top), from any app.
+        "alt+t" => { let _ = w.eval("var b=document.getElementById('topbtn');b&&b.click()"); }
         "down" | "up" => { let _ = w.eval(&format!("window.vizierStep&&window.vizierStep({})", if name == "down" { 1 } else { -1 })); }
         "alt+e" | "alt+m" => {
             let k = if name == "alt+e" { "ears" } else { "mouth" };
