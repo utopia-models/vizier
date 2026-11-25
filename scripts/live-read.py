@@ -1,19 +1,18 @@
 #!/usr/bin/env python3
 """live-read.py: read the RUNNING Vizier window over CDP (DevTools on 127.0.0.1:9340, VIZIER_CDP_PORT) and grade the
 readable-prompter acceptance (issue 14087): script type <= 28 px, the window <= 1/3 of the screen, 0 outline labels
-("Coach on part", "Build") in the DOM. Read-only: it evaluates one expression and changes nothing on the screen.
+("Coach on part", "Build") in the VISIBLE text (innerText). Read-only: it evaluates one expression and changes nothing on the screen.
 
     python3 scripts/live-read.py --host eth           # ssh -L to the Windows box, then read
     python3 scripts/live-read.py --cdp 127.0.0.1:9340 # a port you already forwarded
 
-Prints one JSON object; exit 0 = every check passes, 1 = a check fails, 2 = no window to read.
+Prints one JSON object; exit 0 = every check passes, 1 = a check fails, 2 = no window to read or it is not showing a script.
 """
 import argparse, asyncio, json, socket, subprocess, sys, time
 
 import aiohttp
 
-READ = r"""(() => { const t = document.getElementById('text'), c = document.body.cloneNode(true);
-  c.querySelectorAll('script,style').forEach(x => x.remove()); const h = c.textContent, r = t.getBoundingClientRect();   // text, so id="build" is not a label
+READ = r"""(() => { const t = document.getElementById('text'), h = document.body.innerText, r = t.getBoundingClientRect();   // innerText = what is VISIBLE (display:none text is skipped), so a hidden id="build" is not a label
   return { mode: document.body.dataset.mode || null, font_px: parseFloat(getComputedStyle(t).fontSize),
     window: [outerWidth, outerHeight], screen: [screen.availWidth, screen.availHeight],
     window_frac_of_screen: +(outerWidth * outerHeight / (screen.availWidth * screen.availHeight)).toFixed(3),
@@ -64,6 +63,9 @@ def main():
         if tun: tun.terminate()
     if not v:
         print(json.dumps({"error": "no page on the DevTools endpoint", "cdp": cdp})); return 2
+    if v.get("mode") != "rec" or not v.get("lines_shown"):   # a read of CALLS / an empty script grades nothing (issue 14087 reads 1-3)
+        v["error"] = "not showing a script: put Vizier on the SCRIPT tab with a script loaded, then re-read"
+        print(json.dumps(v)); return 2
     v["checks"] = {"font_le_28px": v["font_px"] <= 28, "window_le_third_of_screen": v["window_frac_of_screen"] <= 1 / 3,
                    "no_outline_labels": v["coach_labels"] == 0 and v["build_labels"] == 0}
     print(json.dumps(v))
