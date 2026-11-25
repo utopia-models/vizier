@@ -20,10 +20,9 @@ every window on /feed redraws. The full contract is docs/openapi.yaml; connector
         GET  /desks · POST /desks/open {"id"}   desks to open (VIZIER_DESKS_CMD, VIZIER_DESK_OPEN_CMD)
         GET  /agents      the team's liveness (VIZIER_AGENTS_DIR)
         GET  /speaker-script  his spoken beats, read-only, no highlight (VIZIER_SPEAKER_SCRIPT); both tabs mark edited lines
-        POST /speaker-script, /horus-script  {"text"} | raw text: replace the live file (X-Vizier-Write secret); GET /state: it all in one JSON
+        POST /speaker-script  {"text"} | raw text: replace the live file (X-Vizier-Write secret); GET /state: it all in one JSON
         GET  /state also carries the reading cursor: seq, updated_at, current_line_index (0-based), current_line_text, total_lines, script_id, script_name, part, parts
         GET  /events (SSE, one `cursor` event per move) · GET /cursor?since=<seq>&timeout=<s> (long-poll) · $VIZIER_DATA/cursor.jsonl (one row per move)
-        GET  /horus-script  the agent's cue table + the current cue (VIZIER_HORUS_CUES, VIZIER_HORUS_STATE); read-only
   WS    /feed     ← {"type": "status"|"line"|"interim"|"suggestion"|"delta"|"done"|"cancel"|"script", ..., "t"}
 
 Configuration is environment variables, optionally loaded from a KEY=VALUE file (see vizier.env.example):
@@ -115,9 +114,7 @@ AGENTS_DIR = os.environ.get("VIZIER_AGENTS_DIR", "")    # one <agent>.json per a
 # A VSL take, started and stopped by the reader (Alt+R in the app, the SETTINGS "Recording" row, or the agent's own
 # "record" command: all three POST /vsl). The command runs in the background and the POST answers at once, so the
 # key acts in milliseconds while the take's own start/stop (OBS, the desk, the review) takes what it takes.
-HORUS_CUES = os.environ.get("VIZIER_HORUS_CUES", "")    # cue-list files, first that exists wins (os.pathsep-separated): a markdown table
 SPEAKER_SCRIPT = os.environ.get("VIZIER_SPEAKER_SCRIPT", "")  # his script (speaker-script.md): the Speaker Script tab shows its spoken lines
-HORUS_STATE = os.environ.get("VIZIER_HORUS_STATE", "")  # vsl-follow's state.json: {"beat": "b3", "at": ...}, the current cue
 VSL_START_CMD = os.environ.get("VIZIER_VSL_START_CMD", "")   # e.g. "vsl start {name}"; {name} is shell-quoted
 VSL_STOP_CMD = os.environ.get("VIZIER_VSL_STOP_CMD", "")     # e.g. "vsl stop"
 VSL_STATE = os.environ.get("VIZIER_VSL_STATE", "")           # a file that exists while a take records (vsl's current.json)
@@ -1261,8 +1258,6 @@ async def agents(_req):
     return web.json_response({"configured": True, "agents": rows})
 
 
-# ---------- Eagle Script: the agent's own cue list, read-only (the reader's view of what the agent will do) ----------
-
 _SEEN: dict = {}
 
 
@@ -1328,55 +1323,7 @@ async def speaker_script(_req):
                               "job": job_post_title(p, m.group(1) if m else ""), "mvp": mvp, "sections": secs, "now": time.time()})
 
 
-def _cells(line):
-    return [c.strip() for c in line.strip().strip("|").split("|")]
-
-
-def parse_cues(text):
-    """A markdown table -> [{beat, id, on, do, wait, fail}]. Columns are found by header name, so both a horus-script.md
-    (id | on | do | wait-for | on-fail) and a runsheet.md (t | Speaker says | ... | horus action | ... | live adjust) read.
-    `beat` is vsl-follow's id for the row: b<row index>."""
-    rows, head = [], None
-    for line in text.splitlines():
-        if not line.lstrip().startswith("|"):
-            continue
-        c = _cells(line)
-        if head is None:
-            head = [h.lower() for h in c]; continue
-        if all(re.fullmatch(r":?-{2,}:?", x) for x in c if x):
-            continue
-        def pick(*names):
-            for i, h in enumerate(head):
-                if i < len(c) and any(n in h for n in names):
-                    return c[i]
-            return ""
-        rows.append({"beat": f"b{len(rows)}", "id": pick("id", "t") or f"b{len(rows)}",
-                     "on": pick("on-phrase", "on phrase", "says", "on"), "do": pick("horus action", "do"),
-                     "wait": pick("wait", "mark"), "fail": pick("on-fail", "adjust", "fail")})
-    return rows
-
-
-async def horus_script(_req):
-    """GET /horus-script: the cue table from the first existing VIZIER_HORUS_CUES file, and `current` (a beat id) from
-    VIZIER_HORUS_STATE. Nothing here writes."""
-    src = next((Path(p).expanduser() for p in HORUS_CUES.split(os.pathsep) if p and Path(p).expanduser().is_file()), None)
-    if not src:
-        return web.json_response({"configured": bool(HORUS_CUES), "cues": [], "current": None, "source": None})
-    cur = at = None
-    if HORUS_STATE:
-        try:
-            st = json.loads(Path(HORUS_STATE).expanduser().read_text())
-            cur, at = st.get("beat"), st.get("at")
-        except (OSError, ValueError):
-            pass
-    cues = parse_cues(src.read_text())
-    for c in cues:
-        c["changed"] = None   # no 'changed HH:MM' marks (track_changes is kept, unused)
-    return web.json_response({"configured": True, "source": src.name, "cues": cues, "current": cur, "at": at,
-                              "now": time.time()})
-
-
-# ---------- WRITE API: POST /speaker-script, POST /horus-script, GET /state (the agent edits what the tabs show) ----------
+# ---------- WRITE API: POST /speaker-script, GET /state (the agent edits what the tabs show) ----------
 # Local only (the server binds loopback). A write needs the shared secret in `X-Vizier-Write`, read from the file
 # VIZIER_WRITE_SECRET_FILE (mode 0640, group fleet-vizier-write). The file is read on every request, never cached, never
 # logged, never in git. Unset or unreadable = writes are off (403), reads stay open. Each write is atomic (temp + rename in
@@ -1405,11 +1352,10 @@ def write_allowed(req) -> bool:
 
 
 def script_target(kind: str) -> Path | None:
-    """The live file a tab reads: the speaker script, or the first existing cue file (else the first one listed)."""
+    """The live file a tab reads: the speaker script."""
     if kind == "speaker-script":
         return Path(SPEAKER_SCRIPT).expanduser() if SPEAKER_SCRIPT else None
-    paths = [Path(p).expanduser() for p in HORUS_CUES.split(os.pathsep) if p]
-    return next((p for p in paths if p.is_file()), paths[0] if paths else None)
+    return None
 
 
 def sha_of(text: str) -> str:
@@ -1443,7 +1389,7 @@ def keep_previous(kind: str, path: Path) -> None:
 
 
 async def write_script(req):
-    """POST /speaker-script | /horus-script: JSON {"text": ...} or the raw text. -> {ok, bytes, sha, at}."""
+    """POST /speaker-script: JSON {"text": ...} or the raw text. -> {ok, bytes, sha, at}."""
     kind = req.path.strip("/")
     if not write_allowed(req):
         return bad("writes need the X-Vizier-Write secret (group fleet-vizier-write)", 403)
@@ -1484,7 +1430,7 @@ async def write_script(req):
 
 
 async def write_undo(req):
-    """POST /speaker-script/undo | /horus-script/undo: restore the previous version (itself kept, so undo toggles)."""
+    """POST /speaker-script/undo: restore the previous version (itself kept, so undo toggles)."""
     kind = req.path.strip("/").removesuffix("/undo")
     if not write_allowed(req):
         return bad("writes need the X-Vizier-Write secret (group fleet-vizier-write)", 403)
@@ -1507,24 +1453,13 @@ def file_view(p: Path | None) -> dict:
 
 
 async def state(req):
-    """GET /state: everything the agent needs in one read: his script (text, sha, mtime), the cue sheet summary and the
-    current cue, the take, whether it records, and the front tab (when the app reports it)."""
+    """GET /state: everything the agent needs in one read: his script (text, sha, mtime), the take, whether it records, and the front tab (when the app reports it)."""
     sp = file_view(script_target("speaker-script"))
     if sp["text"] is not None:
         sp["sections"] = len(spoken_sections(sp["text"]))
-    hv = file_view(script_target("horus-script"))
-    cur = at = None
-    if HORUS_STATE:
-        try:
-            st = json.loads(Path(HORUS_STATE).expanduser().read_text()); cur, at = st.get("beat"), st.get("at")
-        except (OSError, ValueError):
-            pass
-    cues = parse_cues(hv["text"]) if hv["text"] else []
-    horus = {k: hv[k] for k in ("configured", "source", "sha", "mtime")}
-    horus.update(cue_count=len(cues), current_beat=cur, current_at=at, current_cue=next((c for c in cues if c["beat"] == cur), None))
     v = vsl_view()
     return web.json_response({
-        "ok": True, "now": time.time(), "speaker_script": sp, "horus_script": horus,
+        "ok": True, "now": time.time(), "speaker_script": sp,
         "take": {"name": v["name"] or VSL_NAME or current_script(req.app).stem, "recording": v["actual"], "pending": v["pending"],
                  "prompter_recording": REC.get("take")},
         **{k: CURSOR[k] for k in ("seq", "updated_at") + CURSOR_KEYS},
@@ -1984,12 +1919,9 @@ def make_app() -> web.Application:
     r.add_get("/desks", desks)
     r.add_post("/desks/open", desks_open)
     r.add_get("/agents", agents)
-    r.add_get("/horus-script", horus_script)
     r.add_get("/speaker-script", speaker_script)
     r.add_post("/speaker-script", write_script)
-    r.add_post("/horus-script", write_script)
     r.add_post("/speaker-script/undo", write_undo)
-    r.add_post("/horus-script/undo", write_undo)
     r.add_get("/state", state)
     r.add_post("/prompter/key", prompter_key)
     r.add_post("/take/arm", take_arm)

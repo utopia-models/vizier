@@ -5,6 +5,14 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Removed
+
+- **The Eagle Script tab and every live-browser hook around a take** (knowledge#18892). The browser capture is recorded
+  separately after the take, so Vizier no longer shows or serves the agent's cue table: the tab, `GET/POST /horus-script`
+  (+ `/undo`), `horus_script` in `GET /state`, `VIZIER_HORUS_CUES` / `VIZIER_HORUS_STATE`, `vizier-say --horus`,
+  `vizier-oneshot eagle`, and the Top button's call to the laptop browser session (`127.0.0.1:18791/vsl/top`). Tab now cycles
+  TALK, SETTINGS, Speaker Script. Teleprompter, mic/camera recording and take upload are untouched.
+
 ### Added
 
 - **Clip player: `/player` plays the row's pre-recorded clip full screen on every cursor move (the deployment's clip player ask).** One `<video>` page served by the display server follows `GET /events`; each change of `current_line_index` plays `$VIZIER_CLIPS/<slug>/row-<i>.webm` (default `$VIZIER_DATA/clips`) from its start (Down plays the next row's, Up replays the previous row's), warming the next rows' files. It takes no keys and never posts the cursor, so Down/Tab stay Vizier's. A row with no clip shows a red "no clip for row N" card and sets `clip_banner` in `GET /state` (and `GET /player/banner`), which the app draws as a red bar; the next row with its clip clears it. `POST /player/log` / `GET /player/log` keep each start (`ms_from_cursor`). Open it: `scripts/windows/launch-player.ps1 -User <windows user> -Slug <slug>` (Chrome `--app --kiosk` in its own profile; no compile). Test: `server/tests/test_player.py` (synthetic 2 s clips, real Chromium; starts measured 6 to 80 ms after the cursor event over 8 runs).
