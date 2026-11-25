@@ -7,7 +7,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Removed
 
-- **The Eagle Script tab and every live-browser hook around a take** (knowledge#18892). The browser capture is recorded
+- **The Eagle Script tab and every live-browser hook around a take**. The browser capture is recorded
   separately after the take, so Vizier no longer shows or serves the agent's cue table: the tab, `GET/POST /horus-script`
   (+ `/undo`), `horus_script` in `GET /state`, `VIZIER_HORUS_CUES` / `VIZIER_HORUS_STATE`, `vizier-say --horus`,
   `vizier-oneshot eagle`, and the Top button's call to the laptop browser session (`127.0.0.1:18791/vsl/top`). Tab now cycles
