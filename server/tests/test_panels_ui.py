@@ -8,7 +8,7 @@ HTML = (Path(__file__).resolve().parents[2] / "app" / "ui" / "index.html").read_
 
 
 def test_four_panels_and_their_tabs_exist():
-    for k in ("calls", "settings", "tscript", "hscript", "qc", "approval"):
+    for k in ("calls", "settings", "tscript", "qc", "approval"):
         assert f'id="tab-{k}"' in HTML and f'id="m-{k}"' in HTML, k
 
 
@@ -18,11 +18,11 @@ def test_talk_tab_is_gone_and_nothing_speaks_aloud():
 
 
 def test_tab_cycles_the_three_panels_and_qc_approval_are_gone():
-    """The user 2026-11-22: QC and APPROVAL "fixed or removed": removed. Tab cycles TALK, SETTINGS, Speaker Script, Eagle Script."""
+    """The user 2026-11-22: QC and APPROVAL "fixed or removed": removed. Tab cycles TALK, SETTINGS, Speaker Script."""
     fn = HTML[HTML.index("window.vizierTab = () =>"):]
     fn = fn[: fn.index("};")]
     assert '["calls", ...PANELS]' in fn   # Tab reaches SCRIPT (#14)
-    assert re.search(r'const PANELS = \["settings", "tscript", "hscript"\]', HTML)
+    assert re.search(r'const PANELS = \["settings", "tscript"\]', HTML)
     for k in ("qc", "approval"):
         assert re.search(rf'<span id="tab-{k}" hidden></span>', HTML), k     # an inert stub, never a visible tab
         assert f'class="tab hs" id="tab-{k}"' not in HTML, k

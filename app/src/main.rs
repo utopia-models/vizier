@@ -279,7 +279,7 @@ fn hotkey(app: &tauri::AppHandle, name: &str) {
         }
         "left" | "right" => { let _ = w.eval(&format!("window.vizierPart&&window.vizierPart({})", if name == "right" { 1 } else { -1 })); }
         "tab" => { let _ = w.eval("window.vizierTab&&window.vizierTab()"); }
-        // Alt+T = a click on the Top button (line 1 lit, panel to the top, and the laptop session's Do-Top), from any app.
+        // Alt+T = a click on the Top button (line 1 lit, panel to the top), from any app.
         "alt+t" => { let _ = w.eval("var b=document.getElementById('topbtn');b&&b.click()"); }
         "down" | "up" => { let _ = w.eval(&format!("window.vizierStep&&window.vizierStep({})", if name == "down" { 1 } else { -1 })); }
         "alt+e" | "alt+m" => {

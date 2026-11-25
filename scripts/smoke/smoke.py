@@ -14,9 +14,8 @@ What it does (every step is a PASS/FAIL line, with a screenshot in --out; exit 0
      the same code the shortcuts run (main.rs hotkey()).
   3. Over the DevTools protocol, with real key and mouse-wheel input (Input.dispatchKeyEvent / dispatchMouseEvent):
      the page links to the server (and to LiveKit when --talk-url is given); the default view is Speaker Script; Tab visits
-     TALK, SETTINGS, Speaker Script and Eagle Script in that order and comes back to TALK; Speaker Script shows
-     his spoken lines read-only (no highlight, no scroll by itself) and Eagle Script lights the current cue from
-     vsl-follow's state.json; neither shows 'changed HH:MM' marks; every tab scrolls to its bottom by wheel (and
+     TALK, SETTINGS and Speaker Script in that order and comes back to TALK; Speaker Script shows
+     his spoken lines read-only (no highlight, no scroll by itself); it shows no 'changed HH:MM' marks; every tab scrolls to its bottom by wheel (and
      the lists by arrow keys, the selected row always fully on screen); every SETTINGS row that can change
      changes and changes back; Alt+E and Alt+M flip Ears and Voice (keys in the page, and the native shortcut when the
      talk link is up); Alt+V hides the window and Alt+V brings it back; Alt+R starts a (dry) take and Alt+R stops it.
@@ -73,13 +72,9 @@ def fixture(d: Path, script: Path):
     desks = [{"id": f"d{i}", "name": f"Desk {i}", "agent": f"agent{i:02}"} for i in range(25)]
     (d / "desks.json").write_text(json.dumps(desks))
     (d / "scripts.md").write_text(script.read_text())
-    cues = ["| id | on | do | wait-for | on-fail |", "|---|---|---|---|---|"] + \
-           [f"| c{i} | says phrase {i} | show page {i} | mark {i} | skip {i} |" for i in range(30)]
-    (d / "horus-script.md").write_text("\n".join(cues) + "\n")
-    (d / "horus-state.json").write_text(json.dumps({"beat": "b2", "at": 1}))
     state = d / "vsl-current.json"
-    return {"VIZIER_SPEAKER_SCRIPT": str(d / "scripts.md"), "VIZIER_HORUS_CUES": str(d / "horus-script.md"),
-            "VIZIER_HORUS_STATE": str(d / "horus-state.json"), "VIZIER_DATA": str(d / "data"), "VIZIER_SCRIPTS": str(d / "scripts.md"),
+    return {"VIZIER_SPEAKER_SCRIPT": str(d / "scripts.md"),
+            "VIZIER_DATA": str(d / "data"), "VIZIER_SCRIPTS": str(d / "scripts.md"),
             "VIZIER_AGENTS_DIR": str(d / "agents"), "VIZIER_DESKS_CMD": f"cat {shlex.quote(str(d / 'desks.json'))}",
             "VIZIER_DESK_OPEN_CMD": "true",
             "VIZIER_VSL_START_CMD": f"echo '{{}}' > {shlex.quote(str(state))}",
@@ -194,10 +189,6 @@ async def scroll_check(c, out, sel, name):
     return good
 
 
-async def lit_is(c, want):
-    return await c.js("[...document.querySelectorAll('#p-hscript .row.sel')].map(r=>r.dataset.b)") == want
-
-
 async def sel_visible(c, pid):
     return await c.js(f"(()=>{{const p=document.getElementById('{pid}'),r=p.querySelector('.row.sel');if(!r)return null;"
                       "const a=p.getBoundingClientRect(),b=r.getBoundingClientRect(),"
@@ -235,14 +226,14 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
     # ---- Tab: TALK -> SETTINGS -> DESKS -> AGENTS -> Speaker Script -> Eagle Script -> TALK
     await c.js("window.vizierPanels.goTab('talk')"); await asyncio.sleep(0.25)
     seen = []
-    for _ in range(4):
+    for _ in range(3):
         await c.key("Tab"); await asyncio.sleep(0.25)
         m = await c.js("document.body.dataset.mode")
         seen.append(m); await c.shot(out, f"tab-{m}")
-    want = ["settings", "tscript", "hscript", "talk"]   # DESKS and AGENTS are gone; the diagram and app are Chrome tabs, not Vizier tabs
+    want = ["settings", "tscript", "talk"]   # DESKS and AGENTS are gone; the diagram and app are Chrome tabs, not Vizier tabs
     labels = await c.js("[...document.querySelectorAll('header .tab:not([hidden])')].map(t=>t.textContent)")
-    ok("Tab visits SETTINGS, Speaker Script, Eagle Script and back to TALK (no QC / APPROVAL / SCRIPT tab)",
-       seen == want and labels == ["TALK", "SETTINGS", "Speaker Script", "Eagle Script"], " > ".join(seen) + f"; tabs {labels}")
+    ok("Tab visits SETTINGS, Speaker Script and back to TALK (no QC / APPROVAL / SCRIPT / Eagle Script tab)",
+       seen == want and labels == ["TALK", "SETTINGS", "Speaker Script"], " > ".join(seen) + f"; tabs {labels}")
 
     # ---- every tab to the bottom: wheel, then keys with the selection on screen
     await c.js("window.vizierPanels.goTab('talk')")
@@ -296,24 +287,6 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
     f = Path(FIX["VIZIER_SPEAKER_SCRIPT"]); f.write_text(f.read_text().replace("Middle line 2.", "Middle line 2, edited by the smoke."))
     shown = await until(lambda: c.js("document.getElementById('p-tscript').textContent.includes('edited by the smoke')"), 12)
     ok("Speaker Script shows the edited line and no 'changed HH:MM' mark", shown and not await c.js("/changed \\d{1,2}:\\d\\d/.test(document.getElementById('p-tscript').textContent)"))
-
-    # ---- Eagle Script: the cue table; the current cue (vsl-follow's state.json) is lit; read-only
-    await c.js("window.vizierPanels.goTab('hscript')"); await asyncio.sleep(0.6)
-    await until(lambda: c.js("document.querySelectorAll('#p-hscript .row[data-b]').length > 1"), 8)
-    lit = lambda: c.js("[...document.querySelectorAll('#p-hscript .row.sel')].map(r=>r.dataset.b)")
-    ok("Eagle Script lights the current cue from state.json (b2), and only that one", await until(lambda: lit_is(c, ["b2"]), 8), str(await lit()))
-    sf = Path(FIX["VIZIER_HORUS_STATE"]); sf.write_text(json.dumps({"beat": "b25", "at": 2}))
-    moved = await until(lambda: lit_is(c, ["b25"]), 8)
-    vis = await c.js("(()=>{const p=document.getElementById('p-hscript'),r=p.querySelector('.row.sel').getBoundingClientRect(),a=p.getBoundingClientRect();return {top:r.top,bottom:r.bottom,ptop:a.top,pbottom:a.bottom}})()")
-    await c.shot(out, "hscript-current")
-    ok("Eagle Script follows the cue when state.json changes (b25 lit and on screen)", moved and vis["top"] >= vis["ptop"] - 1 and vis["bottom"] <= vis["pbottom"] + 1, f"lit {await lit()} {vis}")
-    for _ in range(4): await c.key("ArrowDown")
-    await c.key("Enter"); await asyncio.sleep(0.5)
-    ok("Eagle Script is read-only: arrows and Enter leave the lit cue where vsl-follow put it", await lit() == ["b25"] and await c.js("document.body.dataset.mode") == "hscript", str(await lit()))
-    await c.js("document.getElementById('p-hscript').scrollTop = 0"); await scroll_check(c, out, "#p-hscript", "Eagle Script")
-    cf = Path(FIX["VIZIER_HORUS_CUES"]); cf.write_text(cf.read_text().replace("show page 7 ", "show page 7 edited "))
-    shown = await until(lambda: c.js("document.getElementById('p-hscript').textContent.includes('show page 7 edited')"), 12)
-    ok("Eagle Script shows the edited cue and no 'changed HH:MM' mark", shown and not await c.js("/changed \\d{1,2}:\\d\\d/.test(document.getElementById('p-hscript').textContent)"))
 
     # ---- every SETTINGS row that can change: change it, then change it back
     await c.js("window.vizierPanels.goTab('settings')"); await asyncio.sleep(0.6)

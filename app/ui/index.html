@@ -33,7 +33,7 @@
   .tab.call.on { background:var(--accent); }
   .tab.calls.on { background:var(--me); }
   .tab.ctx.on { background:var(--hi); }
-  .tab.set.on, .tab.desk.on, .tab.agt.on, .tab.hs.on, .tab.ts.on { background:var(--accent); }
+  .tab.set.on, .tab.desk.on, .tab.agt.on, .tab.ts.on { background:var(--accent); }
   /* SETTINGS / DESKS / AGENTS (the deployment's issue 13798): one list each, the selected row marked, arrows drive it */
   #jobhdr { flex:0 0 auto; padding:6px 14px; background:#101a14; color:#cfeccf; border-bottom:1px solid #2c4a35; font:700 17px system-ui; letter-spacing:.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   #jobhdr:empty { display:none; }
@@ -67,7 +67,7 @@
   .panel .err { color:var(--rec); }
   .panel .dot { display:inline-block; width:11px; height:11px; border-radius:50%; margin-right:10px; background:#5b6472; }
   .panel .dot.green { background:#3ddc84; } .panel .dot.amber, .panel .dot.yellow { background:#ffd34d; } .panel .dot.red { background:#ff4d4d; }
-  #rtabs { display:none !important; }   /* the one row of tabs is the header: Calls / Settings / Speaker Script / Eagle Script */
+  #rtabs { display:none !important; }   /* the one row of tabs is the header: Calls / Settings / Speaker Script */
   /* SETTINGS: a raw transcript, large, newest at the bottom */
   #settalk, #tstalk { flex:0 0 34%; border-top:1px solid var(--line); margin-bottom:28px; }
   #settalk .ln, #tstalk .ln { font-size:22px !important; }
@@ -186,7 +186,6 @@
   <span class="tab calls" id="tab-calls" title="CALLS: the live call copilot, silent text only">Calls</span>
   <span class="tab set" id="tab-settings" title="SETTINGS: every Eagle setting; arrows change them">SETTINGS</span>
   <span class="tab ts" id="tab-tscript" title="Speaker Script: his spoken beats, read-only; nothing highlights or scrolls by itself">Speaker Script</span>
-  <span class="tab hs" id="tab-hscript" title="Eagle Script: the cues Eagle will run, read-only; the current one is lit">Eagle Script</span>
   <button id="topbtn" title="back to line 1, lit" style="padding:3px 11px;font:700 13px system-ui;background:#1d2a3a;color:#cfe3ff;border:1px solid #2f6aa0;border-radius:6px;cursor:pointer">&#8679; Top</button>   <!-- in the header row, never fixed: the fixed spot (right:150px) sat under the Ears/Voice/MIC pill and a click there did nothing (Eagle, vizier#76 self-test). The header's padding-right keeps the pill clear. -->
   <span id="tab-qc" hidden></span><span id="tab-approval" hidden></span>   <!-- QC and APPROVAL removed (the user 2026-11-22: "fix or remove"); the gate runs before Vizier, not in it -->
   <span id="tab-rec" hidden></span><span id="tab-ctx" hidden></span>   <!-- the teleprompter is gone (the user, Architect 8981): inert stubs so old refs stay null-safe -->
@@ -204,7 +203,7 @@
 <audio id="callaudio" autoplay></audio>
 
 <section class="mode" id="m-rec" hidden style="display:none !important">
-  <div id="keylegend"><b>↑ ↓</b> scroll &nbsp;·&nbsp; <b>← →</b> part &nbsp;·&nbsp; <b>Tab</b> Calls / Settings / Speaker script / Eagle script &nbsp;·&nbsp; <b>Alt+E</b> ears &nbsp;·&nbsp; <b>Alt+M</b> voice &nbsp;·&nbsp; <b>Alt+V</b> show / hide</div>
+  <div id="keylegend"><b>↑ ↓</b> scroll &nbsp;·&nbsp; <b>← →</b> part &nbsp;·&nbsp; <b>Tab</b> Calls / Settings / Speaker script &nbsp;·&nbsp; <b>Alt+E</b> ears &nbsp;·&nbsp; <b>Alt+M</b> voice &nbsp;·&nbsp; <b>Alt+V</b> show / hide</div>
   <nav id="rtabs"><span data-t="script" class="on">SCRIPT</span><span data-t="context" hidden>CONTEXT</span><span data-t="notes" hidden>DO NOT SAY</span></nav>
   <div id="prompt"><div id="text"></div><div id="readline"></div></div>
   <div id="doc"></div>
@@ -222,8 +221,6 @@
 <section class="mode" id="m-qc"><div class="panel" id="p-qc"></div>
   <div class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> scroll &nbsp;·&nbsp; read-only: the QA checklist and the last vsl_qa verdict</div></section>
 <section class="mode" id="m-approval"><div class="panel" id="p-approval"></div></section>
-<section class="mode" id="m-hscript"><div class="panel" id="p-hscript"></div>
-  <div class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> scroll &nbsp;·&nbsp; read-only: Eagle's cues, the current one lit as it advances</div></section>
 <section class="mode" id="m-call">
   <div id="callmain"><div id="sugs"></div><div id="interim"></div><div id="lines"></div></div>
 </section>
@@ -283,9 +280,9 @@ function refreshTabs() {
   $("tab-ctx").classList.toggle("on", mode === "rec" && rtab === "context");
   $("tab-call").classList.toggle("on", mode === "call"); $("tab-call").hidden = mode !== "call";
 }
-const PANELS = ["settings", "tscript", "hscript"];   // the deployment's issue 13798: Scout's panels beside CALLS (QC, APPROVAL removed 2026-11-22)
+const PANELS = ["settings", "tscript"];   // the deployment's issue 13798: Scout's panels beside CALLS (QC, APPROVAL removed 2026-11-22)
 const MODES = ["rec", "call", "calls", ...PANELS, "qc", "approval"];   // qc/approval: stub sections, never reached by Tab
-function goTab(n) {   // CALLS / SETTINGS / Speaker Script / Eagle Script, and SCRIPT / CONTEXT: the one row at the top
+function goTab(n) {   // CALLS / SETTINGS / Speaker Script, and SCRIPT / CONTEXT: the one row at the top
   pinned = (n === "calls" || PANELS.includes(n)) ? n : "tscript"; setMode();
   if (PANELS.includes(n)) panelOpen(n);
   refreshTabs();
@@ -533,9 +530,8 @@ window.vizierStep = d => {
 window.vizierPart = d => { if (PANELS.includes(mode)) return panelChange(d); if (mode === "rec" && takes.length) { goTake(t + d); if (recording) record(); } };   // global Left / Right (main.rs)
 window.vizierTop = () => {   // the TOP button (Alt+T is gone, issue 17206): line 0 of the CURRENT script, lit, panel scrolled to the top (Tab / S switch tabs)
   if (mode === "tscript") { tsCur = 0; drawTscript(); $("p-tscript").scrollTop = 0; reportTs(); }
-  else if (mode === "hscript") { const el = $("p-hscript"), c = ((panel.hscript.data || {}).cues || [])[0]; if (c) { panel.hscript.data.current = c.beat; hsCur = c.beat; } drawHscript(); el.scrollTop = 0; }
 };
-window.vizierTab = () => {   // Alt+T from any app, or Tab in the page: CALLS -> SETTINGS -> Speaker Script -> Eagle Script -> CALLS
+window.vizierTab = () => {   // Alt+T from any app, or Tab in the page: CALLS -> SETTINGS -> Speaker Script -> CALLS
   // (the deployment's issue 13798; the user 2026-11-15 3:13 PM, "I can't tab over to script": SCRIPT is in the cycle, and the
   // prompter text is right here in this window). CONTEXT stays a click away; from it Tab goes on to CALLS.
   if (mode === "call") return;
@@ -696,7 +692,7 @@ async function context() {
 // SETTINGS reads GET /settings (the server forwards to the voice agent) and changes a value with POST /settings; Ears
 // and Voice are this app's own switches (talk.js), the same as Alt+E / Alt+M. DESKS: Right or Enter asks the server to
 // open the picked desk (POST /desks/open). AGENTS: GET /agents, each lane agent's liveness.
-const panel = { settings: { sel: 0, data: null, err: "", stale: "" }, desks: { sel: 0, data: null, err: "", stale: "" }, agents: { sel: 0, data: null, err: "", stale: "" }, tscript: { sel: 0, data: null, err: "", stale: "" }, hscript: { sel: 0, data: null, err: "", stale: "" }, qc: { sel: 0, data: null, err: "", stale: "" }, approval: { sel: 0, data: null, err: "", stale: "" } };
+const panel = { settings: { sel: 0, data: null, err: "", stale: "" }, desks: { sel: 0, data: null, err: "", stale: "" }, agents: { sel: 0, data: null, err: "", stale: "" }, tscript: { sel: 0, data: null, err: "", stale: "" }, qc: { sel: 0, data: null, err: "", stale: "" }, approval: { sel: 0, data: null, err: "", stale: "" } };
 const talkState = () => (window.vizierTalk && window.vizierTalk.state) || null;
 const onoff = v => v == null ? "<span>unknown</span>" : `<span class="${v ? "on" : "off"}">${v ? "ON" : "OFF"}</span>`;
 async function getJSON(path) { const r = await api(path); return r.json(); }
@@ -799,9 +795,6 @@ function drawAgents() {
     `<div class="row"><span class="k"><span class="dot ${esc(a.health)}"></span>${esc(a.agent)}</span><span class="v">${esc(a.doing || (a.reasons || []).join("; ") || a.health)}</span><span class="h">${esc(ago(a.at))}</span></div>`).join(""));
 }
 async function loadAgents() { await readPanel("agents", "agents", m => ({ agents: [], error: m })); if (mode === "agents") drawAgents(); }
-// Eagle Script: GET /horus-script, the agent's cue table (id, on-phrase, do, wait-for, on-fail); `current` is the cue
-// vsl-follow last fired. Read-only: no row is selectable and nothing is sent. This window is outside every capture.
-let hsCur = "";
 let tsCur = 0, tsSent = "", tsSentAt = 0;
 function reportTs() {   // where his keys left him (POST /prompter/position -> GET /state, GET /events): Eagle follows from it
   const d = panel.tscript.data, flat = ((d && d.sections) || []).flatMap(x => x.lines), n = flat.length; if (!n) return;
@@ -839,16 +832,6 @@ function drawTscript() {   // the CURRENT line (the one he is reading) is lit; n
   el.scrollTop = top;
 }
 async function loadTscript() { await readPanel("tscript", "speaker-script", m => ({ sections: [], error: m })); if (mode === "tscript") { drawTscript(); reportTs(); } }
-function drawHscript() {
-  const d = panel.hscript.data, el = $("p-hscript"), list = (d && d.cues) || [];
-  const cell = (k, v) => `<span class="v" style="flex:${k}">${esc(v || "")}</span>`;
-  el.innerHTML = staleLine(panel.hscript) + (!d ? `<div class="msg">reading the cues…</div>` : d.error ? `<div class="msg err">${esc(d.error)}</div>`
-    : !list.length ? `<div class="msg">No cue list${d.configured ? "" : " (VIZIER_HORUS_CUES is not set)"}.</div>`
-    : `<div class="msg">${esc(d.source)}</div><div class="row ro" style="font-size:14px"><span class="k" style="flex:0 0 70px">id</span>${["on","do","wait-for","on-fail"].map(h => `<span class="v" style="flex:1">${h}</span>`).join("")}</div>`
-      + list.map(c => `<div class="row${c.beat === d.current ? " sel" : ""}" data-b="${esc(c.beat)}" style="font-size:17px;align-items:flex-start"><span class="k" style="flex:0 0 70px;font-size:15px">${esc(c.id)}</span>${cell(1, c.on)}${cell(1, c.do)}${cell(1, c.wait)}${cell(1, c.fail)}</div>`).join(""));
-  if (d && d.current && d.current !== hsCur) { hsCur = d.current; selIntoView("p-hscript"); }
-}
-async function loadHscript() { await readPanel("hscript", "horus-script", m => ({ cues: [], error: m })); if (mode === "hscript") drawHscript(); }
 // QC: GET /qc. The QA checklist the pipeline wrote and the last vsl_qa verdict. Read-only; nothing here is sent.
 function drawQc() {
   const d = panel.qc.data, el = $("p-qc"), top = el.scrollTop, v = d && d.verdict;
@@ -876,7 +859,7 @@ function drawApproval() {
   el.scrollTop = top;
 }
 async function loadApproval() { await readPanel("approval", "approval", m => ({ error: m })); if (mode === "approval") drawApproval(); }
-function panelOpen(n) { ({ settings: () => { drawSettings(); loadSettings(); }, tscript: () => { drawTscript(); loadTscript(); }, hscript: () => { drawHscript(); loadHscript(); }, qc: () => { drawQc(); loadQc(); }, approval: () => { drawApproval(); loadApproval(); } })[n](); }
+function panelOpen(n) { ({ settings: () => { drawSettings(); loadSettings(); }, tscript: () => { drawTscript(); loadTscript(); }, qc: () => { drawQc(); loadQc(); }, approval: () => { drawApproval(); loadApproval(); } })[n](); }
 // The selected row is kept on screen every time the selection moves (the user 2026-11-15: arrow-down moved the selection
 // below the window and the list never followed). Only on a move: the 2 s redraw never pulls a list the wheel scrolled.
 // The speaker script keeps the CURRENT row pinned at the TOP of the panel (with "nearest" the lit row sank to the
@@ -905,7 +888,6 @@ function panelStep(d) {
   if (mode === "tscript") { const n = tsLines(panel.tscript.data); if (!n) return; const was = tsCur; tsCur = Math.max(0, Math.min(n - 1, tsCur + d)); drawTscript(); tsPin(); reportTs(); maybeHandoff(was, tsCur); return; }
   if (mode === "qc") { $("p-qc").scrollTop += d * 80; return; }
   if (mode === "approval") { $("p-approval").scrollTop += d * 80; return; }
-  if (mode === "hscript") { $("p-hscript").scrollTop += d * 80; return; }
   panel[mode].sel += d; mode === "settings" ? drawSettings() : drawDesks();
   selIntoView(mode === "settings" ? "p-settings" : "p-desks");
 }
@@ -916,8 +898,6 @@ function panelChange(d, enter) {
 every(1000, async () => { const b = (await getJSON("player/banner")).banner, el = $("clipbanner"); el.hidden = !b; if (b) el.textContent = "CLIP PLAYER: " + b.text; });
 every(2000, loadHdr);
 every(2000, () => mode === "settings" ? loadSettings() : mode === "tscript" ? loadTscript() : mode === "approval" ? loadApproval() : mode === "qc" ? loadQc() : null);
-// Eagle Script lights the cue vsl-follow arms from his voice: a 2 s poll put the lit row up to 2 s behind it
-every(400, () => mode === "hscript" ? loadHscript() : null);
 every(15000, () => mode === "desks" ? loadDesks() : null);
 window.vizierPanels = { panel, settingRows, goTab };   // headless checks
 
@@ -1067,9 +1047,6 @@ async function buildlog() {
 }
 $("topbtn").onclick = () => {
   if (mode === "rec") { goTake(t); goLine(0); } else window.vizierTop();
-  // the laptop session takes the same path Alt+T took (Do-Top: app tab at its start view, diagram beat 0): without this the
-  // prompter went to row 1 while Chrome stayed where it was (Eagle, issue 17206). Fire-and-forget; no session = no-op.
-  fetch("http://127.0.0.1:18791/vsl/top", { method: "POST" }).catch(() => {});
 };
 $("build").onclick = () => { buildOpen = !buildOpen; $("build").classList.toggle("open", buildOpen); buildlog(); };
 
