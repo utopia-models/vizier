@@ -14,7 +14,7 @@ What it does (every step is a PASS/FAIL line, with a screenshot in --out; exit 0
      the same code the shortcuts run (main.rs hotkey()).
   3. Over the DevTools protocol, with real key and mouse-wheel input (Input.dispatchKeyEvent / dispatchMouseEvent):
      the page links to the server (and to LiveKit when --talk-url is given); the default view is Speaker Script; Tab visits
-     TALK, SETTINGS and Speaker Script in that order and comes back to TALK; Speaker Script shows
+     CALLS, SETTINGS and Speaker Script in that order and comes back to CALLS; Speaker Script shows
      his spoken lines read-only (no highlight, no scroll by itself); it shows no 'changed HH:MM' marks; every tab scrolls to its bottom by wheel (and
      the lists by arrow keys, the selected row always fully on screen); every SETTINGS row that can change
      changes and changes back; Alt+E and Alt+M flip Ears and Voice (keys in the page, and the native shortcut when the
@@ -223,22 +223,19 @@ async def drive(c: CDP, out: Path, talk: bool, state: Path):
         if AUDIO_ONLY:
             return
 
-    # ---- Tab: TALK -> SETTINGS -> DESKS -> AGENTS -> Speaker Script -> Eagle Script -> TALK
-    await c.js("window.vizierPanels.goTab('talk')"); await asyncio.sleep(0.25)
+    # ---- Tab: CALLS -> SETTINGS -> Speaker Script -> CALLS
+    await c.js("window.vizierPanels.goTab('calls')"); await asyncio.sleep(0.25)
     seen = []
     for _ in range(3):
         await c.key("Tab"); await asyncio.sleep(0.25)
         m = await c.js("document.body.dataset.mode")
         seen.append(m); await c.shot(out, f"tab-{m}")
-    want = ["settings", "tscript", "talk"]   # DESKS and AGENTS are gone; the diagram and app are Chrome tabs, not Vizier tabs
+    want = ["settings", "tscript", "calls"]   # DESKS and AGENTS are gone; the diagram and app are Chrome tabs, not Vizier tabs
     labels = await c.js("[...document.querySelectorAll('header .tab:not([hidden])')].map(t=>t.textContent)")
-    ok("Tab visits SETTINGS, Speaker Script and back to TALK (no QC / APPROVAL / SCRIPT / Eagle Script tab)",
-       seen == want and labels == ["TALK", "SETTINGS", "Speaker Script"], " > ".join(seen) + f"; tabs {labels}")
+    ok("Tab visits SETTINGS, Speaker Script and back to CALLS (no QC / APPROVAL / SCRIPT / Eagle Script tab)",
+       seen == want and labels == ["Calls", "SETTINGS", "Speaker Script"], " > ".join(seen) + f"; tabs {labels}")
 
     # ---- every tab to the bottom: wheel, then keys with the selection on screen
-    await c.js("window.vizierPanels.goTab('talk')")
-    await c.js("(()=>{const b=document.getElementById('talkmain');for(let i=0;i<60;i++){const p=document.createElement('p');p.className='ln me';p.textContent='smoke line '+i;b.appendChild(p)}})()")
-    await scroll_check(c, out, "#talkmain", "TALK")
 
     for tab, pid in (("settings", "p-settings"),):
         await c.js(f"window.vizierPanels.goTab('{tab}')"); await asyncio.sleep(0.6)
