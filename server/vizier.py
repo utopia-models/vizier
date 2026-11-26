@@ -12,6 +12,7 @@ every window on /feed redraws. The full contract is docs/openapi.yaml; connector
         GET  /transcript  ?since=<seq>       the current call's final lines
         POST /bullets     {"bullets": ["..", ".."], "for"?: "<what they answer>", "t_audio_end"?}
         POST /status      {"text"}
+        GET  /queue · POST /queue {"items"} · /queue/go {"step"|"id"} · /queue/mark {"id","state"}   scripts loaded ahead
         POST /script      {"markdown"} | {"path"}   the prompter's script (one `## ` block per take)
         GET  /prompter/scripts · /prompter/context · /prompter/note    POST /prompter/note {"text"}
         POST /prompter/record {"take"} | {"stop": true}   copy a camera stream into a take file (ffmpeg, optional)
@@ -1308,9 +1309,13 @@ def job_post_title(p, head):
 
 async def speaker_script(_req):
     """GET /speaker-script: his spoken lines per section. Read-only; no current line (the page never highlights or scrolls)."""
+    return web.json_response(speaker_view())
+
+
+def speaker_view() -> dict:
     p = Path(SPEAKER_SCRIPT).expanduser() if SPEAKER_SCRIPT else None
     if not p or not p.is_file():
-        return web.json_response({"configured": bool(SPEAKER_SCRIPT), "sections": [], "source": None})
+        return {"configured": bool(SPEAKER_SCRIPT), "sections": [], "source": None}
     text = p.read_text()
     secs = spoken_sections(text)
     flat = [l for s in secs for l in s["lines"]]
@@ -1319,8 +1324,11 @@ async def speaker_script(_req):
     m = re.match(r"#\s*(.*)", text)
     # the MVP the VSL shows (the reader 2026-11-22 "Where is the IVP?"; IVP is speech-to-text of MVP): the lines of the section titled mvp
     mvp = [x["text"] for sec in secs if re.search(r"\bmvp\b", sec["title"], re.I) for x in sec["lines"]]
-    return web.json_response({"configured": True, "source": p.name, "title": m.group(1)[:160] if m else "",
-                              "job": job_post_title(p, m.group(1) if m else ""), "mvp": mvp, "sections": secs, "now": time.time()})
+    h = queue_head()
+    item = h["showing"]   # a queued script names its own job; its place in the queue is "pos" of "count"
+    return {"configured": True, "source": p.name, "title": m.group(1)[:160] if m else "", "sha": sha_of(text),
+            "job": item["title"] if item else job_post_title(p, m.group(1) if m else ""), "mvp": mvp, "sections": secs,
+            "queue": {"id": item["id"], "pos": h["pos"], "count": h["count"]} if item else None, "now": time.time()}
 
 
 # ---------- WRITE API: POST /speaker-script, GET /state (the agent edits what the tabs show) ----------
@@ -1475,6 +1483,150 @@ async def state_front(req):
     if isinstance(bd, dict) and bd.get("sha"):
         APP_BUILD.update(sha=str(bd["sha"])[:40], version=str(bd.get("version", ""))[:20], built_at=int(bd.get("built_at") or 0), at=time.time())
     return web.json_response({"ok": True})
+
+
+# ---------- QUEUE: every ready script loaded ahead of time; "next" puts the next one on the Speaker Script at once ----------
+# GET /queue | POST /queue (X-Vizier-Write) {"items":[{"id","text","title"?,"meta"?}], "source"?, "replace"?} loads scripts;
+# POST /queue/go {"step": 1|-1} | {"id"} shows one (the Next button, Right / Left on the Speaker Script tab);
+# POST /queue/mark {"id","state": "ready"|"recorded"|"redo"} is the recorder's result. The texts are held here (DATA/queue.json),
+# so showing one is a local file write: no producer is asked at click time. Showing writes the Speaker Script file, so every
+# reader of it (/speaker-script, /state, the cursor) follows. A load never changes what is on screen. "showing" in GET /queue
+# is the queue item whose text IS the speaker script now (null when something else was posted over it): a recorder reads it
+# at the moment a recording starts to tie the take to its script.
+QUEUE_ID = re.compile(r"[A-Za-z0-9_.:-]{1,96}")
+QUEUE_MAX = 500
+QUEUE_STATES = ("ready", "recorded", "redo")
+
+
+def queue_path() -> Path:
+    return DATA / "queue.json"
+
+
+def queue_load() -> dict:
+    try:
+        q = json.loads(queue_path().read_text())
+        if isinstance(q.get("items"), list):
+            return {"items": q["items"], "current": q.get("current"), "seq": int(q.get("seq", 0))}
+    except (OSError, ValueError, AttributeError, TypeError):
+        pass
+    return {"items": [], "current": None, "seq": 0}
+
+
+def queue_save(q: dict) -> None:
+    q["seq"] += 1
+    atomic_write(queue_path(), json.dumps(q))
+
+
+def queue_head(q: dict | None = None) -> dict:
+    """The queue without the script texts."""
+    q = q or queue_load()
+    sp = file_view(script_target("speaker-script"))
+    rows = [{**{k: it.get(k) for k in ("id", "title", "source", "state", "meta")}, "sha": sha_of(it["text"])} for it in q["items"]]
+    pos = next((i for i, r in enumerate(rows) if r["id"] == q["current"]), None)
+    cur = rows[pos] if pos is not None else None
+    showing = cur if cur and sp["sha"] == cur["sha"] else None
+    return {"ok": True, "seq": q["seq"], "current": q["current"], "pos": pos, "count": len(rows),
+            "ready": sum(r["state"] != "recorded" for r in rows), "showing": showing,
+            "screen": {"sha": sp["sha"], "title": ((sp["text"] or "").split("\n", 1)[0].lstrip("# ").strip())[:160]}, "items": rows}
+
+
+async def queue_get(_req):
+    return web.json_response(queue_head())
+
+
+async def queue_put(req):
+    if not write_allowed(req):
+        return bad("writes need the X-Vizier-Write secret (group fleet-vizier-write)", 403)
+    b = await body(req)
+    new = b.get("items")
+    source = str(b.get("source") or "default")[:32]
+    if not isinstance(new, list):
+        return bad('send "items": [{"id", "text"}]')
+    rows = []
+    for it in new:
+        if not (isinstance(it, dict) and QUEUE_ID.fullmatch(str(it.get("id", ""))) and isinstance(it.get("text"), str)):
+            return bad('every item needs an "id" ([A-Za-z0-9_.:-]) and a string "text"')
+        text = it["text"] if it["text"].endswith("\n") else it["text"] + "\n"
+        if len(text.encode()) > WRITE_MAX or not spoken_sections(text):
+            return bad(f'{it["id"]}: the text has no spoken section ("## [Name] ..." or "## 1 ...") or is over 512 KB')
+        meta = it.get("meta") if isinstance(it.get("meta"), dict) else {}
+        rows.append({"id": str(it["id"]), "title": str(it.get("title") or it["id"])[:160], "text": text, "meta": meta, "source": source})
+    if len({r["id"] for r in rows}) != len(rows):
+        return bad("duplicate id in items")
+    q = queue_load()
+    old = {it["id"]: it for it in q["items"]}
+    for r in rows:
+        was = old.get(r["id"])
+        # a changed text is a new script to read; an unchanged one keeps what the recorder said about it
+        r["state"] = was["state"] if was and was["text"] == r["text"] else "ready"
+        r["added_at"] = was["added_at"] if was else time.time()
+    ids = {r["id"] for r in rows}
+    if b.get("replace") is True:   # this source's list, in this order; the item on screen is never dropped
+        keep = [it for it in q["items"] if it["id"] not in ids and (it["source"] != source or it["id"] == q["current"])]
+        merged = [it for it in keep if it["id"] == q["current"]] + rows + [it for it in keep if it["id"] != q["current"]]
+    else:
+        by = {r["id"]: r for r in rows}
+        merged = [by.pop(it["id"], it) for it in q["items"]] + [r for r in rows if r["id"] not in old]
+    if len(merged) > QUEUE_MAX:
+        return bad(f"over {QUEUE_MAX} items", 413)
+    if merged != q["items"]:
+        q["items"] = merged
+        queue_save(q)
+    return web.json_response(queue_head(q))
+
+
+def queue_step(q: dict, step: int) -> dict | None:
+    """Forward is the next script not yet recorded (wrapping to the start); back is the one before, whatever its state."""
+    items = q["items"]
+    pos = next((i for i, it in enumerate(items) if it["id"] == q["current"]), None)
+    if step < 0:
+        return items[pos - 1] if pos else None
+    start = 0 if pos is None else pos + 1
+    return next((it for it in items[start:] + items[:start] if it["state"] != "recorded" and it["id"] != q["current"]), None)
+
+
+async def queue_go(req):
+    t0 = time.perf_counter()
+    b = await body(req)
+    target = script_target("speaker-script")
+    if not target:
+        return bad("the speaker script is not configured on this server (VIZIER_SPEAKER_SCRIPT)", 409)
+    q = queue_load()
+    if b.get("id") is not None:
+        it = next((it for it in q["items"] if it["id"] == b["id"]), None)
+    else:
+        it = queue_step(q, -1 if b.get("step") == -1 else 1)
+    if not it:
+        return bad("no such script in the queue" if b.get("id") is not None else "no more scripts that way", 404)
+    keep_previous("speaker-script", target)
+    atomic_write(target, it["text"])
+    q["current"] = it["id"]
+    queue_save(q)
+    HANDOFF.update(key=None, at=None, section="", line=0, rc=None, error="", done_at=None)   # a new script hands off afresh
+    GOTO.update(part=1, line=1, seq=GOTO["seq"] + 1)
+    loop_goto(0, loop_slug())
+    ms = round((time.perf_counter() - t0) * 1000, 1)
+    log_event({"t": time.time(), "ev": "queue_go", "id": it["id"], "ms": ms})
+    return web.json_response({**queue_head(q), "ms": ms, "speaker": speaker_view()})
+
+
+async def queue_mark(req):
+    b = await body(req)
+    state_ = b.get("state")
+    if state_ not in QUEUE_STATES:
+        return bad("state is ready, recorded or redo")
+    q = queue_load()
+    it = next((it for it in q["items"] if it["id"] == b.get("id")), None)
+    if not it:
+        return bad("no such script in the queue", 404)
+    if it["state"] != state_:
+        it["state"] = state_
+        if state_ == "redo" and it["id"] != q["current"]:   # a failed take comes up next
+            q["items"].remove(it)
+            at = next((i for i, x in enumerate(q["items"]) if x["id"] == q["current"]), -1)
+            q["items"].insert(at + 1, it)
+        queue_save(q)
+    return web.json_response(queue_head(q))
 
 
 # ---------- APPROVAL: GET /approval, POST /approve (the approver sees the gate evidence; Ready needs gates + approval) ----------
@@ -1921,6 +2073,10 @@ def make_app() -> web.Application:
     r.add_get("/agents", agents)
     r.add_get("/speaker-script", speaker_script)
     r.add_post("/speaker-script", write_script)
+    r.add_get("/queue", queue_get)
+    r.add_post("/queue", queue_put)
+    r.add_post("/queue/go", queue_go)
+    r.add_post("/queue/mark", queue_mark)
     r.add_post("/speaker-script/undo", write_undo)
     r.add_get("/state", state)
     r.add_post("/prompter/key", prompter_key)
