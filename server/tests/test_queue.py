@@ -93,6 +93,10 @@ def test_a_script_posted_over_the_queue_is_not_attributed_to_the_item(vz):
         head = await (await c.get("/queue")).json()
         assert head["current"] == "job-1" and head["showing"] is None
         assert (await (await c.get("/speaker-script")).json())["queue"] is None
+        await put(c, items(1, 2))
+        assert (await c.post("/speaker-script", data=script(2), headers=W)).status == 200   # a queued text posted directly
+        head = await (await c.get("/queue")).json()
+        assert head["showing"]["id"] == "job-2" and head["pos"] == 1 and head["current"] == "job-1"
     run(v, f)
 
 

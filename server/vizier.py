@@ -1524,7 +1524,10 @@ def queue_head(q: dict | None = None) -> dict:
     rows = [{**{k: it.get(k) for k in ("id", "title", "source", "state", "meta")}, "sha": sha_of(it["text"])} for it in q["items"]]
     pos = next((i for i, r in enumerate(rows) if r["id"] == q["current"]), None)
     cur = rows[pos] if pos is not None else None
-    showing = cur if cur and sp["sha"] == cur["sha"] else None
+    # the current item when its text is on screen; else any item whose text a producer posted straight to the speaker script
+    showing = cur if cur and sp["sha"] == cur["sha"] else next((r for r in rows if r["sha"] == sp["sha"]), None)
+    if showing:
+        pos = rows.index(showing)
     return {"ok": True, "seq": q["seq"], "current": q["current"], "pos": pos, "count": len(rows),
             "ready": sum(r["state"] != "recorded" for r in rows), "showing": showing,
             "screen": {"sha": sp["sha"], "title": ((sp["text"] or "").split("\n", 1)[0].lstrip("# ").strip())[:160]}, "items": rows}
