@@ -144,8 +144,8 @@ def test_replace_syncs_one_source_and_keeps_the_screen(vz):
 
 def test_script_label_from_the_script_itself(vz):
     m, _ = vz
-    full = "# x\n## [Tyler] Intro (20 s)\nhello\n## [Tyler] The app\nline\n"
-    intro = "# x\n## [Tyler] Intro (20 s)\nhello\n## [AI voice] The app\nline\n"
+    full = "# x\n## [Reader] Intro (20 s)\nhello\n## [Reader] The app\nline\n"
+    intro = "# x\n## [Reader] Intro (20 s)\nhello\n## [AI voice] The app\nline\n"
     assert m.script_label(full, "Convert Chess Puzzles to PGN · face only") == "Upwork Full VSL · Convert Chess Puzzles to PGN"
     assert m.script_label(intro, "AI Agent for CRM Integration · face plus the thing we built") == "Upwork Intro VSL · AI Agent for CRM Integration"
     assert m.script_label(full, "Senior Backend Engineer - US Tax & Shopify API Integration") == "Upwork Full VSL · Senior Backend Engineer"

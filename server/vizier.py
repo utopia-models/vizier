@@ -1278,8 +1278,8 @@ def track_changes(key, items):
 
 def script_label(text, title=""):
     """One line for the green header, made from the script's own text, never typed by hand: '<Type> · <job>' (5-10 words).
-    Type: a script with an [AI voice] section is an intro (Tyler speaks, then the voice); one whose sections are all Tyler's
-    is a full VSL. The job is the title up to ' · ', ' - ' or ' (' (Tyler's cards 2026-11-26)."""
+    Type: a script with an [AI voice] section is an intro (the user speaks, then the voice); one whose sections are all the user's
+    is a full VSL. The job is the title up to ' · ', ' - ' or ' ('."""
     kind = "Upwork Intro VSL" if re.search(r"^##\s*\[AI voice\]", text or "", re.M | re.I) else "Upwork Full VSL"
     job = re.split(r"\s+[·\-–—]\s+|\s*\(", title or "", maxsplit=1)[0].strip()
     return f"{kind} · {' '.join(job.split()[:6])}"
