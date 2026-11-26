@@ -1276,6 +1276,15 @@ def track_changes(key, items):
     return [cur[i] for i in items]
 
 
+def script_label(text, title=""):
+    """One line for the green header, made from the script's own text, never typed by hand: '<Type> · <job>' (5-10 words).
+    Type: a script with an [AI voice] section is an intro (Tyler speaks, then the voice); one whose sections are all Tyler's
+    is a full VSL. The job is the title up to ' · ', ' - ' or ' (' (Tyler's cards 2026-11-26)."""
+    kind = "Upwork Intro VSL" if re.search(r"^##\s*\[AI voice\]", text or "", re.M | re.I) else "Upwork Full VSL"
+    job = re.split(r"\s+[·\-–—]\s+|\s*\(", title or "", maxsplit=1)[0].strip()
+    return f"{kind} · {' '.join(job.split()[:6])}"
+
+
 def spoken_sections(text):
     """speaker-script.md -> [{title, lines}]: the numbered sections' spoken lines only (no headings of other kinds, no
     [horus] cue lines, no Do-not-say, no notes)."""
@@ -1328,6 +1337,7 @@ def speaker_view() -> dict:
     item = h["showing"]   # a queued script names its own job; its place in the queue is "pos" of "count"
     return {"configured": True, "source": p.name, "title": m.group(1)[:160] if m else "", "sha": sha_of(text),
             "job": item["title"] if item else job_post_title(p, m.group(1) if m else ""), "mvp": mvp, "sections": secs,
+            "label": script_label(text, (item or {}).get("title") or (m.group(1) if m else "")),
             "queue": {"id": item["id"], "pos": h["pos"], "count": h["count"]} if item else None, "now": time.time()}
 
 
@@ -1521,7 +1531,8 @@ def queue_head(q: dict | None = None) -> dict:
     """The queue without the script texts."""
     q = q or queue_load()
     sp = file_view(script_target("speaker-script"))
-    rows = [{**{k: it.get(k) for k in ("id", "title", "source", "state", "meta")}, "sha": sha_of(it["text"])} for it in q["items"]]
+    rows = [{**{k: it.get(k) for k in ("id", "title", "source", "state", "meta")}, "sha": sha_of(it["text"]),
+             "label": script_label(it["text"], it.get("title") or "")} for it in q["items"]]
     pos = next((i for i, r in enumerate(rows) if r["id"] == q["current"]), None)
     cur = rows[pos] if pos is not None else None
     # the current item when its text is on screen; else any item whose text a producer posted straight to the speaker script

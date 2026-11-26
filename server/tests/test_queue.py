@@ -140,3 +140,12 @@ def test_replace_syncs_one_source_and_keeps_the_screen(vz):
         assert "rewritten" not in (tmp / "speaker-script.md").read_text()
         assert (await go(c, id="job-1"))[1]["showing"]["id"] == "job-1"
     run(v, f)
+
+
+def test_script_label_from_the_script_itself(vz):
+    m, _ = vz
+    full = "# x\n## [Tyler] Intro (20 s)\nhello\n## [Tyler] The app\nline\n"
+    intro = "# x\n## [Tyler] Intro (20 s)\nhello\n## [AI voice] The app\nline\n"
+    assert m.script_label(full, "Convert Chess Puzzles to PGN · face only") == "Upwork Full VSL · Convert Chess Puzzles to PGN"
+    assert m.script_label(intro, "AI Agent for CRM Integration · face plus the thing we built") == "Upwork Intro VSL · AI Agent for CRM Integration"
+    assert m.script_label(full, "Senior Backend Engineer - US Tax & Shopify API Integration") == "Upwork Full VSL · Senior Backend Engineer"
