@@ -759,7 +759,8 @@ async def cursor_events(req):
         while True:
             try:
                 row = await asyncio.wait_for(q.get(), 15)
-                await resp.write(f"id: {row['seq']}\nevent: cursor\ndata: {json.dumps(row)}\n\n".encode())
+                ev = row.get("_event", "cursor")   # script_changed rides the same stream (eagle#19887)
+                await resp.write(f"id: {row['seq']}\nevent: {ev}\ndata: {json.dumps(row)}\n\n".encode())
             except asyncio.TimeoutError:
                 await resp.write(b": keepalive\n\n")
     except (ConnectionResetError, asyncio.CancelledError):
@@ -1328,7 +1329,8 @@ def speaker_view() -> dict:
     item = h["showing"]   # a queued script names its own job; its place in the queue is "pos" of "count"
     return {"configured": True, "source": p.name, "title": m.group(1)[:160] if m else "", "sha": sha_of(text),
             "job": item["title"] if item else job_post_title(p, m.group(1) if m else ""), "mvp": mvp, "sections": secs,
-            "queue": {"id": item["id"], "pos": h["pos"], "count": h["count"]} if item else None, "now": time.time()}
+            "queue": {"id": item["id"], "pos": h["pos"], "count": h["count"]} if item else None, "now": time.time(),
+            "label": script_label(item.get("meta") if item else None, m.group(1) if m else "")}
 
 
 # ---------- WRITE API: POST /speaker-script, GET /state (the agent edits what the tabs show) ----------
@@ -1593,6 +1595,38 @@ def queue_step(q: dict, step: int) -> dict | None:
     return next((it for it in items[start:] + items[:start] if it["state"] != "recorded" and spoken_complete(it["text"]) and it["id"] != q["current"]), None)
 
 
+SCRIPT_TYPES = ("Upwork Full VSL", "Upwork Intro VSL re-usable", "Upwork Intro VSL", "Founder Full VSL")
+
+
+def script_label(meta: dict | None, title: str = "") -> dict:
+    """The green header line `<Type> · <company> · <job>` and its three parts: from the producer's meta.label (or its
+    type/company/job), else the script's own title when that already reads that way. Never invented: a missing part is ''."""
+    meta = meta or {}
+    label = str(meta.get("label") or "").strip() or (title if any(title.startswith(t) for t in SCRIPT_TYPES) else "")
+    parts = [x.strip() for x in label.split("·")] if label else []
+    typ = str(meta.get("type") or (parts[0] if parts else "")).strip()
+    company = str(meta.get("company") or (parts[1] if len(parts) > 1 else "")).strip()
+    job = str(meta.get("job") or (" · ".join(parts[2:]) if len(parts) > 2 else "")).strip()
+    return {"label": label or " · ".join(x for x in (typ, company, job) if x), "type": typ, "company": company, "job": job}
+
+
+def publish_script_changed(it: dict, via: str) -> dict:
+    """One `script_changed` event on GET /events (id, type, company, job, timestamp) and a row in cursor.jsonl: Next, Prev
+    and the arrow keys all arrive through POST /queue/go, so this is the single emit point (eagle#19887)."""
+    CURSOR["seq"] += 1
+    row = {"_event": "script_changed", "seq": CURSOR["seq"], "id": it["id"], "title": it.get("title", ""),
+           **script_label(it.get("meta"), it.get("title", "")), "via": via, "timestamp": time.time()}
+    for q in list(CURSOR_SUBS):
+        q.put_nowait(row)
+    try:
+        DATA.mkdir(parents=True, exist_ok=True)
+        with open(cursor_log_path(), "a") as f:
+            f.write(json.dumps(row) + "\n")
+    except OSError:
+        pass
+    return row
+
+
 async def queue_go(req):
     t0 = time.perf_counter()
     b = await body(req)
@@ -1615,6 +1649,7 @@ async def queue_go(req):
     loop_goto(0, loop_slug())
     ms = round((time.perf_counter() - t0) * 1000, 1)
     log_event({"t": time.time(), "ev": "queue_go", "id": it["id"], "ms": ms})
+    publish_script_changed(it, "id" if b.get("id") is not None else "prev" if b.get("step") == -1 else "next")
     return web.json_response({**queue_head(q), "ms": ms, "speaker": speaker_view()})
 
 

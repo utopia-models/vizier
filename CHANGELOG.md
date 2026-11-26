@@ -7,6 +7,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`script_changed` on `GET /events`, and the header reads `<Type> · <company> · <job>` (eagle#19887).** Every Next, Prev, arrow key or `{"id"}` through `POST /queue/go` pushes one `event: script_changed` (`id`, `type`, `company`, `job`, `label`, `via`, `timestamp`) and appends it to `cursor.jsonl`. `GET /speaker-script` carries `label` (from the queue item's `meta.label`, or `meta.type/company/job`); the green header draws it. Test: `server/tests/test_script_changed.py`.
 - **A pre-loaded script queue with a Next button.** `GET/POST /queue`, `POST /queue/go {"step"|"id"}` and `POST /queue/mark` hold every ready script on the server; **Next ▶** / ◀ in the header and Right / Left on the Speaker Script tab show the next one in one round trip (200 loaded, 40 presses in the real page: p50 81 ms, max 469 ms, `scripts/queue-e2e.py`). `/speaker-script` now carries `sha` and `queue {id,pos,count}`. The exe embeds `app/ui/index.html`, so it needs a rebuild.
 
 ### Removed
