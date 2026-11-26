@@ -192,7 +192,7 @@
   <span id="tab-qc" hidden></span><span id="tab-approval" hidden></span>   <!-- QC and APPROVAL removed (the user 2026-11-22: "fix or remove"); the gate runs before Vizier, not in it -->
   <span id="tab-rec" hidden></span><span id="tab-ctx" hidden></span>   <!-- the teleprompter is gone (the user, Architect 8981): inert stubs so old refs stay null-safe -->
   <span class="tab call" id="tab-call" hidden title="CALL: shown automatically while a call is live">CALL</span>
-  <span id="qnav" hidden style="white-space:nowrap"><button id="qprev" title="the script before (Left)">&#9664;</button> <b id="qpos" title="place in the script queue"></b> <button id="qnext" title="the next script (Right)">Next &#9654;</button></span>
+  <span id="qnav" hidden style="white-space:nowrap"><button id="qprev" title="the script before (Left)">&#9664;</button> <b id="qpos" title="place in the script queue"></b> <button id="qnext" title="the next script (Right)">Next &#9654;</button> <span id="qlabel" style="opacity:.8"></span></span>
   <span class="grow" data-tauri-drag-region><span id="rec"></span> <span id="title" data-tauri-drag-region>connecting…</span></span>
   <span id="spd"></span>
   <span id="media"></span>
@@ -852,6 +852,7 @@ async function loadTscript() {
 let queueShown = null, queueSeq = -1, queueN = 0, queueBusy = false;
 function drawQueue(q) {
   queueN = q.count; queueSeq = q.seq; $("qnav").hidden = !q.count;
+  $("qlabel").textContent = (q.showing && q.showing.meta && q.showing.meta.label) || "";   // "<Type> · <company> · <job>", from the producer's metadata
   $("qpos").textContent = q.showing ? `${q.pos + 1} / ${q.count}${q.showing.state === "recorded" ? " \u2713" : q.showing.state === "redo" ? " redo" : ""}` : `${q.ready} ready`;
 }
 function showScript(d) {
