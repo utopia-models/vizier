@@ -140,3 +140,24 @@ def test_replace_syncs_one_source_and_keeps_the_screen(vz):
         assert "rewritten" not in (tmp / "speaker-script.md").read_text()
         assert (await go(c, id="job-1"))[1]["showing"]["id"] == "job-1"
     run(v, f)
+
+
+def test_a_script_with_no_spoken_line_is_refused_and_never_counts_ready(vz):
+    v, _ = vz
+
+    async def f(c):
+        await put(c, items(1, 2))
+        r = await c.post("/queue", json={"items": [{"id": "empty", "text": "# t\n## [Reader] Intro\n\n## [Reader] Next\n"}], "source": "t"}, headers=W)
+        assert r.status == 400
+        q = await (await c.get("/queue")).json()
+        assert q["ready"] == 2 and q["count"] == 2
+        # a legacy empty item already stored is not counted ready and Next skips it
+        d = v.queue_load()
+        d["items"].insert(1, {"id": "legacy", "title": "x", "text": "## [Reader] Intro\n", "meta": {}, "source": "t", "state": "ready"})
+        v.queue_save(d)
+        q = await (await c.get("/queue")).json()
+        assert q["count"] == 3 and q["ready"] == 2
+        st, a = await go(c, id="job-1")
+        st, b = await go(c, step=1)
+        assert b["showing"]["id"] == "job-2"
+    run(v, f)

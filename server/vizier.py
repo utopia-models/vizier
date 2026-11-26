@@ -1517,6 +1517,11 @@ def queue_save(q: dict) -> None:
     atomic_write(queue_path(), json.dumps(q))
 
 
+def spoken_complete(text: str) -> bool:
+    """A script counts as ready only when a spoken section holds at least one spoken line (else the screen reads "No script")."""
+    return any(sec["lines"] for sec in spoken_sections(text))
+
+
 def queue_head(q: dict | None = None) -> dict:
     """The queue without the script texts."""
     q = q or queue_load()
@@ -1529,7 +1534,7 @@ def queue_head(q: dict | None = None) -> dict:
     if showing:
         pos = rows.index(showing)
     return {"ok": True, "seq": q["seq"], "current": q["current"], "pos": pos, "count": len(rows),
-            "ready": sum(r["state"] != "recorded" for r in rows), "showing": showing,
+            "ready": sum(it["state"] != "recorded" and spoken_complete(it["text"]) for it in q["items"]), "showing": showing,
             "screen": {"sha": sp["sha"], "title": ((sp["text"] or "").split("\n", 1)[0].lstrip("# ").strip())[:160]}, "items": rows}
 
 
@@ -1550,8 +1555,8 @@ async def queue_put(req):
         if not (isinstance(it, dict) and QUEUE_ID.fullmatch(str(it.get("id", ""))) and isinstance(it.get("text"), str)):
             return bad('every item needs an "id" ([A-Za-z0-9_.:-]) and a string "text"')
         text = it["text"] if it["text"].endswith("\n") else it["text"] + "\n"
-        if len(text.encode()) > WRITE_MAX or not spoken_sections(text):
-            return bad(f'{it["id"]}: the text has no spoken section ("## [Name] ..." or "## 1 ...") or is over 512 KB')
+        if len(text.encode()) > WRITE_MAX or not spoken_complete(text):
+            return bad(f'{it["id"]}: the text has no spoken line under a section ("## [Name] ..." or "## 1 ...") or is over 512 KB')
         meta = it.get("meta") if isinstance(it.get("meta"), dict) else {}
         rows.append({"id": str(it["id"]), "title": str(it.get("title") or it["id"])[:160], "text": text, "meta": meta, "source": source})
     if len({r["id"] for r in rows}) != len(rows):
@@ -1585,7 +1590,7 @@ def queue_step(q: dict, step: int) -> dict | None:
     if step < 0:
         return items[pos - 1] if pos else None
     start = 0 if pos is None else pos + 1
-    return next((it for it in items[start:] + items[:start] if it["state"] != "recorded" and it["id"] != q["current"]), None)
+    return next((it for it in items[start:] + items[:start] if it["state"] != "recorded" and spoken_complete(it["text"]) and it["id"] != q["current"]), None)
 
 
 async def queue_go(req):
