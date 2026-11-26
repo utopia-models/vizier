@@ -20,6 +20,42 @@ security:
   - {}
   - bearer: []
 paths:
+  /queue:
+    get:
+      summary: The script queue without the texts. "showing" is the item whose text is the speaker script now.
+      responses: { "200": { description: "{ok, seq, current, pos, count, ready, showing, screen, items}" } }
+    post:
+      summary: Load scripts ahead of time (needs X-Vizier-Write). Never changes the screen.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                source: { type: string }
+                replace: { type: boolean, description: "this source's list, in this order; the item on screen is kept" }
+                items:
+                  type: array
+                  items:
+                    type: object
+                    required: [id, text]
+                    properties: { id: { type: string }, title: { type: string }, text: { type: string }, meta: { type: object } }
+      responses:
+        "200": { description: the queue head }
+        "400": { description: an item has no id, no spoken section, or a duplicate id }
+        "403": { description: no write secret }
+  /queue/go:
+    post:
+      summary: Show a script now. {"step" 1|-1} (forward skips recorded ones) or {"id"}.
+      responses:
+        "200": { description: "the queue head plus ms and speaker (the /speaker-script view)" }
+        "404": { description: no script that way }
+  /queue/mark:
+    post:
+      summary: 'The recorder''s result: {"id", "state": "ready"|"recorded"|"redo"}.'
+      responses: { "200": { description: the queue head } }
   /health:
     get:
       summary: Server state (the desktop app polls this every second)

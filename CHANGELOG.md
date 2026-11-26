@@ -5,6 +5,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **A pre-loaded script queue with a Next button.** `GET/POST /queue`, `POST /queue/go {"step"|"id"}` and `POST /queue/mark` hold every ready script on the server; **Next ▶** / ◀ in the header and Right / Left on the Speaker Script tab show the next one in one round trip (200 loaded, 40 presses in the real page: p50 81 ms, max 469 ms, `scripts/queue-e2e.py`). `/speaker-script` now carries `sha` and `queue {id,pos,count}`. The exe embeds `app/ui/index.html`, so it needs a rebuild.
+
 ### Removed
 
 - **The Eagle Script tab and every live-browser hook around a take**. The browser capture is recorded

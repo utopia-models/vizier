@@ -37,6 +37,8 @@
   /* SETTINGS / DESKS / AGENTS (the deployment's issue 13798): one list each, the selected row marked, arrows drive it */
   #jobhdr { flex:0 0 auto; padding:6px 14px; background:#101a14; color:#cfeccf; border-bottom:1px solid #2c4a35; font:700 17px system-ui; letter-spacing:.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   #jobhdr:empty { display:none; }
+  #qnav button { padding:3px 11px; font:700 13px system-ui; background:#1d2a3a; color:#cfe3ff; border:1px solid #2f6aa0; border-radius:6px; cursor:pointer; }
+  #qnext { background:#1f6f3a !important; border-color:#6fbf7a !important; color:#fff !important; }
   #jobhdr .vslk { display:inline-block; font:800 11px system-ui; letter-spacing:.14em; color:#101a14; background:#6fbf7a; border-radius:3px; padding:1px 6px; margin-right:6px; vertical-align:middle; }
   #jobhdr .mvp { font:600 14px system-ui; color:#e8d58a; white-space:normal; overflow:hidden; max-height:2.6em; margin-top:3px; }
   #jobhdr .mvp .vslk { background:#e8d58a; }
@@ -190,6 +192,7 @@
   <span id="tab-qc" hidden></span><span id="tab-approval" hidden></span>   <!-- QC and APPROVAL removed (the user 2026-11-22: "fix or remove"); the gate runs before Vizier, not in it -->
   <span id="tab-rec" hidden></span><span id="tab-ctx" hidden></span>   <!-- the teleprompter is gone (the user, Architect 8981): inert stubs so old refs stay null-safe -->
   <span class="tab call" id="tab-call" hidden title="CALL: shown automatically while a call is live">CALL</span>
+  <span id="qnav" hidden style="white-space:nowrap"><button id="qprev" title="the script before (Left)">&#9664;</button> <b id="qpos" title="place in the script queue"></b> <button id="qnext" title="the next script (Right)">Next &#9654;</button></span>
   <span class="grow" data-tauri-drag-region><span id="rec"></span> <span id="title" data-tauri-drag-region>connecting…</span></span>
   <span id="spd"></span>
   <span id="media"></span>
@@ -217,7 +220,7 @@
   <div id="settalk" class="talkbox" title="the live transcript: your speech and Eagle's replies, newest at the bottom"><div class="sp"></div></div>
   <div id="keylegend-s" class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> pick a setting &nbsp;·&nbsp; <b>← →</b> change it &nbsp;·&nbsp; <b>Alt+E</b> ears &nbsp;·&nbsp; <b>Alt+M</b> voice &nbsp;·&nbsp; <b>Alt+V</b> show / hide</div></section>
 <section class="mode" id="m-tscript"><div class="panel" id="p-tscript"></div>
-  <div class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> step a line &nbsp;·&nbsp; the arrow marks the line ahead &nbsp;·&nbsp; nothing moves but by your keys</div></section>
+  <div class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> step a line &nbsp;·&nbsp; <b>← →</b> script &nbsp;·&nbsp; the arrow marks the line ahead &nbsp;·&nbsp; nothing moves but by your keys</div></section>
 <section class="mode" id="m-qc"><div class="panel" id="p-qc"></div>
   <div class="keylegend"><b>Tab</b> next panel &nbsp;·&nbsp; <b>↑ ↓</b> scroll &nbsp;·&nbsp; read-only: the QA checklist and the last vsl_qa verdict</div></section>
 <section class="mode" id="m-approval"><div class="panel" id="p-approval"></div></section>
@@ -813,7 +816,11 @@ function roleOf(title) {
 }
 // The header every tab carries, from GET /speaker-script. The diagram and the working app are plain Chrome tabs the take driver opens, never Vizier tabs.
 async function loadHdr() {
+  const g = scriptGen;
   let d; try { d = await getJSON("speaker-script"); } catch { return; }
+  if (g === scriptGen) drawHdr(d);
+}
+function drawHdr(d) {
   // Which VSL this is (the reader 2026-11-22: "I want to be clear which VSL this is for"): a labelled title on every tab, and the MVP
   // the VSL shows (the reader: "Where is the IVP?", the speech-to-text of MVP) as its own line under it.
   const h = $("jobhdr"), mvp = (d.mvp || []).join(" ");
@@ -831,7 +838,45 @@ function drawTscript() {   // the CURRENT line (the one he is reading) is lit; n
   el.querySelectorAll(".row[data-i]").forEach(x => x.onclick = () => { tsCur = +x.dataset.i; drawTscript(); reportTs(); });   // a click moves the line too
   el.scrollTop = top;
 }
-async function loadTscript() { await readPanel("tscript", "speaker-script", m => ({ sections: [], error: m })); if (mode === "tscript") { drawTscript(); reportTs(); } }
+// A read that started before the script on screen changed is dropped (scriptGen), so a slow 2 s poll never puts the old one back.
+let scriptGen = 0;
+async function loadTscript() {
+  const P = panel.tscript, g = scriptGen;
+  await readPanel("tscript", "speaker-script", m => ({ sections: [], error: m }));
+  if (g !== scriptGen) { P.data = queueShown; return; }
+  if (mode === "tscript") { drawTscript(); reportTs(); }
+}
+// ---------- the script queue: every script is loaded on the server ahead of time; Next shows the next one at once ----------
+// Right / Left (global while Vizier is visible) or the buttons. The answer to POST /queue/go carries the whole script, so
+// one round trip draws it. GET /queue is polled so a load or another window's move shows here too.
+let queueShown = null, queueSeq = -1, queueN = 0, queueBusy = false;
+function drawQueue(q) {
+  queueN = q.count; queueSeq = q.seq; $("qnav").hidden = !q.count;
+  $("qpos").textContent = q.showing ? `${q.pos + 1} / ${q.count}${q.showing.state === "recorded" ? " \u2713" : q.showing.state === "redo" ? " redo" : ""}` : `${q.ready} ready`;
+}
+function showScript(d) {
+  scriptGen++; queueShown = d; panel.tscript.data = d; panel.tscript.stale = ""; tsCur = 0; tsSent = ""; handoffAt = 0;
+  drawHdr(d); drawTscript(); $("p-tscript").scrollTop = 0; reportTs();
+}
+async function queueGo(step) {
+  if (queueBusy || !queueN) return;
+  queueBusy = true; const t0 = performance.now();
+  try {
+    const r = await api("queue/go", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ step }) });
+    const j = await r.json();
+    if (!r.ok) { $("qpos").textContent = j.error || "no script"; return; }
+    drawQueue(j); showScript(j.speaker);
+    requestAnimationFrame(() => { window.vizierQueueLoad = { id: j.current, ms: Math.round(performance.now() - t0) }; });
+  } catch (e) { $("qpos").textContent = "server unreachable"; }
+  finally { queueBusy = false; }
+}
+async function pollQueue() {
+  const q = await getJSON("queue");
+  if (q.seq === queueSeq || queueBusy) return;
+  const moved = queueSeq >= 0; drawQueue(q);
+  if (moved && q.showing && q.showing.sha !== (panel.tscript.data || {}).sha) showScript(await getJSON("speaker-script"));
+}
+$("qnext").onclick = () => { goTab("tscript"); queueGo(1); }; $("qprev").onclick = () => { goTab("tscript"); queueGo(-1); };
 // QC: GET /qc. The QA checklist the pipeline wrote and the last vsl_qa verdict. Read-only; nothing here is sent.
 function drawQc() {
   const d = panel.qc.data, el = $("p-qc"), top = el.scrollTop, v = d && d.verdict;
@@ -892,11 +937,13 @@ function panelStep(d) {
   selIntoView(mode === "settings" ? "p-settings" : "p-desks");
 }
 function panelChange(d, enter) {
+  if (mode === "tscript") return queueGo(d < 0 ? -1 : 1);
   if (mode === "settings") { if (!settingRows()[panel.settings.sel].ro) changeSetting(d); }
   else if (mode === "desks" && (d > 0 || enter)) openDesk();
 }
 every(1000, async () => { const b = (await getJSON("player/banner")).banner, el = $("clipbanner"); el.hidden = !b; if (b) el.textContent = "CLIP PLAYER: " + b.text; });
 every(2000, loadHdr);
+every(500, pollQueue);
 every(2000, () => mode === "settings" ? loadSettings() : mode === "tscript" ? loadTscript() : mode === "approval" ? loadApproval() : mode === "qc" ? loadQc() : null);
 every(15000, () => mode === "desks" ? loadDesks() : null);
 window.vizierPanels = { panel, settingRows, goTab };   // headless checks

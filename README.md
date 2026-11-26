@@ -84,6 +84,24 @@ The window reports where the reader is, and an agent that hears them keeps the s
 | `POST /prompter/snap` | the app writes a picture of what it shows (`%PUBLIC%\vizier\live.png`), any tab, any mode, since the window is hidden from capture; laptop-eye on Ra bumps it every 2 s (issue 14117) |
 | `POST /prompter/note {"text"}` | the one-line note under the script |
 
+## Load many scripts ahead and click through them
+
+A producer loads every ready script before the reader sits down; the **Next ▶** button (or Right / Left on the
+Speaker Script tab) then shows the next one at once. The texts are held by the server, so showing one asks no
+producer: measured with 200 scripts loaded, 40 presses in the real page, input to script drawn p50 81 ms, max 469 ms
+(`scripts/queue-e2e.py`).
+
+```bash
+curl -s 127.0.0.1:8786/queue -H "X-Vizier-Write: $SECRET" -H 'Content-Type: application/json' \
+  -d '{"source":"jobs","replace":true,"items":[{"id":"job-1","title":"Acme","text":"## [Me] Intro\nHi Sam,"}]}'
+curl -s 127.0.0.1:8786/queue/go -H 'Content-Type: application/json' -d '{"step":1}'
+curl -s 127.0.0.1:8786/queue            # "showing": the script on screen now (what a recorder ties a take to)
+```
+
+Showing an item writes the Speaker Script file, so `/speaker-script`, `/state` and the cursor follow. A load never
+changes the screen. A recorder marks results with `POST /queue/mark {"id","state"}`: `recorded` is skipped by Next,
+`redo` comes up next.
+
 ## Transcribe a call with LiveKit
 
 1. Run a [LiveKit](https://livekit.io) server (self-hosted or cloud) and any transcriber that publishes LiveKit's
