@@ -79,7 +79,8 @@ def test_loading_never_changes_the_screen_and_next_shows_each_in_order(vz):
             assert st["current_line_index"] == 0 and st["current_line_text"] == f"hello {n}"
         assert (await go(c, step=-1))[1]["showing"]["id"] == "job-2"
         assert (await go(c, id="job-1"))[1]["showing"]["id"] == "job-1"
-        assert (await go(c, step=-1))[0] == 404
+        j = await go(c, step=-1)
+        assert j[0] == 200 and j[1]["showing"]["id"] == "job-3"      # Left from the first wraps to the last: the arrows walk every script
         assert (await go(c, id="nope"))[0] == 404
     run(v, f)
 
@@ -107,19 +108,20 @@ def test_recorded_is_skipped_redo_comes_next_and_survives_restart(vz):
         await go(c)
         await c.post("/queue/mark", json={"id": "job-1", "state": "recorded"})
         await c.post("/queue/mark", json={"id": "job-2", "state": "recorded"})
-        assert (await go(c))[1]["showing"]["id"] == "job-3"
+        assert (await go(c))[1]["showing"]["id"] == "job-2"          # a recorded script is still reachable with the arrows (Tyler 2026-11-27)
+        assert (await go(c, id="job-3"))[1]["showing"]["id"] == "job-3"
         r = await (await c.post("/queue/mark", json={"id": "job-1", "state": "redo"})).json()
         assert [i["id"] for i in r["items"]] == ["job-2", "job-3", "job-1", "job-4"]
         assert (await go(c))[1]["showing"]["id"] == "job-1"
         assert (await go(c))[1]["showing"]["id"] == "job-4"
         for n in (1, 3, 4):
             await c.post("/queue/mark", json={"id": f"job-{n}", "state": "recorded"})
-        assert (await go(c))[0] == 404
+        assert (await go(c))[1]["showing"]["id"] == "job-2"          # all recorded: the arrows still walk (wrapping), never a dead end
         assert (await c.post("/queue/mark", json={"id": "job-1", "state": "gone"})).status == 400
     run(v, f)
     async def again(c):
         head = await (await c.get("/queue")).json()
-        assert head["count"] == 4 and head["current"] == "job-4" and head["showing"]["id"] == "job-4"
+        assert head["count"] == 4 and head["current"] == "job-2" and head["showing"]["id"] == "job-2"   # the last arrow step is kept across a restart
     run(importlib.reload(v), again)
 
 
@@ -189,7 +191,7 @@ def test_a_held_script_is_not_ready_even_while_on_screen_and_comes_back_when_com
         q = await put(c, items(2), replace=True, held={"job-1": "table not ok"})
         row = next(r for r in q["items"] if r["id"] == "job-1")          # on screen, so never yanked, but not counted
         assert row["state"] == "held" and row["meta"]["held"] == "table not ok" and q["ready"] == 1
-        assert (await go(c))[1]["showing"]["id"] == "job-2" and (await go(c))[0] == 404    # Next never returns to a held script
+        assert (await go(c))[1]["showing"]["id"] == "job-2" and (await go(c))[1]["showing"]["id"] == "job-1"    # the arrows walk held scripts too (they show HELD in the label)
         q = await put(c, items(1, 2), replace=True, held={})
         assert next(r for r in q["items"] if r["id"] == "job-1")["state"] == "ready" and q["ready"] == 2
     run(v, f)

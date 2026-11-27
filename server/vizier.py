@@ -1595,14 +1595,18 @@ async def queue_put(req):
 
 
 def queue_step(q: dict, step: int) -> dict | None:
-    """Forward is the next script neither recorded nor held (wrapping to the start); back is the one before, whatever its state."""
+    """Left / right walk EVERY script that has spoken text, whatever its state, wrapping at both ends (Tyler 2026-11-27: with the first
+    scripts recorded, the arrows only cycled 3 -> 6 -> 3 and he could not reach the rest)."""
     items = q["items"]
+    n = len(items)
     pos = next((i for i, it in enumerate(items) if it["id"] == q["current"]), None)
-    if step < 0:
-        return items[pos - 1] if pos else None
-    start = 0 if pos is None else pos + 1
-    return next((it for it in items[start:] + items[:start]
-                 if it["state"] not in ("recorded", "held") and spoken_complete(it["text"]) and it["id"] != q["current"]), None)
+    d = -1 if step < 0 else 1
+    start = (-1 if d > 0 else 0) if pos is None else pos
+    for k in range(1, n + 1):
+        it = items[(start + d * k) % n]
+        if spoken_complete(it["text"]) and it["id"] != q["current"]:
+            return it
+    return None
 
 
 SCRIPT_TYPES = ("Upwork Full VSL", "Upwork Intro VSL re-usable", "Upwork Intro VSL", "Founder Full VSL")
