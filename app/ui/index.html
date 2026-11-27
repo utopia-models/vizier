@@ -827,6 +827,8 @@ function drawHdr(d) {
   const lb = d.label && d.label.label;   // "<Type> · <company> · <job>" (eagle#19887): the header reads it, as asked
   if (d.title && lb) h.innerHTML = `<span class="vslk" style="background:#6fbf7a">VSL</span> ${esc(lb)}` + (mvp ? `<div class="mvp"><span class="vslk">MVP</span> ${esc(mvp)}</div>` : "");
   else h.innerHTML = d.title ? (d.job ? `<span class="vslk">JOB</span> ${esc(d.job)}<div class="mvp" style="color:#cfeccf;font-weight:700"><span class="vslk" style="background:#6fbf7a">VSL</span> ${esc(d.title)}</div>` : `<span class="vslk">VSL</span> ${esc(d.title)}`) + (mvp ? `<div class="mvp"><span class="vslk">MVP</span> ${esc(mvp)}</div>` : "") : "";
+  // why this script is back in the queue, one line (POST /queue/mark {state:"redo", reason})
+  if (d.redo && h.innerHTML) h.innerHTML += `<div class="mvp redo" style="color:#ffd9a0;font-weight:700"><span class="vslk" style="background:#e0a458">REDO</span> ${esc(String(d.redo).replace(/^Redo:\s*/i, ""))}</div>`;
   h.title = (d.source ? d.source + " · " : "") + "the VSL being recorded" + (mvp ? "; MVP: " + mvp : "");
 }
 function drawTscript() {   // the CURRENT line (the one he is reading) is lit; no next-line marker; nothing scrolls by itself

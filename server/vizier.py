@@ -1330,7 +1330,8 @@ def speaker_view() -> dict:
     return {"configured": True, "source": p.name, "title": m.group(1)[:160] if m else "", "sha": sha_of(text),
             "job": item["title"] if item else job_post_title(p, m.group(1) if m else ""), "mvp": mvp, "sections": secs,
             "queue": {"id": item["id"], "pos": h["pos"], "count": h["count"]} if item else None, "now": time.time(),
-            "label": script_label(item.get("meta") if item else None, m.group(1) if m else "")}
+            "label": script_label(item.get("meta") if item else None, m.group(1) if m else ""),
+            "redo": item.get("redo", "") if item else ""}
 
 
 # ---------- WRITE API: POST /speaker-script, GET /state (the agent edits what the tabs show) ----------
@@ -1490,7 +1491,8 @@ async def state_front(req):
 # ---------- QUEUE: every ready script loaded ahead of time; "next" puts the next one on the Speaker Script at once ----------
 # GET /queue | POST /queue (X-Vizier-Write) {"items":[{"id","text","title"?,"meta"?}], "source"?, "replace"?} loads scripts;
 # POST /queue/go {"step": 1|-1} | {"id"} shows one (the Next button, Right / Left on the Speaker Script tab);
-# POST /queue/mark {"id","state": "ready"|"recorded"|"redo"} is the recorder's result. The texts are held here (DATA/queue.json),
+# POST /queue/mark {"id","state": "ready"|"recorded"|"redo", "reason"?} is the recorder's result (a redo's reason is ONE line,
+# kept on the script as "redo" until it is recorded again, and shown under its header). The texts are held here (DATA/queue.json),
 # so showing one is a local file write: no producer is asked at click time. Showing writes the Speaker Script file, so every
 # reader of it (/speaker-script, /state, the cursor) follows. A load never changes what is on screen. "showing" in GET /queue
 # is the queue item whose text IS the speaker script now (null when something else was posted over it): a recorder reads it
@@ -1528,7 +1530,8 @@ def queue_head(q: dict | None = None) -> dict:
     """The queue without the script texts."""
     q = q or queue_load()
     sp = file_view(script_target("speaker-script"))
-    rows = [{**{k: it.get(k) for k in ("id", "title", "source", "state", "meta")}, "sha": sha_of(it["text"])} for it in q["items"]]
+    rows = [{**{k: it.get(k) for k in ("id", "title", "source", "state", "meta")}, "sha": sha_of(it["text"]),
+             **({"redo": it["redo"]} if it.get("redo") else {})} for it in q["items"]]
     pos = next((i for i, r in enumerate(rows) if r["id"] == q["current"]), None)
     cur = rows[pos] if pos is not None else None
     # the current item when its text is on screen; else any item whose text a producer posted straight to the speaker script
@@ -1570,6 +1573,8 @@ async def queue_put(req):
         # a changed text is a new script to read; an unchanged one keeps what the recorder said about it
         r["state"] = was["state"] if was and was["text"] == r["text"] else "ready"
         r["added_at"] = was["added_at"] if was else time.time()
+        if was and was.get("redo") and was["text"] == r["text"]:   # the reason stays with the script it is about
+            r["redo"] = was["redo"]
     ids = {r["id"] for r in rows}
     if b.get("replace") is True:   # this source's list, in this order; the item on screen is never dropped
         keep = [it for it in q["items"] if it["id"] not in ids and (it["source"] != source or it["id"] == q["current"])]
@@ -1662,9 +1667,15 @@ async def queue_mark(req):
     it = next((it for it in q["items"] if it["id"] == b.get("id")), None)
     if not it:
         return bad("no such script in the queue", 404)
-    if it["state"] != state_:
+    reason = " ".join(str(b.get("reason") or "").split())[:160] if state_ == "redo" else ""
+    if it["state"] != state_ or (reason and it.get("redo") != reason):
+        moved = state_ == "redo" and it["state"] != "redo"
         it["state"] = state_
-        if state_ == "redo" and it["id"] != q["current"]:   # a failed take comes up next
+        if reason:
+            it["redo"] = reason
+        elif state_ != "redo":
+            it.pop("redo", None)
+        if moved and it["id"] != q["current"]:   # a failed take comes up next
             q["items"].remove(it)
             at = next((i for i, x in enumerate(q["items"]) if x["id"] == q["current"]), -1)
             q["items"].insert(at + 1, it)
