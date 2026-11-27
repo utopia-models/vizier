@@ -1331,7 +1331,7 @@ def speaker_view() -> dict:
             "job": item["title"] if item else job_post_title(p, m.group(1) if m else ""), "mvp": mvp, "sections": secs,
             "queue": {"id": item["id"], "pos": h["pos"], "count": h["count"]} if item else None, "now": time.time(),
             "label": script_label(item.get("meta") if item else None, m.group(1) if m else ""),
-            "redo": item.get("redo", "") if item else ""}
+            "redo": item.get("redo", "") if item else "", "take": item.get("take") if item else None}
 
 
 # ---------- WRITE API: POST /speaker-script, GET /state (the agent edits what the tabs show) ----------
@@ -1491,8 +1491,10 @@ async def state_front(req):
 # ---------- QUEUE: every ready script loaded ahead of time; "next" puts the next one on the Speaker Script at once ----------
 # GET /queue | POST /queue (X-Vizier-Write) {"items":[{"id","text","title"?,"meta"?}], "source"?, "replace"?} loads scripts;
 # POST /queue/go {"step": 1|-1} | {"id"} shows one (the Next button, Right / Left on the Speaker Script tab);
-# POST /queue/mark {"id","state": "ready"|"recorded"|"redo", "reason"?} is the recorder's result (a redo's reason is ONE line,
-# kept on the script as "redo" until it is recorded again, and shown under its header). The texts are held here (DATA/queue.json),
+# POST /queue/mark {"id","state": "ready"|"recorded"|"redo", "reason"?, "take"?} is the recorder's result (a redo's reason is ONE line,
+# kept on the script as "redo" until it is recorded again, and shown under its header). "take" is the owner of the take record
+# saying what that record says ({take_id, job, state, verdict, why}, or null for none): kept as sent and shown under the header,
+# never derived here. GET /queue?texts=1 adds each script's text. The texts are held here (DATA/queue.json),
 # so showing one is a local file write: no producer is asked at click time. Showing writes the Speaker Script file, so every
 # reader of it (/speaker-script, /state, the cursor) follows. A load never changes what is on screen. "showing" in GET /queue
 # is the queue item whose text IS the speaker script now (null when something else was posted over it): a recorder reads it
@@ -1500,6 +1502,14 @@ async def state_front(req):
 QUEUE_ID = re.compile(r"[A-Za-z0-9_.:-]{1,96}")
 QUEUE_MAX = 500
 QUEUE_STATES = ("ready", "recorded", "redo")
+TAKE_KEYS = ("take_id", "job", "state", "verdict", "why")
+
+
+def take_shown(t) -> dict | None:
+    """The few facts of a take record this server shows: strings, bounded; None when it names no take."""
+    if not isinstance(t, dict) or not t.get("take_id"):
+        return None
+    return {k: " ".join(str(t.get(k) or "").split())[:160] for k in TAKE_KEYS}
 
 
 def queue_path() -> Path:
@@ -1526,12 +1536,13 @@ def spoken_complete(text: str) -> bool:
     return any(sec["lines"] for sec in spoken_sections(text))
 
 
-def queue_head(q: dict | None = None) -> dict:
-    """The queue without the script texts."""
+def queue_head(q: dict | None = None, texts: bool = False) -> dict:
+    """The queue, without the script texts unless asked."""
     q = q or queue_load()
     sp = file_view(script_target("speaker-script"))
     rows = [{**{k: it.get(k) for k in ("id", "title", "source", "state", "meta")}, "sha": sha_of(it["text"]),
-             **({"redo": it["redo"]} if it.get("redo") else {})} for it in q["items"]]
+             **({"redo": it["redo"]} if it.get("redo") else {}), **({"take": it["take"]} if it.get("take") else {}),
+             **({"text": it["text"]} if texts else {})} for it in q["items"]]
     pos = next((i for i, r in enumerate(rows) if r["id"] == q["current"]), None)
     cur = rows[pos] if pos is not None else None
     # the current item when its text is on screen; else any item whose text a producer posted straight to the speaker script
@@ -1543,8 +1554,8 @@ def queue_head(q: dict | None = None) -> dict:
             "screen": {"sha": sp["sha"], "title": ((sp["text"] or "").split("\n", 1)[0].lstrip("# ").strip())[:160]}, "items": rows}
 
 
-async def queue_get(_req):
-    return web.json_response(queue_head())
+async def queue_get(req):
+    return web.json_response(queue_head(texts=req.query.get("texts") == "1"))
 
 
 async def queue_put(req):
@@ -1573,8 +1584,9 @@ async def queue_put(req):
         # a changed text is a new script to read; an unchanged one keeps what the recorder said about it ("held" ends once it is sent again)
         r["state"] = was["state"] if was and was["text"] == r["text"] and was["state"] != "held" else "ready"
         r["added_at"] = was["added_at"] if was else time.time()
-        if was and was.get("redo") and was["text"] == r["text"]:   # the reason stays with the script it is about
-            r["redo"] = was["redo"]
+        for k in ("redo", "take"):                                  # they stay with the script they are about
+            if was and was.get(k) and was["text"] == r["text"]:
+                r[k] = was[k]
     ids = {r["id"] for r in rows}
     if b.get("replace") is True:   # this source's list, in this order; the item on screen is never dropped
         keep = [it for it in q["items"] if it["id"] not in ids and (it["source"] != source or it["id"] == q["current"])]
@@ -1595,7 +1607,7 @@ async def queue_put(req):
 
 
 def queue_step(q: dict, step: int) -> dict | None:
-    """Left / right walk EVERY script that has spoken text, whatever its state, wrapping at both ends (Tyler 2026-11-27: with the first
+    """Left / right walk EVERY script that has spoken text, whatever its state, wrapping at both ends (the user, 2026-11-27: with the first
     scripts recorded, the arrows only cycled 3 -> 6 -> 3 and he could not reach the rest)."""
     items = q["items"]
     n = len(items)
@@ -1677,13 +1689,18 @@ async def queue_mark(req):
     if not it:
         return bad("no such script in the queue", 404)
     reason = " ".join(str(b.get("reason") or "").split())[:160] if state_ == "redo" else ""
-    if it["state"] != state_ or (reason and it.get("redo") != reason):
+    shown = take_shown(b.get("take")) if "take" in b else it.get("take")
+    if it["state"] != state_ or (reason and it.get("redo") != reason) or shown != it.get("take"):
         moved = state_ == "redo" and it["state"] != "redo"
         it["state"] = state_
         if reason:
             it["redo"] = reason
         elif state_ != "redo":
             it.pop("redo", None)
+        if shown:
+            it["take"] = shown
+        else:
+            it.pop("take", None)
         if moved and it["id"] != q["current"]:   # a failed take comes up next
             q["items"].remove(it)
             at = next((i for i, x in enumerate(q["items"]) if x["id"] == q["current"]), -1)

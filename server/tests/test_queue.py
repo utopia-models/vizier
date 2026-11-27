@@ -108,7 +108,7 @@ def test_recorded_is_skipped_redo_comes_next_and_survives_restart(vz):
         await go(c)
         await c.post("/queue/mark", json={"id": "job-1", "state": "recorded"})
         await c.post("/queue/mark", json={"id": "job-2", "state": "recorded"})
-        assert (await go(c))[1]["showing"]["id"] == "job-2"          # a recorded script is still reachable with the arrows (Tyler 2026-11-27)
+        assert (await go(c))[1]["showing"]["id"] == "job-2"          # a recorded script is still reachable with the arrows (the user, 2026-11-27)
         assert (await go(c, id="job-3"))[1]["showing"]["id"] == "job-3"
         r = await (await c.post("/queue/mark", json={"id": "job-1", "state": "redo"})).json()
         assert [i["id"] for i in r["items"]] == ["job-2", "job-3", "job-1", "job-4"]
@@ -194,4 +194,26 @@ def test_a_held_script_is_not_ready_even_while_on_screen_and_comes_back_when_com
         assert (await go(c))[1]["showing"]["id"] == "job-2" and (await go(c))[1]["showing"]["id"] == "job-1"    # the arrows walk held scripts too (they show HELD in the label)
         q = await put(c, items(1, 2), replace=True, held={})
         assert next(r for r in q["items"] if r["id"] == "job-1")["state"] == "ready" and q["ready"] == 2
+    run(v, f)
+
+
+def test_the_take_record_is_shown_as_sent_and_stays_with_its_script(vz):
+    v, _ = vz
+    shown = {"take_id": "take-20261127T095216-abc", "job": "1452", "state": "ready", "verdict": "matched", "why": ""}
+    async def f(c):
+        await put(c, items(1, 2))
+        await go(c, id="job-1")
+        r = await (await c.post("/queue/mark", json={"id": "job-1", "state": "recorded", "take": {**shown, "extra": "x"}})).json()
+        assert r["items"][0]["take"] == shown and r["items"][0]["state"] == "recorded"
+        assert (await (await c.get("/speaker-script")).json())["take"] == shown
+        # the same state with a newer record still lands, a reload keeps it, and a mark that says nothing about takes leaves it
+        later = {**shown, "state": "building"}
+        await c.post("/queue/mark", json={"id": "job-1", "state": "recorded", "take": later})
+        await put(c, items(1, 2))
+        r = await (await c.post("/queue/mark", json={"id": "job-1", "state": "recorded"})).json()
+        assert r["items"][0]["take"] == later
+        r = await (await c.post("/queue/mark", json={"id": "job-1", "state": "ready", "take": None})).json()
+        assert "take" not in r["items"][0] and (await (await c.get("/speaker-script")).json())["take"] is None
+        texts = (await (await c.get("/queue?texts=1")).json())["items"]
+        assert texts[1]["text"] == script(2) and "text" not in (await (await c.get("/queue")).json())["items"][1]
     run(v, f)
