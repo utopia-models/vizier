@@ -1539,7 +1539,7 @@ def queue_head(q: dict | None = None) -> dict:
     if showing:
         pos = rows.index(showing)
     return {"ok": True, "seq": q["seq"], "current": q["current"], "pos": pos, "count": len(rows),
-            "ready": sum(it["state"] != "recorded" and spoken_complete(it["text"]) for it in q["items"]), "showing": showing,
+            "ready": sum(it["state"] not in ("recorded", "held") and spoken_complete(it["text"]) for it in q["items"]), "showing": showing,
             "screen": {"sha": sp["sha"], "title": ((sp["text"] or "").split("\n", 1)[0].lstrip("# ").strip())[:160]}, "items": rows}
 
 
@@ -1570,8 +1570,8 @@ async def queue_put(req):
     old = {it["id"]: it for it in q["items"]}
     for r in rows:
         was = old.get(r["id"])
-        # a changed text is a new script to read; an unchanged one keeps what the recorder said about it
-        r["state"] = was["state"] if was and was["text"] == r["text"] else "ready"
+        # a changed text is a new script to read; an unchanged one keeps what the recorder said about it ("held" ends once it is sent again)
+        r["state"] = was["state"] if was and was["text"] == r["text"] and was["state"] != "held" else "ready"
         r["added_at"] = was["added_at"] if was else time.time()
         if was and was.get("redo") and was["text"] == r["text"]:   # the reason stays with the script it is about
             r["redo"] = was["redo"]
@@ -1579,6 +1579,10 @@ async def queue_put(req):
     if b.get("replace") is True:   # this source's list, in this order; the item on screen is never dropped
         keep = [it for it in q["items"] if it["id"] not in ids and (it["source"] != source or it["id"] == q["current"])]
         merged = [it for it in keep if it["id"] == q["current"]] + rows + [it for it in keep if it["id"] != q["current"]]
+        held = b.get("held") if isinstance(b.get("held"), dict) else {}
+        # a script its producer holds as incomplete is not ready, even while it stays on screen: not counted, skipped by Next, labelled
+        merged = [{**it, "state": "held", "meta": {**(it.get("meta") or {}), "held": str(held[it["id"]])[:200]}}
+                  if it["id"] in held and it["id"] not in ids and it["state"] != "recorded" else it for it in merged]
     else:
         by = {r["id"]: r for r in rows}
         merged = [by.pop(it["id"], it) for it in q["items"]] + [r for r in rows if r["id"] not in old]
@@ -1591,13 +1595,14 @@ async def queue_put(req):
 
 
 def queue_step(q: dict, step: int) -> dict | None:
-    """Forward is the next script not yet recorded (wrapping to the start); back is the one before, whatever its state."""
+    """Forward is the next script neither recorded nor held (wrapping to the start); back is the one before, whatever its state."""
     items = q["items"]
     pos = next((i for i, it in enumerate(items) if it["id"] == q["current"]), None)
     if step < 0:
         return items[pos - 1] if pos else None
     start = 0 if pos is None else pos + 1
-    return next((it for it in items[start:] + items[:start] if it["state"] != "recorded" and spoken_complete(it["text"]) and it["id"] != q["current"]), None)
+    return next((it for it in items[start:] + items[:start]
+                 if it["state"] not in ("recorded", "held") and spoken_complete(it["text"]) and it["id"] != q["current"]), None)
 
 
 SCRIPT_TYPES = ("Upwork Full VSL", "Upwork Intro VSL re-usable", "Upwork Intro VSL", "Founder Full VSL")
