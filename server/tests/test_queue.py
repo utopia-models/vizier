@@ -161,3 +161,22 @@ def test_a_script_with_no_spoken_line_is_refused_and_never_counts_ready(vz):
         st, b = await go(c, step=1)
         assert b["showing"]["id"] == "job-2"
     run(v, f)
+
+
+def test_a_redo_keeps_one_line_on_the_script_until_it_is_recorded(vz):
+    v, _ = vz
+    async def f(c):
+        await put(c, items(1, 2, 3))
+        await go(c)
+        await c.post("/queue/mark", json={"id": "job-3", "state": "recorded"})
+        r = await (await c.post("/queue/mark", json={"id": "job-3", "state": "redo", "reason": "Redo: line 2\n wasn't heard."})).json()
+        assert [i["id"] for i in r["items"]] == ["job-1", "job-3", "job-2"]          # it comes up next
+        assert r["items"][1]["redo"] == "Redo: line 2 wasn't heard." and r["items"][1]["state"] == "redo"
+        again = await put(c, items(1, 2, 3), replace=True)                           # the 30 s feed reload keeps the line
+        assert next(i for i in again["items"] if i["id"] == "job-3")["redo"] == "Redo: line 2 wasn't heard."
+        await go(c, id="job-3")
+        assert (await (await c.get("/speaker-script")).json())["redo"] == "Redo: line 2 wasn't heard."
+        r = await (await c.post("/queue/mark", json={"id": "job-3", "state": "recorded"})).json()
+        assert "redo" not in next(i for i in r["items"] if i["id"] == "job-3")
+        assert (await (await c.get("/speaker-script")).json())["redo"] == ""
+    run(v, f)
