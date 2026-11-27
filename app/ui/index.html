@@ -856,7 +856,10 @@ async function loadTscript() {
 let queueShown = null, queueSeq = -1, queueN = 0, queueBusy = false;
 function drawQueue(q) {
   queueN = q.count; queueSeq = q.seq; $("qnav").hidden = !q.count;
-  $("qlabel").textContent = (q.showing && q.showing.meta && q.showing.meta.label) || "";   // "<Type> · <company> · <job>", from the producer's metadata
+  const m = (q.showing && q.showing.meta) || {}, t = m.table;
+  // "<Type> · <company> · <job> · <true length>" from the producer's metadata, then its script-to-screen table (or why the script is held)
+  $("qlabel").textContent = [m.label, q.showing && q.showing.state === "held" ? `HELD: ${m.held || "incomplete"}`
+    : t ? `table ${t.probed}/${t.rows} rows on screen, ${t.actions} actions` : ""].filter(Boolean).join(" \u00b7 ");
   $("qpos").textContent = q.showing ? `${q.pos + 1} / ${q.count}${q.showing.state === "recorded" ? " \u2713" : q.showing.state === "redo" ? " redo" : ""}` : `${q.ready} ready`;
 }
 function showScript(d) {

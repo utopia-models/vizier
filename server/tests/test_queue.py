@@ -179,4 +179,17 @@ def test_a_redo_keeps_one_line_on_the_script_until_it_is_recorded(vz):
         r = await (await c.post("/queue/mark", json={"id": "job-3", "state": "recorded"})).json()
         assert "redo" not in next(i for i in r["items"] if i["id"] == "job-3")
         assert (await (await c.get("/speaker-script")).json())["redo"] == ""
+
+
+def test_a_held_script_is_not_ready_even_while_on_screen_and_comes_back_when_complete(vz):
+    v, _ = vz
+    async def f(c):
+        await put(c, items(1, 2), replace=True)
+        await go(c, id="job-1")
+        q = await put(c, items(2), replace=True, held={"job-1": "table not ok"})
+        row = next(r for r in q["items"] if r["id"] == "job-1")          # on screen, so never yanked, but not counted
+        assert row["state"] == "held" and row["meta"]["held"] == "table not ok" and q["ready"] == 1
+        assert (await go(c))[1]["showing"]["id"] == "job-2" and (await go(c))[0] == 404    # Next never returns to a held script
+        q = await put(c, items(1, 2), replace=True, held={})
+        assert next(r for r in q["items"] if r["id"] == "job-1")["state"] == "ready" and q["ready"] == 2
     run(v, f)
