@@ -100,7 +100,8 @@ curl -s 127.0.0.1:8786/queue            # "showing": the script on screen now (w
 
 Showing an item writes the Speaker Script file, so `/speaker-script`, `/state` and the cursor follow. A load never
 changes the screen. A recorder marks results with `POST /queue/mark {"id","state"}`: `recorded` is skipped by Next,
-`redo` comes up next.
+`redo` comes up next. The owner of the take
+record adds `"take": {take_id, job, state, verdict, why}` to the same call; the header shows it as sent.
 
 ## Transcribe a call with LiveKit
 
