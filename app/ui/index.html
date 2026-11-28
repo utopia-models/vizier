@@ -828,6 +828,8 @@ function drawHdr(d) {
   const lb = d.label && d.label.label;   // "<Type> · <company> · <job>" (eagle#19887): the header reads it, as asked
   if (d.title && lb) h.innerHTML = `<span class="vslk" style="background:#6fbf7a">VSL</span> ${esc(lb)}` + (mvp ? `<div class="mvp"><span class="vslk">MVP</span> ${esc(mvp)}</div>` : "");
   else h.innerHTML = d.title ? (d.job ? `<span class="vslk">JOB</span> ${esc(d.job)}<div class="mvp" style="color:#cfeccf;font-weight:700"><span class="vslk" style="background:#6fbf7a">VSL</span> ${esc(d.title)}</div>` : `<span class="vslk">VSL</span> ${esc(d.title)}`) + (mvp ? `<div class="mvp"><span class="vslk">MVP</span> ${esc(mvp)}</div>` : "") : "";
+  // the job's id, so it can be named to Eagle and the system (ask 4441)
+  if (d.job_id && h.innerHTML) h.innerHTML += `<div class="mvp jobid"><span class="vslk" style="background:#6fbf7a">ID</span> <span id="jobid">${esc(d.job_id)}</span></div>`;
   // what the take record says about this script's newest take (POST /queue/mark {take}): shown as sent
   const tk = d.take;
   if (tk && h.innerHTML) h.innerHTML += `<div class="mvp take"><span class="vslk">TAKE</span> ${esc(takeLine(tk))}</div>`;

@@ -1331,7 +1331,7 @@ def speaker_view() -> dict:
             "job": item["title"] if item else job_post_title(p, m.group(1) if m else ""), "mvp": mvp, "sections": secs,
             "queue": {"id": item["id"], "pos": h["pos"], "count": h["count"]} if item else None, "now": time.time(),
             "label": script_label(item.get("meta") if item else None, m.group(1) if m else ""),
-            "redo": item.get("redo", "") if item else "", "take": item.get("take") if item else None}
+            "job_id": script_job_id(item), "redo": item.get("redo", "") if item else "", "take": item.get("take") if item else None}
 
 
 # ---------- WRITE API: POST /speaker-script, GET /state (the agent edits what the tabs show) ----------
@@ -1622,6 +1622,18 @@ def queue_step(q: dict, step: int) -> dict | None:
 
 
 SCRIPT_TYPES = ("Upwork Full VSL", "Upwork Intro VSL re-usable", "Upwork Intro VSL", "Founder Full VSL")
+
+
+def script_job_id(item: dict | None) -> str:
+    """The id Eagle and the system know this job by (ask 4441): the producer's meta.job_id (or eagle_job_id / run_id), else the
+    queue item's own id. Never invented: '' when nothing was sent."""
+    if not item:
+        return ""
+    meta = item.get("meta") or {}
+    for k in ("job_id", "eagle_job_id", "run_id"):
+        if meta.get(k):
+            return str(meta[k]).strip()
+    return str(item.get("id") or "").strip()
 
 
 def script_label(meta: dict | None, title: str = "") -> dict:
