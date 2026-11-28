@@ -56,3 +56,16 @@ def test_job_post_title(tmp_path, monkeypatch):
     assert asyncio.run(go())["job"] == "Need an AI automation architect"
     html = (Path(__file__).resolve().parents[2] / "app" / "ui" / "index.html").read_text()
     assert 'class="vslk">JOB</span>' in html and 'id="topbtn"' in html
+
+
+def test_job_id_in_header(tmp_path, monkeypatch):
+    m = load(tmp_path, monkeypatch)
+    assert m.script_job_id({"id": "q1", "meta": {"job_id": "eagle-42"}}) == "eagle-42"
+    assert m.script_job_id({"id": "q1"}) == "q1"
+    assert m.script_job_id(None) == ""
+    async def go():
+        async with TestClient(TestServer(m.make_app())) as c:
+            return await (await c.get("/speaker-script")).json()
+    assert asyncio.run(go())["job_id"] == ""
+    ui = (Path(m.__file__).parent.parent / "app" / "ui" / "index.html").read_text()
+    assert "d.job_id" in ui
